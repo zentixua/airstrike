@@ -335,7 +335,10 @@ public final class IncomingCommand {
         ServerActions.Aim aim(CommandContext<CommandSourceStack> ctx);
     }
 
-    /** «x y z» — сама точка, на этой высоте: в воздухе снаряд взорвётся в воздухе, под землёй бомба пробьётся к ней. */
+    /**
+     * «x y z» — сама точка, на этой высоте: в воздухе снаряд взорвётся в воздухе (бомба упадёт на землю под ней), под
+     * землёй бомба пробьётся к ней.
+     */
     private static ServerActions.Aim point(CommandContext<CommandSourceStack> ctx) {
         Vec3 pos = Vec3Argument.getVec3(ctx, "pos");
         return new ServerActions.Aim(new Target.Point(pos), pos, null);

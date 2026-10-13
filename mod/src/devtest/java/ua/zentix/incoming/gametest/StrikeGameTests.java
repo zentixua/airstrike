@@ -1015,37 +1015,59 @@ public final class StrikeGameTests {
     /**
      * Залп с разбросом по далёкой точке, чей район к пуску ещё не загружен: снаряды бьют в землю у своих мест, а не в
      * воздух на высоте центра. Центр — в 60 блоках над землёй, как высота, которую ведущий поставил наугад; место
-     * снаряда берёт высоту, как только его чанк готов.
+     * снаряда берёт высоту, как только его чанк готов. Район загружается после первого снаряда — остальные всё равно
+     * бьют в землю: в воздухе центр или нет, решает первый снаряд, и залп не делится.
      */
-    @GameTest(template = "range", timeoutTicks = 20, batch = "spread_far_ground", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 120, batch = "spread_far_ground", skyAccess = true)
     public static void salvoSpreadAtFarPointLandsOnGround(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         java.util.UUID owner = java.util.UUID.randomUUID();
         Vec3 center = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(5000, 60, 0);
+        int radius = 20;
         h.assertFalse(Terrain.ready(level, BlockPos.containing(center)), "район цели уже загружен");
-        SalvoData.start(level, WeaponType.DRONE, 3, 20, new Target.Point(center), center, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, false);
+        SalvoData.start(level, WeaponType.DRONE, 3, radius, new Target.Point(center), center, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, false);
+        List<ChunkPos> held = new ArrayList<>();
         StrikeGameTests.afterTest(h, () -> {
             SalvoData.get(level).cancel(level, owner, List.of());
             VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()));
             level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> owner.equals(p.ownerId())).forEach(Entity::discard);
+            held.forEach(c -> level.getChunkSource().removeRegionTicket(READY_ONLY, c, 0, c));
         });
         h.runAfterDelay(3, () -> {
-            List<StrikeProjectile> fired = new ArrayList<>(VirtualFlights.get(level).flights());
-            fired.addAll(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> true));
-            fired.removeIf(p -> !owner.equals(p.ownerId()));
-            h.assertTrue(!fired.isEmpty(), "залп не выпустил ни одного снаряда");
+            h.assertTrue(fired(level, owner).size() == 1, "к третьему тику залп выпустил не один снаряд: " + fired(level, owner).size());
+            // район цели готов и держится (в игре его грузит подлёт): центр теперь виден в воздухе
+            ChunkPos middle = new ChunkPos(BlockPos.containing(center));
+            for (int x = -2; x <= 2; x++) {
+                for (int z = -2; z <= 2; z++) {
+                    ChunkPos c = new ChunkPos(middle.x + x, middle.z + z);
+                    level.getChunk(c.x, c.z);
+                    level.getChunkSource().addRegionTicket(READY_ONLY, c, 0, c);
+                    held.add(c);
+                }
+            }
+            h.assertTrue(center.y - surface(level, center) > 30, "центр не над землёй: земля " + surface(level, center) + ", центр " + center.y);
+        });
+        h.succeedWhen(() -> {
+            List<StrikeProjectile> fired = fired(level, owner);
+            if (fired.size() < 3) throw new GameTestAssertException("залп выпустил " + fired.size() + " из 3");
             for (StrikeProjectile p : fired) {
                 h.assertTrue(p.target() instanceof Target.Ground, "снаряд залпа бьёт в точку на высоте центра: " + p.target());
                 Vec3 place = ((Target.Ground) p.target()).pos();
-                // чанк места готов (в игре его грузит район цели) — высота теперь его
                 level.getChunk(Mth.floor(place.x) >> 4, Mth.floor(place.z) >> 4);
                 double ground = surface(level, place);
                 Vec3 aim = p.target().resolve(level).orElseThrow();
                 h.assertTrue(Math.abs(aim.y - ground) < 1e-6 && aim.y < center.y - 30,
                         "место снаряда не на земле: y " + aim.y + ", земля " + ground + ", центр " + center.y);
             }
-            h.succeed();
         });
+    }
+
+    /** Снаряды владельца проверки — в мире и вне его. */
+    private static List<StrikeProjectile> fired(ServerLevel level, java.util.UUID owner) {
+        List<StrikeProjectile> fired = new ArrayList<>(VirtualFlights.get(level).flights());
+        fired.addAll(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> true));
+        fired.removeIf(p -> !owner.equals(p.ownerId()));
+        return fired;
     }
 
     /** Свой снаряд проверки (в мире или вне его) по предикату — ровно один; он же убирается, чтобы не мешать следующему. */

@@ -163,6 +163,13 @@ public final class SalvoData extends SavedData {
         Target center;
         Vec3 lastCenter;
         /**
+         * Неподвижный центр в воздухе: решается по первому снаряду вокруг него ({@link #around}) и держится до конца залпа
+         * (null — ещё не решено). Иначе залп делился бы: чанк центра готов не с пуска, а когда район цели загрузится, и
+         * яма от первых попаданий под центром на земле — тоже воздух, так что остаток рвался бы на высоте центра.
+         */
+        @Nullable
+        Boolean aloft;
+        /**
          * Сущность-цель, за которой залп шёл в прошлый тик (не сохраняется: после загрузки — первая найденная). Игрок,
          * погибший и возрождённый, — новый {@code ServerPlayer} с тем же UUID: без неё залп переходил бы на место
          * возрождения и бил туда. Слабая ссылка, как в {@code TargetTracker}: выгруженную или ушедшую сущность залп не держит.
@@ -294,17 +301,21 @@ public final class SalvoData extends SavedData {
 
         /**
          * Цель снаряда залпа со смещением (dx, dz) от неподвижного центра. Центр на земле — место на земле в своей колонке
-         * ({@link Target.Ground}): высоту снаряд берёт из чанка, как только тот готов (район цели грузится с пуска), а до
-         * того — оценка по высоте центра. Точка на высоте центра у далёкой цели (чанк не готов к пуску) висела бы над
+         * ({@link Target.Ground}): высоту снаряд берёт из чанка, как только тот готов (район цели загрузится на подлёте), а
+         * до того — оценка по высоте центра. Точка на высоте центра у далёкой цели (чанк не готов к пуску) висела бы над
          * улицей у высотки, над низиной, и снаряд взрывался бы в воздухе.
          */
         private Target around(ServerLevel level, int dx, int dz) {
+            if (aloft == null) aloft = inAir(level, lastCenter);
             // бомба — на глубине центра (найдёт пещеру под игроком), центр в воздухе — на его высоте
-            if (weapon.spec().penetrates() || radius == 0 || inAir(level, lastCenter)) return new Target.Point(lastCenter.add(dx, 1, dz));
+            if (weapon.spec().penetrates() || radius == 0 || aloft) return new Target.Point(lastCenter.add(dx, 1, dz));
             return new Target.Ground(lastCenter.add(dx, 0, dz));
         }
 
-        /** Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. */
+        /**
+         * Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. Чанк центра не
+         * готов — не в воздухе: залп с разбросом по далёкому месту — удар по земле вокруг него.
+         */
         private static boolean inAir(ServerLevel level, Vec3 c) {
             BlockPos p = BlockPos.containing(c);
             if (!Terrain.ready(level, p)) return false;
@@ -330,6 +341,7 @@ public final class SalvoData extends SavedData {
             LaunchOrigin.save(t, from);
             if (paid) t.putBoolean("paid", true);
             if (failed > 0) t.putInt("failed", failed);
+            if (aloft != null) t.putBoolean("aloft", aloft);
             return t;
         }
 
@@ -344,9 +356,11 @@ public final class SalvoData extends SavedData {
             Waypoints via = t.contains("route") ? Waypoints.CODEC.parse(NbtOps.INSTANCE, t.get("route")).resultOrPartial(Incoming.LOG::error)
                     .orElse(Waypoints.NONE) : Waypoints.NONE;
             // залп, сохранённый до места пуска в приказе, — без него; до боеприпасов — не оплачен: возвращать нечего
-            return Optional.of(new Salvo(w, t.getInt("total"), t.getInt("remaining"), t.getInt("radius"), c, last, t.getFloat("yaw"),
+            Salvo s = new Salvo(w, t.getInt("total"), t.getInt("remaining"), t.getInt("radius"), c, last, t.getFloat("yaw"),
                     t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke, via, LaunchOrigin.load(t), t.getBoolean("paid"),
-                    t.getInt("failed")));
+                    t.getInt("failed"));
+            if (t.contains("aloft")) s.aloft = t.getBoolean("aloft");
+            return Optional.of(s);
         }
     }
 

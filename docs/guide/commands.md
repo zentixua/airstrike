@@ -14,7 +14,7 @@ Weapons in commands: `drone` (or `shahed`), `loiter` (`lancet`), `missile`, `roc
 | `/incoming <weapon>` | strike where you are looking |
 | `/incoming <weapon> <player or mob>` | strike at a target |
 | `/incoming <weapon> at <x z>` | strike at a place on the ground; the server finds its height, as for a place picked [on the map](map.md) |
-| `/incoming <weapon> at <x y z>` | strike at exactly this point; above the ground the round bursts in the air |
+| `/incoming <weapon> at <x y z>` | strike at exactly this point; above the ground the round bursts in the air, a bomb falls to the ground |
 | `/incoming salvo <weapon> <count> <spread> [target]` | salvo; the target is `me` (where you stand, the default), `look`, a player or mob, `at <x z>` or `at <x y z>` |
 | `… via <x z> [<x z> …]` | route: up to five points, for the Shahed, missile and Lancet only |
 | `… from <x z>` | launch point: a launcher sets up there and stays until an abort; if there is no room, the rounds take off from there without it (operators only) |
