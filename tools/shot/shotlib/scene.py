@@ -260,8 +260,9 @@ class Scene:
 # ---------------------------------------------------------------- журнал плана трейлера (EventLog)
 
 
-# фазы, в которых горит ускоритель (`FlightPhase.boosterLit`); у МБР след — весь подъём
-LIT = {"ignition", "boost"}
+# фазы, в которых горит ускоритель (`FlightPhase.boosterLit`: IGNITION и BOOST, в журнале — номер фазы); у МБР след —
+# весь подъём
+LIT = {"1", "2", "ignition", "boost"}
 
 
 def read_eventlog(path: str):
