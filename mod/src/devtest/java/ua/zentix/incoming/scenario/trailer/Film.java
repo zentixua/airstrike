@@ -99,6 +99,11 @@ abstract class Film {
      * ({@code live}): проверка кадров из повтора считает всё дальше 0,8 прорисовки скрытым.
      */
     static final boolean REPLAY = System.getenv("INCOMING_FILM_REPLAY") != null;
+    /**
+     * {@code INCOMING_FILM_LIVE=0} — при записи повторов планы вживую проигрываются без кадров: их снимает машина с
+     * видеокартой, а без неё (llvmpipe) кадр вживую стоит секунды.
+     */
+    static final boolean LIVE_FRAMES = !"0".equals(System.getenv("INCOMING_FILM_LIVE"));
     static final int TAIL = 100;
     /** План, который сейчас пишется повтором, и его журнал. */
     @Nullable
@@ -533,7 +538,7 @@ abstract class Film {
                     }
                     if (replay) {
                         if (replayShot == this) mark("start");
-                    } else if (selected()) {
+                    } else if (selected() && (LIVE_FRAMES || !REPLAY)) {
                         rec.start(name, PREVIEW ? Math.max(1, 1.5 * (length - 1)) : speed, hudOn);
                         recording = this;
                         if (watchWeapon != null && !PREVIEW) qa = new HudQa(name, recordDir(), watchWeapon, watchAims, watchRadius, watchCount);
