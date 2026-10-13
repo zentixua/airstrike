@@ -333,22 +333,22 @@ def fly_spec(spec: str) -> dict:
 
 
 def fpv_spec(spec: str) -> dict:
-    """`--fpv`: `[search=<с>/<по>] [near=x,z,r] [shots=4] [seconds=9] [speed=0.9] [fov=80] [time=night|<тики дня>]
-    [dim=minecraft:overworld]` — проходы камеры, как у FPV-дрона, над самыми жаркими ударами по земле окна `search`
+    """`--fpv`: `[search=<с>/<по>] [near=x,z,r] [shots=4] [seconds=9] [fov=80] [time=night|<тики дня>]
+    [dim=minecraft:overworld]` — проходы камеры, как у FPV-дрона, мимо самых жарких ударов по земле окна `search`
     (по шкале Flashback; по умолчанию — вся запись), не дальше `r` блоков от `x,z`: `shots` проходов по `seconds` с,
-    `speed` блоков за тик, ночью при `time=night`."""
+    ночью при `time=night`. Путь прокладывает съёмка (пилот replayscan)."""
     try:
         kv = dict(part.split("=", 1) for part in spec.split())
         search = [timeline(x) for x in kv.pop("search").split("/")] if "search" in kv else None
         near = tuple(float(v) for v in kv.pop("near").split(",")) if "near" in kv else None
         time = kv.pop("time", None)
         out = {"search": (round(search[0]), round(search[-1])) if search else None, "near": near,
-               "shots": int(kv.pop("shots", 4)), "seconds": float(kv.pop("seconds", 9)), "speed": float(kv.pop("speed", 0.9)),
+               "shots": int(kv.pop("shots", 4)), "seconds": float(kv.pop("seconds", 9)),
                "fov": float(kv.pop("fov", 80)), "dim": kv.pop("dim", "minecraft:overworld"),
                "time": None if time is None else DAYTIME[time] if time in DAYTIME else int(time), "spec": spec}
     except (KeyError, ValueError, TypeError) as e:
         raise argparse.ArgumentTypeError(f"--fpv {spec!r}: {e!r} (README.md)") from e
-    if kv or near is not None and len(near) != 3 or out["shots"] < 1 or out["seconds"] <= 0 or out["speed"] <= 0 \
+    if kv or near is not None and len(near) != 3 or out["shots"] < 1 or out["seconds"] <= 0 \
             or out["search"] and out["search"][1] <= out["search"][0] or out["time"] is not None and out["time"] < 0:
         raise argparse.ArgumentTypeError(f"--fpv {spec!r}: лишние ключи {sorted(kv)} или не те значения (README.md)")
     return out
@@ -359,6 +359,7 @@ class Shot:
     """План ролика: что снимать (снаряд и событие), когда и чем (камера)."""
     name: str
     kind: str          # launch | flight | shootdown | impact | chaos | far | nuke | pov (отрезок глазами игрока) | fly (пролёт)
+                       # | fpv (проход пилота мимо удара)
     a: int             # тики повтора
     b: int
     camera: dict       # {"kind": "pov", "viewer": "recorder" | "player:<ник>"} | {"kind": "auto", …} | {"kind": "path", "keys", …}
@@ -1228,164 +1229,72 @@ class Replay:
                                  [Shot("fly", "fly", a, b, path_cam, {"keys": keys}, why)]))
         return out + self.fpv()
 
-    # Проход FPV: удар — на доле FPV_LEAD прохода, мимо него камера — на FPV_PASS (на FPV_LOW блоков выше удара и в
-    # FPV_BESIDE блоках сбоку: над самим ударом — его столб дыма, кадр чёрный; начало — на FPV_HIGH); путь — прямая курса с
-    # покачиванием вбок на FPV_SWAY блоков; до удара взгляд — на него, после — вперёд, на FPV_AHEAD° вниз; крен — как у
-    # дрона в вираже (тангенс — скорость × угловая скорость курса пути / g), не больше FPV_ROLL°. Жарко — ударов (любых) не
-    # дальше FPV_HEAT блоков от удара за время прохода; курсов — FPV_HEADINGS, сторон — две. Запасные камеры съёмки — выше
-    # на FPV_RISE: в чанках повтора проход должен быть и на самой высокой (её низ кадра видит дальше), с запасом
-    # FPV_MARGIN чанков к прорисовке записавшего (она — оценка). Столб дыма — как у оценки камер съёмки
-    # (Cameras.smokeOnLine): над ударом по земле FPV_SMOKE[1] блоков, FPV_SMOKE[2] тиков; глаз ближе FPV_SMOKE[0] блоков к
-    # нему — в дыму; таких ключей у прохода — не больше FPV_SMOKY.
-    FPV_LEAD, FPV_PASS = 0.3, 0.62
-    FPV_HIGH, FPV_LOW, FPV_BESIDE, FPV_SWAY, FPV_AHEAD, FPV_ROLL = 60.0, 22.0, 30.0, 12.0, 10.0, 30.0
-    FPV_HEAT, FPV_HEADINGS, FPV_KEY = 200.0, 12, 4
-    FPV_RISE, FPV_MARGIN = (0, 12, 24), 2
-    FPV_SMOKE, FPV_SMOKY = (14.0, 55.0, 1200), 2
-
-    @classmethod
-    def fpv_pose(cls, hit, head: float, side: int, a: int, d: int, speed: float):
-        """Проход мимо удара hit (x, y, z) курсом head, сбоку side (±1): t → (глаз, точка взгляда, крен)."""
-        fwd = direction(head, 0)
-        norm = (-fwd[2], 0.0, fwd[0])
-        span = speed * d
-
-        def smooth(u: float) -> float:
-            u = min(1.0, max(0.0, u))
-            return u * u * (3 - 2 * u)
-
-        def place(s: float):
-            along = (s - cls.FPV_PASS) * span
-            sway = side * (cls.FPV_BESIDE + cls.FPV_SWAY * math.sin(2 * math.pi * 0.8 * (s - cls.FPV_PASS)))
-            up = cls.FPV_LOW + (cls.FPV_HIGH - cls.FPV_LOW) * (1 - smooth(s / cls.FPV_PASS)) if s <= cls.FPV_PASS \
-                else cls.FPV_LOW + 8 * smooth((s - cls.FPV_PASS) / (1 - cls.FPV_PASS))
-            return (hit[0] + fwd[0] * along + norm[0] * sway, hit[1] + up, hit[2] + fwd[2] * along + norm[2] * sway)
-
-        def course(s: float) -> float:
-            p, q = place(s - 0.005), place(s + 0.005)
-            return math.degrees(math.atan2(-(q[0] - p[0]), q[2] - p[2]))
-
-        def pose(t: float):
-            s = (t - a) / d
-            eye = place(s)
-            ahead = direction(course(s), cls.FPV_AHEAD)
-            far = tuple(eye[i] + 100 * ahead[i] for i in range(3))
-            target = (hit[0], hit[1] + 3, hit[2])
-            w = smooth((s - cls.FPV_LEAD - 0.06) / 0.22)
-            aim = tuple(target[i] + (far[i] - target[i]) * w for i in range(3))
-            # угловая скорость курса пути, рад/с; скорость, блоков (метров) в секунду
-            omega = math.radians(wrap(course(s + 0.01) - course(s - 0.01))) / (0.02 * d / TICK)
-            roll = -math.degrees(math.atan(speed * TICK * omega / 9.8))
-            return eye, aim, max(-cls.FPV_ROLL, min(cls.FPV_ROLL, roll))
-        return pose
+    # Проход FPV: удар — на доле FPV_LEAD прохода; путь камеры прокладывает съёмка (replayscan, Pilot): летит, как пилот
+    # FPV-дрона, по миру повтора у клиента — рельеф, дым ударов, снаряд, — и здесь его нет. Здесь — что снимать: удар
+    # по земле снаряда, чей путь известен (он влетает в кадр), жаркий — ударов (любых) не дальше FPV_HEAT блоков от него
+    # за время прохода, и с местом для полёта: чанки повтора не ближе FPV_ROOM блоков от удара во все стороны в начале и
+    # в конце прохода (с запасом FPV_MARGIN чанков к прорисовке записавшего).
+    FPV_LEAD, FPV_HEAT, FPV_ROOM, FPV_MARGIN = 0.45, 200.0, 128.0, 2
 
     def fpv(self) -> list[Candidate]:
-        """8 — проходы FPV (`--fpv`): над самыми жаркими ударами по земле (больше ударов рядом за время прохода),
-        проходы не перекрываются по времени; курс прохода — тот, где он весь в чанках повтора (глаз и земля нижней
-        половины кадра) и ударов в кадре больше всего; соседние проходы качаются в разные стороны. Один кандидат —
+        """8 — проходы FPV (`--fpv`): мимо самых жарких ударов по земле окна, не перекрываются по времени. Один кандидат —
         все проходы по времени (ролик из нескольких склеек)."""
         out = []
-        weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
+        by_hit = {f.hit: f for f in self.fl if f.hit is not None and f.pos is not None}
         taken: list[tuple[int, int]] = []  # проходы всех --fpv записи: не перекрываются и между ними
         for k, f in enumerate(self.fpv_specs):
             total = self.meta.get("total_ticks") or 10 ** 9
             s0, s1 = (max(0, f["search"][0]), min(total, f["search"][1])) if f["search"] else (0, total)
             d = round(f["seconds"] * TICK)
             lead = round(self.FPV_LEAD * d)
-            tan_y = math.tan(math.radians(f["fov"] / 2))
-            tan_x = tan_y * self.aspect
             radius, source = self.view_radius()
             seen = self.seen_chunks(f["dim"], max(2, radius - self.FPV_MARGIN))
             hits = self.con.execute("SELECT id, t, x, y, z, place FROM impact_kinds WHERE dim = ? ORDER BY t", [f["dim"]]).fetchall()
             ts = [h[1] for h in hits]
-            smoke_r, smoke_h, smoke_t = self.FPV_SMOKE
-
-            def smoky(eye, t: int) -> bool:
-                """Глаз в столбе дыма удара по земле (Cameras.smokeOnLine)."""
-                for i in range(bisect.bisect_left(ts, t - smoke_t), bisect.bisect_right(ts, t - 10)):
-                    o = hits[i]
-                    if o[5] == "ground" and o[3] - 2 <= eye[1] <= o[3] + smoke_h and math.hypot(eye[0] - o[2], eye[2] - o[4]) <= smoke_r:
-                        return True
-                return False
             near = f["near"]
             ground = [h for h in hits if h[5] == "ground" and s0 + lead <= h[1] <= s1 - (d - lead)
                       and (near is None or math.hypot(h[2] - near[0], h[4] - near[1]) <= near[2])]
 
-            def around(h, a: int) -> list:
+            def around(a: int) -> list:
                 return [hits[i] for i in range(bisect.bisect_left(ts, a), bisect.bisect_right(ts, a + d))]
 
-            heat = {h[0]: sum(math.hypot(o[2] - h[2], o[4] - h[4]) <= self.FPV_HEAT for o in around(h, h[1] - lead)) for h in ground}
-            chosen = []
+            heat = {h[0]: sum(math.hypot(o[2] - h[2], o[4] - h[4]) <= self.FPV_HEAT for o in around(h[1] - lead)) for h in ground}
+            ring = [(math.cos(math.radians(a)), math.sin(math.radians(a))) for a in range(0, 360, 45)]
+            chosen, blind, cramped = [], 0, 0
             for h in sorted(ground, key=lambda h: (-heat[h[0]], h[1])):
                 if len(chosen) >= f["shots"]:
                     break
                 a = h[1] - lead
                 if any(abs(a - c[1]) < d for c in chosen) or any(x < a + d and a < y for x, y in taken):
                     continue
-                prefer = 1 if len(chosen) % 2 == 0 else -1
-                best, lost, smoked = None, 0, 0
-                for j in range(self.FPV_HEADINGS):
-                    for side in (prefer, -prefer):
-                        head = 360.0 * j / self.FPV_HEADINGS
-                        pose = self.fpv_pose(h[2:5], head, side, a, d, f["speed"])
-                        ok = True
-                        for t in range(a, a + d + 1, TICK):
-                            eye, aim, roll = pose(t)
-                            yaw, pitch, _ = bearing(eye, aim)
-                            high = (eye[0], eye[1] + max(self.FPV_RISE), eye[2])
-                            if not all(self.seen_at(seen, q, t) for q in (eye, high, *ground_points(high, yaw, pitch, tan_x, tan_y, h[3], self.FLY_NEAR, roll))):
-                                ok = False
-                                break
-                        if not ok:
-                            lost += 1
-                            continue
-                        smoke = sum(smoky(pose(t)[0], t) for t in range(a, a + d + 1, self.FPV_KEY))
-                        if smoke > self.FPV_SMOKY:
-                            smoked += 1
-                            continue
-                        framed = []
-                        for o in around(h, a):
-                            eye, aim, roll = pose(o[1])
-                            yaw, pitch, _ = bearing(eye, aim)
-                            if in_view(eye, yaw, pitch, tan_x, tan_y, o[2:5], roll=roll):
-                                framed.append(o)
-                        score = (len(framed), sum(o[5] == "ground" for o in framed), -smoke, side == prefer, -j)
-                        if best is None or score > best[0]:
-                            best = (score, head, side, pose, framed)
-                if best:
-                    score, head, side, pose, framed = best
-                    chosen.append((h, a, side, score, head, pose, framed))
-                else:
-                    print(f"{self.name}: FPV у удара {mmss(h[1])} ({fmt(h[2:5])}): ни одним курсом и стороной — не в чанках повтора "
-                          f"{lost}, в дыму {smoked}")
+                fl = by_hit.get(h[0])
+                if fl is None or fl.uuid is None:
+                    blind += 1
+                    continue
+                room = [(h[2] + self.FPV_ROOM * c, h[3], h[4] + self.FPV_ROOM * z) for c, z in ring] + [h[2:5]]
+                if not all(self.seen_at(seen, q, t) for q in room for t in (a, a + d)):
+                    cramped += 1
+                    continue
+                chosen.append((h, a, fl))
             if not chosen:
-                print(f"{self.name}: FPV {f['spec']!r}: ударов по земле в чанках повтора нет — не берётся")
+                print(f"{self.name}: FPV {f['spec']!r}: ударов по земле со снарядом и местом для полёта нет "
+                      f"(без снаряда {blind}, тесно {cramped})")
                 continue
             taken += [(c[1], c[1] + d) for c in chosen]
-            shots, weapons, n_framed, n_ground = [], set(), 0, 0
-            print(f"{self.name}: FPV {f['spec']!r}: прорисовка записавшего {radius} чанков ({source})")
-            for i, (h, a, side, score, head, pose, framed) in enumerate(sorted(chosen, key=lambda c: c[1])):
-                keys = []
-                for t in list(range(a, a + d, self.FPV_KEY)) + [a + d]:
-                    eye, aim, roll = pose(t)
-                    keys.append({"t": t, "eye": [round(v, 2) for v in eye], "aim": [round(v, 2) for v in aim], "roll": round(roll, 1)})
-                cam = {"kind": "path", "fov": f["fov"], "dim": f["dim"], "rise": list(self.FPV_RISE), "keys": keys,
-                       **({"time": f["time"]} if f.get("time") is not None else {})}
-                subject = {"keys": [{"t": o[1], "pos": list(o[2:5]), "size": BLAST.get(weapon.get(o[0], ""), 16), "id": o[0]} for o in framed]}
-                what = sorted({weapon.get(o[0], "?") for o in framed})
-                weapons |= {w for w in what if w != "?"}
-                n_framed += len(framed)
-                n_ground += score[1]
-                why = (f"FPV мимо удара {mmss(h[1])} {weapon.get(h[0], '?')} в {fmt(h[2:5])}: курс {head:.0f}°, "
-                       f"{'справа' if side > 0 else 'слева'}, в дыму {-score[2]} ключей, рядом ударов "
-                       f"{heat[h[0]]}, в кадре {len(framed)} (по земле {score[1]}: {', '.join(what)})")
+            shots, weapons = [], set()
+            print(f"{self.name}: FPV {f['spec']!r}: прорисовка записавшего {radius} чанков ({source}); пропущено ударов без "
+                  f"снаряда {blind}, тесных {cramped}")
+            for i, (h, a, fl) in enumerate(sorted(chosen, key=lambda c: c[1])):
+                weapons.add(fl.weapon)
+                cam = {"kind": "pilot", "fov": f["fov"], "dim": f["dim"], **({"time": f["time"]} if f.get("time") is not None else {})}
+                subject = {"uuid": fl.uuid, "weapon": fl.weapon, "size": SIZE.get(fl.weapon, 4), "keys": [key(fl)]}
+                why = (f"FPV мимо удара {mmss(h[1])} {fl.weapon} в {fmt(h[2:5])}: рядом ударов за проход {heat[h[0]]}")
                 print(f"  проход {i + 1}: {mmss(a)}–{mmss(a + d)}: {why}")
-                shots.append(Shot(f"fpv{i + 1}", "fly", a, a + d, cam, subject, why))
-            a0 = shots[0].a
-            out.append(Candidate("fly", self.name, str(self.db), 2000 - k, a0, "+".join(sorted(weapons)) or "fly",
-                                 f"FPV: {len(shots)} проходов, ударов в кадре {n_framed} (по земле {n_ground})",
-                                 {"seconds": round(len(shots) * d / TICK, 1), "ground": n_ground, "impacts": n_framed,
-                                  "passes": len(shots), "view": radius, "mark": f["spec"]}, shots))
+                shots.append(Shot(f"fpv{i + 1}", "fpv", a, a + d, cam, subject, why))
+            out.append(Candidate("fly", self.name, str(self.db), 2000 - k, shots[0].a, "+".join(sorted(weapons)),
+                                 f"FPV: {len(shots)} проходов мимо ударов ({', '.join(sorted(weapons))})",
+                                 {"seconds": round(len(shots) * d / TICK, 1), "passes": len(shots),
+                                  "heat": sum(heat[c[0][0]] for c in chosen), "view": radius, "mark": f["spec"]}, shots))
         return out
 
 
@@ -1516,8 +1425,8 @@ def main():
     p.add_argument("--fly", action="append", default=[], type=fly_spec,
                    help="пролёт свободной камеры: 'at=25:02/25:40 from=x,y,z to=x,y,z [to_at=25:32] [look=south] [turn=25] [fov=70]'")
     p.add_argument("--fpv", action="append", default=[], type=fpv_spec,
-                   help="проходы камеры, как у FPV-дрона, над самыми жаркими ударами: '[search=14:00/20:00] [near=x,z,r] "
-                        "[shots=4] [seconds=9] [speed=0.9] [fov=80] [time=night]'")
+                   help="проходы камеры, как у FPV-дрона, мимо самых жарких ударов: '[search=14:00/20:00] [near=x,z,r] "
+                        "[shots=4] [seconds=9] [fov=80] [time=night]'")
     p.add_argument("--min-version", default="2.10.2",
                    help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")
     a = p.parse_args()

@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "replayscan"))
 import replaydb  # noqa: E402
-from moments import incoming_version  # noqa: E402
+from moments import BLAST, flights, incoming_version  # noqa: E402
 
 # Пороги проверки кадров по роду плана (README replayscan, «Съёмка»): доля кадров до события, где снят объект; то же
 # за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен; громких
@@ -40,6 +40,9 @@ NEED = {
     "pov": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1},
     # пролёт по пути, заданному человеком: удары в кадре считаются, но не решают; громкое за кадром — налёт вокруг
     "fly": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1},
+    # проход пилота мимо удара: удар виден в первые тики; снаряд влетает в кадр, когда долетит (пилот его ждёт, но сзади
+    # камеры его до пролёта мимо не видно); громкое за кадром — налёт вокруг
+    "fpv": {"subject": 0, "near": 0, "keys": 1, "share": 0, "loud": -1},
 }
 
 
@@ -79,6 +82,9 @@ def cameras(shot: dict) -> list[dict]:
     игроков» — без запасной), камера по пути (пролёт) или свободная камера по роду."""
     cam, s, kind = shot["camera"], shot["subject"], shot["kind"]
     keys = s.get("keys", [])
+    if cam["kind"] == "pilot":
+        # путь прокладывает съёмка по миру повтора (Pilot replayscan)
+        return [{"kind": "pilot", "fov": cam["fov"]}]
     if cam["kind"] == "path":
         # и на 16 блоков выше: путь по карте бывает сквозь высотку
         return [{"kind": "path", "keys": cam["keys"], "fov": cam["fov"], "rise": cam.get("rise", [0, 16])}]
@@ -114,6 +120,16 @@ def cameras(shot: dict) -> list[dict]:
                     "follow": kind != "nuke", "size": size}]
 
 
+_HIT_WEAPONS: dict[int, dict] = {}
+
+
+def hit_weapons(con) -> dict:
+    """Удар (id) → оружие его снаряда; один раз на базу."""
+    if id(con) not in _HIT_WEAPONS:
+        _HIT_WEAPONS[id(con)] = {f.hit: f.weapon for f in flights(con) if f.hit is not None}
+    return _HIT_WEAPONS[id(con)]
+
+
 def film_shot(con, cid: str, shot: dict) -> dict:
     a, b, kind, s = shot["a"], shot["b"], shot["kind"], shot["subject"]
     subject = {"size": s.get("size", 4), "keys": [{"t": k["t"], "pos": k["pos"], "size": k["size"]} for k in s.get("keys", [])]}
@@ -123,11 +139,14 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     if s.get("centre"):
         subject["area"] = {"pos": s["centre"], "size": 2 * s.get("spread", 60)}
     dim = dim_of(con, shot)
-    smoke = con.execute("SELECT t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
+    smoke = con.execute("SELECT id, t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
                         [dim, a - 1200, b]).fetchall()
+    # поперечник огненного шара удара — по оружию снаряда (дым удара: модель Plume replayscan)
+    weapons = hit_weapons(con) if smoke else {}
     far = kind in ("far", "nuke", "fly")
-    return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far else 20,
-            "far": far, "cameras": cameras(shot), "subject": subject, "smoke": [[t, x, y, z] for t, x, y, z in smoke],
+    return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far or kind == "fpv" else 20,
+            "far": far, "cameras": cameras(shot), "subject": subject,
+            "smoke": [[t, x, y, z, BLAST.get(weapons.get(i), 16)] for i, t, x, y, z in smoke],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", ""),
             **({"time": shot["camera"]["time"]} if "time" in shot["camera"] else {})}
 
