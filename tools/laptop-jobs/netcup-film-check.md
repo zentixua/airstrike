@@ -45,3 +45,23 @@ rm -rf mod/run/scenario/saves/$D
 Части `all`, `nukeB`, `nukeC`, `icbm` — каждая на свежей копии Zearth (папки `check-all` и т. д.), две части сразу — во
 втором рабочем дереве. Прислать по каждой: `render/report.md`, `render/best.txt`, `hud.jsonl` (живые планы с проверкой
 кадров, например p33), строки `SCENARIO film verdict` и `SCENARIO film hud`, ошибки из лога (`Exception`, `ERROR` мода).
+
+## 3. Карта для постановки (только чтение файлов регионов)
+Регион — `<мастер Zearth>/region` (`~/airstrike-work/zearth-master/region`; эталон не трогать). Скрипты — `uv run`
+(numpy). Прислать вывод каждой команды как есть (текст; файлы карты наружу не уходят).
+```sh
+R=~/airstrike-work/zearth-master/region
+L=light,lantern,glowstone,froglight,shroomlight,end_rod,lamp,bulb,torch,candle,glow
+# p16: из чего свет станции метро (гаснут при блэкауте мода только лампы, не факелы)
+uv run tools/trailer/blocks.py $R 3330 20 240 3470 64 300 --match $L --list 5 --grid 8
+# p38: свет кварталов вокруг площади ночью
+uv run tools/trailer/blocks.py $R 3000 55 150 3400 260 450 --match $L --list 3 --grid 16
+# p04: пути депо (ванильные рельсы или пути Create)
+uv run tools/trailer/blocks.py $R 2700 40 -300 3700 110 900 --match rail,create:track --list 30 --grid 16
+# p07: наводчик на крыше Востока в 250–380 блоках от башни T2 (грань башни видна; бинокль мода — до 400 блоков)
+uv run tools/trailer/perch.py $R --targets "3072.5,200,504.5" --rmin 250 --rmax 380 --min-y 90 --near 16
+# p33: крыша, с которой видны верхи трёх башен (T2, T1, T4), каждая ближе 400 блоков
+uv run tools/trailer/perch.py $R --targets "3072.5,255,504.5;3151.5,214,461.5;3154.5,234,566.5" --rmin 150 --rmax 320 --min-y 100 --near 10
+```
+Для каждой группы рельсов из третьей команды (по карте `--grid`) — луч из камеры плана 4 на её середину:
+`uv run tools/trailer/ray.py $R 3116.5 68.1 306.5 <x> <y> <z> --fov 50`.
