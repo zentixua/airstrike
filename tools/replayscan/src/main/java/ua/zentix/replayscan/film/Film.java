@@ -48,10 +48,10 @@ public final class Film {
     static final Logger LOG = LogUtils.getLogger();
     /**
      * Тиков: открытие повтора, после открытия, после перемотки, мир у места, стоять в точке пути, найти игрока, начало
-     * задания вывода.
+     * задания вывода, повтор не идёт до начала плана.
      */
     private static final int OPEN_WAIT = 4800, SETTLE = 60, SEEK_SETTLE = 30, WORLD_WAIT = 600, POSE_MIN = 6, POSE_MAX = 300, PLAYER_WAIT = 400,
-            EXPORT_WAIT = 1200;
+            EXPORT_WAIT = 1200, STALL = 600;
 
     private enum State { TITLE, OPENING, SETTLING, SEEKING, WALKING, WARMING, EXPORTING, DONE }
 
@@ -79,7 +79,7 @@ public final class Film {
     private Cameras.Pose standing;
     @Nullable
     private UUID povId;
-    private int poseAt, stepped, reachedAt, seenAt;
+    private int poseAt, stepped, reachedAt, seenAt, progressAt;
 
     private record Scored(Cameras.Candidate c, Cameras.Score score) {}
 
@@ -232,11 +232,6 @@ public final class Film {
             case WARMING -> {
                 // повтор вживую по тику до начала плана, как идёт сам вывод: события модов живые (дым, столбы, огонь);
                 // вывод с того же места не перематывает и частиц не чистит
-                if (waited() > shot.warm() * 4 + POSE_MAX + PLAYER_WAIT) {
-                    report(current, null, "replay did not reach the start in " + waited() + " ticks");
-                    nextCandidate();
-                    return;
-                }
                 if (current.c.player() != null) {
                     if (watch() == null) {
                         // игрок записи ушёл из мира клиента (смерть, другое измерение, дальше прорисовки)
@@ -253,7 +248,12 @@ public final class Film {
                 if (at < shot.a()) {
                     if (at != stepped) {
                         stepped = at;
+                        progressAt = ticks;
                         Export.seek(at + 1);
+                    } else if (ticks - progressAt > STALL) {
+                        report(current, null, "replay stopped at tick " + at + " before the start");
+                        nextCandidate();
+                        return;
                     }
                     reachedAt = ticks;
                     return;

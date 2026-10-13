@@ -208,6 +208,9 @@ class SelectTest(unittest.TestCase):
         self.assertEqual([s.a for s in reel[0].shots], [880, 4880, 8880], "три лучших — по времени")
         self.assertEqual([x["dist"] for x in reel[0].numbers["strikes"]], [1000, 5000, 9000])
         self.assertEqual(len(reel), 5, "и каждый удар отдельно")
+        # удар через 150 тиков после лучшего перекрыл бы его план — не берётся
+        reel = clips.Replay.far_reel([one(5000, 3), one(5150, 2.5), one(1000, 2)])
+        self.assertEqual([s.a for s in reel[0].shots], [880, 4880])
 
     def test_notes_mark_candidates_by_game_log(self):
         # подрыв ядерки (тик 2000) — в 23:10:35 по журналу сервера; конец записи (2100) — в 23:10:40

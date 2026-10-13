@@ -438,7 +438,9 @@ class Replay:
         pick: list[Candidate] = []
         for c in sorted(single, key=lambda c: -c.score):
             s = c.shots[0]
-            if len(pick) < most and sum(p.shots[0].b - p.shots[0].a for p in pick) + s.b - s.a <= longest * TICK:
+            # планы не перекрываются: начало следующего не повторяет конец прошлого и его грохот
+            if (len(pick) < most and sum(p.shots[0].b - p.shots[0].a for p in pick) + s.b - s.a <= longest * TICK
+                    and all(s.b < p.shots[0].a or s.a > p.shots[0].b for p in pick)):
                 pick.append(c)
         pick.sort(key=lambda c: c.t)
         shots = [Shot(f"far{i + 1}", c.shots[0].kind, c.shots[0].a, c.shots[0].b, c.shots[0].camera, c.shots[0].subject, c.shots[0].why)
