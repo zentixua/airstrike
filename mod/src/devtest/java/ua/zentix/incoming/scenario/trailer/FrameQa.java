@@ -14,6 +14,7 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import ua.zentix.incoming.client.fx.particle.FxPool;
+import ua.zentix.incoming.client.nuclear.ClientNuclear;
 import ua.zentix.incoming.client.sound.EngineSound;
 
 import java.io.IOException;
@@ -68,6 +69,7 @@ final class FrameQa {
     private final Writer out;
     private final List<Frame> frames = new ArrayList<>();
     private final Recorder sound;
+    private boolean front;
     private final int start;
     /** Отметки журнала плана (тик повтора) — в журнал монтажа, когда кадр до них дошёл. */
     private final java.util.ArrayDeque<EventLog.Mark> marks;
@@ -203,6 +205,12 @@ final class FrameQa {
         frames.add(fr);
         sound.frame(t - start, cam);
         while (!marks.isEmpty() && marks.peekFirst().t() <= t) sound.mark(marks.pollFirst().what());
+        // фронт ядерного взрыва дошёл до камеры вывода — отметка монтажу (живой план ставит её сам, War.watch; у плана
+        // из повтора её в журнале нет, 13.10: p48–p50 «нет mark:front»)
+        if (!front && !ClientNuclear.detonations().isEmpty() && War.frontIn(eye) <= 0) {
+            front = true;
+            sound.mark("front");
+        }
         try {
             out.write(String.format(Locale.ROOT,
                     "{\"t\":%.3f,\"ready\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,\"far\":%b,"

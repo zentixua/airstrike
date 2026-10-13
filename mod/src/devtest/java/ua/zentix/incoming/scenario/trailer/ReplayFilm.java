@@ -15,6 +15,7 @@ import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.scenario.HeapProbe;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
 
@@ -488,7 +489,11 @@ public final class ReplayFilm {
         List<EventLog.Flight> earlier = data.flights.stream().filter(f -> f.impact >= 0 && f.impact < (subject.key >= 0 ? subject.key : b)).toList();
         tallies.clear();
         for (Rig.Kind k : spec.kinds()) {
-            for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) tallies.add(new Rig.Tally(c, subject, a, b, earlier, spec.minShare()));
+            for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) {
+                // в вывод — как снял бы человек (Operator); камера сценария как есть — запасной, если с руками объект уходит
+                tallies.add(new Rig.Tally(Operator.human(c, data, a, b), subject, a, b, earlier, spec.minShare()));
+                if (c.designed() && c.name().startsWith("own")) tallies.add(new Rig.Tally(Operator.raw(c), subject, a, b, earlier, spec.minShare()));
+            }
         }
         for (Rig.Tally t : tallies) t.evaluate(w, null, 0);
         nextStop();
@@ -616,6 +621,9 @@ public final class ReplayFilm {
                 Runtime.getRuntime().halt(3);
             }
             qa = new FrameQa(subject, candDir, spec.shot(), a, marks);
+            // тряска мода от взрывов (5° с частотой ~10 Гц) — не в вывод: толчки камеры даёт Operator; у ядерных планов
+            // волна трясёт камеру моделью мода (давление у камеры), её Operator не повторяет
+            IncomingConfig.CLIENT.cameraShake.set(data.nukes.isEmpty() ? 0.0 : 1.0);
             flawless(true);
             FlashbackApi.queuePng(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
                     a, b, FPS, frames);

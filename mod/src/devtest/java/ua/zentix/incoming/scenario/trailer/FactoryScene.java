@@ -71,7 +71,10 @@ final class FactoryScene {
         film.run(() -> flywheel("flywheel:instancing"));
         film.waitTicks(20);
         film.onServer(level -> {
-            for (Worker w : workers()) cast().spawn(w.name, w.rest, Film.yawTo(w.rest, grid()), null);
+            for (Worker w : workers()) {
+                cast().spawn(w.name, w.rest, Film.yawTo(w.rest, grid()), null);
+                cast().steady(w.name);  // ставит и ломает блоки по взгляду
+            }
         });
         film.waitTicks(60);
         film.onServer(level -> {

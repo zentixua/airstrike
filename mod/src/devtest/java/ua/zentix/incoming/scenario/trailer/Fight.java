@@ -137,26 +137,34 @@ final class Fight {
             return 52;
         }
         if (random.nextDouble() < moveChance) {
+            // перебежка: сперва взгляд туда (поворот плавный — Neck), потом бегом
             Vec3 to = s.post.add((random.nextDouble() - 0.5) * 2 * roam, 0, (random.nextDouble() - 0.5) * 2 * roam);
+            int turn = 2 + random.nextInt(3);
             a.add(Cast.step("release", "all"));
+            a.add(Cast.lookAt(new Vec3(to.x, p.getEyeY(), to.z)));
+            a.add(Cast.step("wait", turn));
             a.add(Cast.walkTo(to.x, to.z, true));
             cast.act(s.name, a, true);
-            return (int) (p.position().distanceTo(to) / 0.28) + 12;
+            return turn + (int) (p.position().distanceTo(to) / 0.28) + 12;
         }
         ServerPlayer target = target(s, p);
         if (target == null) {
-            a.add(Cast.lookAt(p.getEyePosition().add(s.facing.scale(20))));
+            // врага не видно: осматривает свой сектор
+            a.add(Cast.lookAt(p.getEyePosition().add(s.facing.scale(20)).add(random.nextGaussian() * 6, random.nextGaussian(), random.nextGaussian() * 6)));
             cast.act(s.name, a, true);
-            return 20;
+            return 20 + random.nextInt(20);
         }
         Vec3 aim = target.position().add(0, 1.2, 0).add(random.nextGaussian() * spread, random.nextGaussian() * spread * 0.5,
                 random.nextGaussian() * spread);
-        int burst = 3 + random.nextInt(6);
-        if (s.crouch) a.add(Cast.hold("sneak", burst * 2 + 12));
+        int burst = 3 + random.nextInt(6), settle = 3 + random.nextInt(4);
+        if (s.crouch) a.add(Cast.hold("sneak", burst * 2 + settle + 12));
+        // навестись (поворот плавный — Neck) и только потом огонь; отдача ведёт ствол вверх и в сторону
         a.add(Cast.lookAt(aim));
+        a.add(Cast.step("wait", settle));
         a.add(gun.state(Cast.FIRE_AUTO));
         for (int i = 0; i < burst; i++) {
             a.add(gun.fire(random.nextLong(), false));
+            a.add(Cast.turn(random.nextGaussian() * 0.4, -(0.5 + random.nextDouble() * 0.7)));
             a.add(Cast.step("wait", 2));
         }
         a.add(gun.state(Cast.IDLE));
@@ -164,7 +172,7 @@ final class Fight {
         a.add(Cast.step("wait", pause));
         s.shots += burst;
         cast.act(s.name, a, true);
-        return burst * 2 + pause;
+        return settle + burst * 2 + pause;
     }
 
     /** Ближайший живой враг не дальше {@link #range}. */

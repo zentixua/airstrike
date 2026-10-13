@@ -109,31 +109,56 @@ final class Crowd {
         }
     }
 
+    /**
+     * Дойти до {@code to}, как игрок: сперва повернуться туда (поворот плавный — {@link Neck}), путь — двумя отрезками
+     * через точку в стороне от прямой (не по линейке), бегом — с прыжком посередине, если {@code jump}. Ответ — сколько
+     * тиков это займёт с запасом.
+     */
+    private int walk(Person p, ServerPlayer sp, JsonArray a, Vec3 to, boolean sprint, boolean jump) {
+        Vec3 from = sp.position(), d = to.subtract(from).multiply(1, 0, 1);
+        double len = d.length();
+        int turn = 3 + random.nextInt(5);
+        a.add(Cast.lookAt(new Vec3(to.x, sp.getEyeY(), to.z)));
+        a.add(Cast.step("wait", turn));
+        if (len > 4) {
+            Vec3 side = new Vec3(-d.z, 0, d.x).normalize().scale(len * (random.nextDouble() - 0.5) * 0.35);
+            Vec3 mid = from.add(d.scale(0.4 + random.nextDouble() * 0.2)).add(side);
+            a.add(Cast.walkTo(mid.x, mid.z, sprint));
+            if (jump) a.add(Cast.hold("jump", 3));
+        }
+        a.add(Cast.walkTo(to.x, to.z, sprint));
+        cast.act(p.name, a, true);
+        return turn + (int) (len * 1.15 / (sprint ? 0.25 : 0.2)) + 10;
+    }
+
     private int plan(Person p, ServerPlayer sp) {
         JsonArray a = Cast.steps();
         switch (p.mode) {
             case WANDER -> {
                 if (random.nextFloat() < 0.35f) {
-                    // постоять, оглядеться
-                    Vec3 look = sp.getEyePosition().add(random.nextGaussian() * 8, random.nextGaussian(), random.nextGaussian() * 8);
-                    a.add(Cast.lookAt(look));
+                    // постоять, оглядеться: два-три взгляда с паузами, как человек на улице
+                    int n = 2 + random.nextInt(2), ticks = 0;
+                    for (int i = 0; i < n; i++) {
+                        a.add(Cast.lookAt(sp.getEyePosition().add(random.nextGaussian() * 8, random.nextGaussian() * 1.2, random.nextGaussian() * 8)));
+                        int w = 14 + random.nextInt(30);
+                        a.add(Cast.step("wait", w));
+                        ticks += w;
+                    }
                     cast.act(p.name, a, true);
-                    return 30 + random.nextInt(60);
+                    return ticks + random.nextInt(20);
                 }
                 double ang = random.nextDouble() * Math.PI * 2, r = p.roam * Math.sqrt(random.nextDouble());
                 Vec3 to = p.home.add(Math.cos(ang) * r, 0, Math.sin(ang) * r);
-                a.add(Cast.walkTo(to.x, to.z, false));
-                cast.act(p.name, a, true);
-                return (int) (sp.position().distanceTo(to) / 0.2) + 10;
+                boolean hurry = random.nextFloat() < 0.1f;
+                return walk(p, sp, a, to, hurry, false);
             }
             case FLEE -> {
                 Vec3 to = p.point.add(random.nextGaussian() * 1.5, 0, random.nextGaussian() * 1.5);
                 a.add(Cast.step("release", "all"));
-                a.add(Cast.walkTo(to.x, to.z, true));
-                cast.act(p.name, a, true);
+                int ticks = walk(p, sp, a, to, true, random.nextFloat() < 0.35f);
                 p.mode = Mode.WATCH;
                 p.point = sp.getEyePosition().add(0, 30, 0);
-                return (int) (sp.position().distanceTo(to) / 0.25) + 20;
+                return ticks + 10;
             }
             case WATCH -> {
                 a.add(Cast.lookAt(p.point));

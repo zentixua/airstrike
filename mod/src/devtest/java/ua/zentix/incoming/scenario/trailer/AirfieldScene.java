@@ -447,6 +447,7 @@ final class AirfieldScene {
                 planes[i] = plane == null ? null : plane.getUUID();
                 // лётчик — у левого борта за нижним крылом
                 film.cast().spawn(PILOTS[i], point(START[i][0] - 2.2, 0, START[i][1] - 1.2), yaw + 90, null);
+                film.cast().steady(PILOTS[i]);  // правит самолётом: поворот — ровно как ставят шаги
             }
         });
         film.waitTicks(40);

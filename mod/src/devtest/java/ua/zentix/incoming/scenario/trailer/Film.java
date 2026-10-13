@@ -722,13 +722,27 @@ abstract class Film {
         frameClock = now;
         frameCount = 0;
         double mspt = mc.getSingleplayerServer().getAverageTickTimeNanos() / 1e6;
-        double capacity = mspt <= 0 ? 20 : 1000 / mspt;
+        // темп — по тяжёлым тикам, а не по среднему: среднее (затухающее) прячет пики боя и ударов, сервер на них
+        // отстаёт от темпа записи, и пакеты двух его тиков приходят в один тик клиента — в повторе всё идёт рывками
+        double peak = peakTickMs(20);
+        double capacity = Math.max(mspt, peak) <= 0 ? 20 : 1000 / Math.max(mspt, peak);
         float want = (float) Mth.clamp(Math.min(fps * 0.85, capacity * 0.8), 2, 20);
         if (Math.abs(want - tickRate) / tickRate > 0.1) setTickRate(want);
         loadSum += mspt;
         loadN++;
         loadMax = Math.max(loadMax, mspt);
         rateMin = Math.min(rateMin, tickRate);
+    }
+
+    /** Девятый дециль времени последних {@code n} тиков сервера, мс. */
+    double peakTickMs(int n) {
+        var server = mc.getSingleplayerServer();
+        long[] times = server.getTickTimesNanos();
+        int now = server.getTickCount();
+        double[] last = new double[Math.min(n, times.length)];
+        for (int i = 0; i < last.length; i++) last[i] = times[Math.floorMod(now - 1 - i, times.length)] / 1e6;
+        java.util.Arrays.sort(last);
+        return last[(int) Math.floor((last.length - 1) * 0.9)];
     }
 
     // ================================================================ события игры

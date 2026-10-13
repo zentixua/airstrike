@@ -261,19 +261,20 @@ final class War {
             p32();
         }
         if (part.equals("night")) night();
-        // перезапись исправленных планов (INCOMING_TRAILER_SHOTS) на одной копии мира, в порядке части all: город к плану
-        // уже горит от прежних ударов, как в записи all
+        // перезапись на одной копии мира, в порядке части all (город к плану уже горит от прежних ударов): все сцены
+        // с ботами, пусками с установок и живыми планами (13.10, замечания Артёма: боты, пуски вразнобой; журнал живых
+        // планов стирался). Без них — пролёт p03, ЗРК p22, FPV p01a/p01b, хребет p21, аэродром p24: их камеры
+        // выводятся заново из прежних повторов
         if (part.equals("retake")) {
-            day();
-            p12();
-            p13();
-            metro();
-            p19();
+            dawnSquare();
+            firstStrike();
+            battery();
             airship();
+            p25();
             p01d();
             streets();
-            p32();
-            night();
+            throughFire();
+            nuke();
         }
         if (part.equals("p16")) {
             day();
@@ -711,7 +712,8 @@ final class War {
     /**
      * Курс, с которого небо над глазом {@code eye} открыто: лучи по блокам у клиента через 5° по курсу на 8–28° над
      * горизонтом до 150 блоков (луч в чанк, которого у клиента нет, — не открыт); курс — середина самого открытого
-     * сектора в 35°. Шахед пикирует под 18° ({@code DroneAutopilot}) — с этого курса его видно из глаз до удара.
+     * сектора в 35°. Шахед пикирует под 18° ({@code DroneAutopilot}) — с этого курса его видно из глаз до удара. Вода
+     * луч останавливает: снаряд сталкивается и с жидкостью (p30 13.10: шахед ударил в верх фонтана-столба на площади).
      */
     float openSky(Vec3 eye) {
         int n = 72;
@@ -720,7 +722,7 @@ final class War {
             for (int el = 8; el <= 28; el += 4) {
                 Vec3 end = eye.add(Vec3.directionFromRotation(-el, i * 5f).scale(150));
                 if (!chunkHere(end)) continue;
-                var hit = mc.level.clip(new ClipContext(eye, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+                var hit = mc.level.clip(new ClipContext(eye, end, ClipContext.Block.VISUAL, ClipContext.Fluid.ANY, CollisionContext.empty()));
                 if (hit.getType() == HitResult.Type.MISS) open[i]++;
             }
         }
@@ -1082,6 +1084,8 @@ final class War {
             }
         });
         settle();
+        // люди уже идут по своим делам: первый шаг толпы — через 1–3 с после входа, и в начале плана все только трогались
+        film.waitTicks(120);
         film.shot("p04").length(40).hidden().camera(() -> {
             Vec3 a = g(3116.5, 306.5).add(0, 5.5, 0);
             return CineCamera.dolly(a, a.add(4, 0.3, -3), 40, () -> GOV, 50);
@@ -1620,9 +1624,22 @@ final class War {
         cast().command("incoming launcher " + at + " load " + load);
     }
 
+    /**
+     * Пуск ряда пусковых — вразнобой, как у расчётов, каждый со своей командой «огонь»: порядок перемешан, между
+     * пусками 2–14 тиков, первая — сразу (13.10: все разом — «слишком синхронно, нереалистично»). Зерно у сценария
+     * своё: дубли пишутся одинаково.
+     */
     private void fireAll(List<BlockPos> rack) {
-        for (BlockPos p : rack) Film.cmd("incoming launcher " + p.getX() + " " + p.getY() + " " + p.getZ() + " fire");
+        List<BlockPos> order = new ArrayList<>(rack);
+        net.minecraft.Util.shuffle(order, fireOrder);
+        int t = 0;
+        for (BlockPos p : order) {
+            later(t, () -> Film.cmd("incoming launcher " + p.getX() + " " + p.getY() + " " + p.getZ() + " fire"));
+            t += 2 + fireOrder.nextInt(13);
+        }
     }
+
+    private final RandomSource fireOrder = RandomSource.create(10);
 
     private void reloadAll() {
         for (List<BlockPos> rack : List.of(missileRack, rocketRack, droneRack)) {
@@ -1682,23 +1699,7 @@ final class War {
 
         airship();
 
-        // p25: из двора, длинный фокус на рой: шахеды идут над крышами к камере. Залп шахедов выходит по одному раз
-        // в 1–2 с, поэтому рой — пять залпов с пусковых рядом (параллельные потоки), а не один в 30 штук; камера
-        // держит середину ближайших шести
-        Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3058.5, 0, 378.5);
-        hiddenAt(street, swarm);
-        film.shot("p25").length(60).hidden()
-                .onReady(() -> {
-                    Vec3 dir = at(swarm).subtract(at(street)).multiply(1, 0, 1).normalize(), side = new Vec3(-dir.z, 0, dir.x);
-                    for (int i = -2; i <= 2; i++) salvo("drone", 6, 40, swarm, behind(street, at(swarm), 900).add(side.scale(i * 40)));
-                })
-                .camera(() -> {
-                    Vec3 c = g(street).add(0, 1.4, 0);
-                    Vec3 dir = at(swarm).subtract(c).multiply(1, 0, 1).normalize();
-                    return CineCamera.track(c, film.smoothFocus(() -> swarmCentre(c, 400, 6, WeaponType.DRONE),
-                            c.subtract(dir.scale(100)).add(0, 36, 0), 0.2), 34);
-                })
-                .when(() -> flightOver(at(street), 220, WeaponType.DRONE), 3000);
+        p25();
 
         p01d();
 
@@ -1720,6 +1721,36 @@ final class War {
 
         // p24 и пик: аэродром — бипланы взлетают по тревоге (своя площадка)
         stageScene("airfield", AIRFIELD, -90);
+    }
+
+    /**
+     * p25: из двора, длинный фокус на рой: шахеды идут над крышами к камере. Залп шахедов выходит по одному раз в 1–2 с,
+     * поэтому рой — пять залпов с пусковых рядом (параллельные потоки), а не один в 30 штук; камера держит середину
+     * ближайших шести. Место камеры — у двора, где она не в блоках и небо в сторону роя открыто ({@link #shoulderSpot}:
+     * 13.10 камера сценария на 1,4 блока над землёй двора была в блоках — вывод её не взял ни разу).
+     */
+    private void p25() {
+        Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3058.5, 0, 378.5);
+        hiddenAt(street, swarm);
+        Vec3[] cam25 = {null};
+        film.run(() -> {
+            Vec3 away = at(street).subtract(at(swarm)).multiply(1, 0, 1).normalize();
+            Vec3 sky = at(street).add(away.scale(100)).add(0, 36, 0);
+            // камера на 1,4 над землёй: как глаз бойца (1,62) на 0,22 ниже
+            cam25[0] = shoulderSpot("p25", at(street), sky, 10, 0, -0.22, 0).add(0, 1.4, 0);
+        });
+        film.shot("p25").length(60).hidden()
+                .onReady(() -> {
+                    Vec3 dir = at(swarm).subtract(at(street)).multiply(1, 0, 1).normalize(), side = new Vec3(-dir.z, 0, dir.x);
+                    for (int i = -2; i <= 2; i++) salvo("drone", 6, 40, swarm, behind(street, at(swarm), 900).add(side.scale(i * 40)));
+                })
+                .camera(() -> {
+                    Vec3 c = cam25[0];
+                    Vec3 dir = at(swarm).subtract(c).multiply(1, 0, 1).normalize();
+                    return CineCamera.track(c, film.smoothFocus(() -> swarmCentre(c, 400, 6, WeaponType.DRONE),
+                            c.subtract(dir.scale(100)).add(0, 36, 0), 0.2), 34);
+                })
+                .when(() -> flightOver(at(street), 220, WeaponType.DRONE), 3000);
     }
 
     /** p23: дирижабль (своя сцена). */
@@ -2042,7 +2073,8 @@ final class War {
                 for (int el = 4; el <= 28; el += 6) {
                     rays++;
                     Vec3 dir = Vec3.directionFromRotation(-el, yaw0 + dy);
-                    var hit = mc.level.clip(new ClipContext(cam, cam.add(dir.scale(30)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
+                    // путь шахеда: вода его останавливает, как блок
+                    var hit = mc.level.clip(new ClipContext(cam, cam.add(dir.scale(30)), ClipContext.Block.VISUAL, ClipContext.Fluid.ANY,
                             CollisionContext.empty()));
                     if (hit.getType() == HitResult.Type.MISS) open++;
                 }

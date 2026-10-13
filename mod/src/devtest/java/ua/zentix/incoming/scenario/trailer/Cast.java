@@ -37,8 +37,12 @@ final class Cast {
     private java.lang.reflect.Constructor<?> args;
     private java.lang.reflect.Method call;
 
+    /** Повороты статистов — плавно, как у игрока ({@link Neck}). */
+    private final Neck neck;
+
     Cast(MinecraftServer server) {
         this.server = server;
+        this.neck = new Neck(this, server);
     }
 
     /** Метод Almighty с параметрами JSON; ошибка — в лог (ответ не нужен: сценарий смотрит на сам мир). */
@@ -77,6 +81,7 @@ final class Cast {
 
     void spawn(String name, Vec3 at, float yaw, String skin) {
         joining.add(name);
+        neck.add(name);
         JsonObject p = new JsonObject();
         p.addProperty("name", name);
         p.add("pos", vec(at));
@@ -92,8 +97,17 @@ final class Cast {
         });
     }
 
+    /**
+     * Поворот бота — ровно как ставят шаги, без плавности {@link Neck}: наводчик, рабочий, пилот — там, где по повороту
+     * бота целятся, копают или правят (плавный поворот догонял бы цель с запаздыванием).
+     */
+    void steady(String name) {
+        neck.remove(name);
+    }
+
     void remove(String name) {
         joining.remove(name);
+        neck.remove(name);
         JsonObject p = new JsonObject();
         p.addProperty("name", name);
         call("bot.remove", p);
@@ -143,6 +157,14 @@ final class Cast {
 
     static JsonObject lookAt(Vec3 p) {
         return step("look_at", vec(p));
+    }
+
+    /** Повернуться на столько градусов (курс, тангаж) от нынешнего поворота. */
+    static JsonObject turn(double yaw, double pitch) {
+        JsonArray a = new JsonArray();
+        a.add(yaw);
+        a.add(pitch);
+        return step("turn", a);
     }
 
     static JsonObject walkTo(double x, double z, boolean sprint) {

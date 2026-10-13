@@ -231,6 +231,34 @@ final class Rig {
         };
     }
 
+    /**
+     * Пуск снаряда {@code weapon} с пусковых у {@code near} (место появления не дальше {@code radius} блоков по горизонтали),
+     * появившегося в окне плана (с запасом 40 тиков до начала): тот, что камера сценария держит в кадре дольше всех, без
+     * камеры — первый. 13.10 p40b: «полёт» по всему журналу взял снаряд, который уже ушёл в туман у края прорисовки, а
+     * камера смотрела на свою пусковую.
+     */
+    static Function<EventLog.Data, Subject> launch(String weapon, Vec3 near, double radius) {
+        return d -> {
+            EventLog.Mark start = d.mark("start"), end = d.mark("end");
+            int a = start == null ? 0 : start.t(), b = end == null ? d.ticks - 1 : end.t();
+            List<EventLog.Flight> all = d.of(weapon).stream().filter(f -> !f.at.isEmpty() && f.first() >= a - 40 && f.first() <= b)
+                    .filter(f -> {
+                        Vec3 p = f.pos(f.first());
+                        return p != null && Math.hypot(p.x - near.x, p.z - near.z) <= radius;
+                    })
+                    .sorted(Comparator.comparingInt(EventLog.Flight::first)).toList();
+            if (all.isEmpty()) return null;
+            CineCamera.Path cam = recorded(d);
+            EventLog.Flight f = all.get(0);
+            if (cam != null) {
+                double clouds = cloudBase();
+                f = all.stream().max(Comparator.comparingDouble((EventLog.Flight x) -> framed(x, cam, a, b, clouds, false))
+                        .thenComparingDouble(x -> framed(x, cam, a, b, clouds, true))).orElseThrow();
+            }
+            return new Subject(weapon, f.id, sizeOf(weapon), f::pos, f.first(), f.last(), -1, null, 0);
+        };
+    }
+
     /** Неподвижное место (пейзаж, площадь), без события. */
     static Function<EventLog.Data, Subject> place(Vec3 p, double size) {
         return d -> new Subject("место", null, size, t -> p, 0, d.ticks - 1, -1, null, 0);
@@ -469,6 +497,49 @@ final class Rig {
             };
             return List.of(new Candidate(String.format(Locale.ROOT, "chase-%.0fmm-b%.0f-u%.0f-s%.0f-r%d", mm, back, up, side, release),
                     follow(t -> pos.at(t).pos(), s, a, b, 2, mm), mm, true));
+        };
+    }
+
+    /**
+     * Следящая камера пуска, как снимают пуски NASA и SpaceX: с земли сбоку от стартового стола, длинным фокусом, ровной
+     * панорамой за ракетой (13.10, Артём: кран за МБР поднимался «резко, дёргано, в такт подлагиваниям»). Камера — в
+     * {@code dist} блоках от места, где объект появился (стол), по кругу через {@code azStep}°, на 1,6 блока над землёй;
+     * взгляд — прямо на объект ({@link Operator} ведёт его ровно, без запаздывания); объектив — объект около {@code share}
+     * высоты кадра по ходу полёта, от 35 до 300 мм, меняется плавно, как трансфокатор у оператора.
+     */
+    static Kind launchTracker(double[] dists, double azStep, double share) {
+        return (s, a, b, w, d) -> {
+            List<Candidate> out = new ArrayList<>();
+            Vec3 pad = s.at.apply(s.first);
+            if (pad == null) return out;
+            for (double dist : dists) {
+                for (double az = 0; az < 360; az += azStep) {
+                    double r = Math.toRadians(az), gx = pad.x + Math.cos(r) * dist, gz = pad.z + Math.sin(r) * dist;
+                    double g = w.ground(gx, gz);
+                    if (Double.isNaN(g)) continue;
+                    Vec3 cam = new Vec3(gx, g + 1.6, gz);
+                    int from = a - 130;
+                    double[] mm = new double[b - from + 14];
+                    for (int i = 0; i < mm.length; i++) {
+                        Vec3 p = s.aim(from + i);
+                        double dd = p == null ? dist : cam.distanceTo(p);
+                        mm[i] = Mth.clamp(12 * 2 * dd * share / Math.max(1, s.size), 35, 300);
+                    }
+                    double[] zoom = Operator.gauss(mm, 10);
+                    CineCamera.Path look = follow(t -> cam, s, a, b, 0.01, 50);
+                    CineCamera.Path path = t -> {
+                        Pose p = look.at(t);
+                        double u = Mth.clamp(t - from, 0, zoom.length - 1);
+                        int i = (int) Math.floor(u);
+                        double m = Mth.lerp(u - i, zoom[i], zoom[Math.min(zoom.length - 1, i + 1)]);
+                        return new Pose(p.pos(), p.yaw(), p.pitch(), 0, fov(m));
+                    };
+                    // задумана для плана, как камера сценария: идёт в вывод первой по оценке среди задуманных
+                    out.add(new Candidate(String.format(Locale.ROOT, "track-%.0fmm-d%.0f-a%.0f", zoom[a - from], dist, az), path, zoom[a - from],
+                            false, true));
+                }
+            }
+            return out;
         };
     }
 

@@ -145,6 +145,7 @@ final class AirshipScene {
             forceload(level, true);
             Vec3 g = p(40, 0, 30);
             cast().spawn(GUNNER, new Vec3(g.x, ground(level, g), g.z), yaw + 180, null);
+            cast().steady(GUNNER);  // пульт берёт цель по его взгляду
         });
         waitServer(level -> cast().player(GUNNER) != null && areaReady(level), 1200, "наводчик и район сцены");
         // ЗРК заранее: направляющие заряжаются по одной за 8 с

@@ -98,6 +98,11 @@ final class Coverage {
         return Rig.tripod(new double[]{120, 200, 300}, 20, new double[]{-5, 5, 15, 30}, 0.25);
     }
 
+    /** Следящая камера пуска с земли сбоку от стола (как пуски NASA и SpaceX). */
+    private static Rig.Kind tracker() {
+        return Rig.launchTracker(new double[]{140, 200, 260}, 45, 0.18);
+    }
+
     // объективы по типу камеры: дальний штатив 85–135 мм, штатив и кран 35–50, погоня 24–35; камеры сценария — со своими
     static {
         // I · подготовка
@@ -135,17 +140,18 @@ final class Coverage {
         // b: перехваты и прорыв — удар шахеда, который ЗРК не сбили, в кадре
         own("p22b", Rig.framedImpact("drone"), false, new Need(0.25, 0, 0.6, 0), tripod());
         own("p23", Rig.impact("missile", null, 0), true, HIT);
-        own("p23b", Rig.impact("missile", null, 0), false, HIT);
+        own("p23b", Rig.impact("missile", null, 0), false, HIT, tripod());
         own("p24", Rig.scene(), false, SCENE);
         own("p24b", Rig.scene(), false, SCENE);
         own("p24c", Rig.scene(), false, SCENE);
-        own("p25", Rig.flight("drone"), false, new Need(0.5, 0, 0, 0));
+        own("p25", Rig.flight("drone"), false, new Need(0.5, 0, 0, 0), Rig.own(false, 50));
         // секунда холодного начала (план 1, склейка d)
         own("p01d", 30, Rig.flight("drone"), false, OVERHEAD);
         own("p01a", Rig.impact("missile", War.T2, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(28, 9, 1.8, 2.4, 20));
         own("p01b", Rig.impact("missile", War.T3, 0), false, new Need(0.5, 0.6, 0.7, 0), tripod());
         own("p26", Rig.impact("rocket", War.p26Hit(), 0), true, new Need(0, 0, 0.4, 0));
-        own("p28", Rig.impact("rocket", War.P28_PACK.get(0), 0), true, new Need(0, 0, 0.4, 0));
+        // объект — удар, который FPV снимает лучше всех: ближайший к точке пакета ложился за камерой (13.10: «удар не виден»)
+        own("p28", Rig.framedImpact("rocket"), true, new Need(0, 0, 0.4, 0));
         own("p29", Rig.impact("drone", null, 0), false, new Need(0.3, 0.5, 0.7, 0));
         own("p30", Rig.impact("drone", new Vec3(3150.5, 0, 300.5), 0), false, new Need(0.3, 0.6, 0, 0));
         own("p01e", Rig.firstImpact("rocket"), false, HIT);
@@ -156,20 +162,23 @@ final class Coverage {
         // камера сценария ведёт шахед, ближайший к батарее, а удар ближе всех к её центру — часто другой шахед залпа (netcup:
         // объект в кадре 0 %): объект — удар того шахеда, которого камера снимает лучше всех
         own("p36", Rig.framedImpact("drone"), false, new Need(0.5, 0.6, 0.7, 0), Rig.own(false, 45), tripod());
-        own("p37", Rig.impact("bunker", new Vec3(3360.5, 0, 470.5), 0), false, new Need(0.3, 0, 0.5, 0));
+        // камера сценария бывала вне мира повтора (13.10) — запасные: погоня за бомбой и штатив по кругу
+        own("p37", Rig.impact("bunker", new Vec3(3360.5, 0, 470.5), 0), false, new Need(0.3, 0, 0.5, 0), Rig.chase(35, 20, 6, 8, 12), tripod());
         own("p38", Rig.flight("drone"), false, OVERHEAD, Rig.own(false, 24));
         own("p39a", Rig.impact("rocket", new Vec3(2930.5, 0, 260.5), 0), false, HIT);
         // шахеды батареей по местам, видимым из камеры: объект — удар, который камера снимает лучше всех
-        own("p39b", Rig.framedImpact("drone"), false, HIT);
-        own("p39c", Rig.impact("missile", War.T1.add(0, -40, 0), 0), false, HIT);
+        own("p39b", Rig.framedImpact("drone"), false, HIT, tripod());
+        own("p39c", Rig.impact("missile", War.T1.add(0, -40, 0), 0), false, HIT, tripod());
         own("p39d", Rig.impact("rocket", new Vec3(3200.5, 0, 260.5), 0), false, HIT);
         // IV · конец света
-        own("p40b", Rig.flight("rocket"), false, LAUNCH);
+        // пуск своей пусковой (13.10: «полёт» по всему журналу взял снаряд в тумане у края прорисовки)
+        add(new Spec("p40b", "p40b", Rig.launch("rocket", War.BATTERY, 150), List.of(Rig.own(false), Rig.own(false, 35), tripod()), 0.004, LAUNCH));
         own("p40c", Rig.flight("missile"), false, LAUNCH);
         // монтаж берёт первые 4,1 с из пяти; МБР входит в слой облаков (320) своим разгоном на ~2,7 с плана — дальше в кадре
         // её след под облаками, «уходит в ночь»
-        add(new Spec("p41", "p41", Rig.flight("nuke"), List.of(Rig.own(false)), 0.004, LAUNCH, 100, 86));
-        own("p42", Rig.flight("nuke"), false, new Need(0.7, 0, 0, 0));
+        // запасные — следящая камера сбоку от стола, длинным фокусом (как пуски NASA), и тот же кран шире
+        add(new Spec("p41", "p41", Rig.flight("nuke"), List.of(Rig.own(false), tracker(), Rig.own(false, 20)), 0.004, LAUNCH, 100, 86));
+        own("p42", Rig.flight("nuke"), false, new Need(0.7, 0, 0, 0), tracker());
         own("p44", Rig.scene(), false, SCENE);
         own("p45", Rig.nuke(300), false, SCENE.smokeIsSubject());
         own("p46", Rig.nuke(300), false, SCENE.smokeIsSubject(), Rig.own(false, 21));
