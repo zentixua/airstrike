@@ -691,28 +691,6 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual((c.numbers["moved"], c.numbers["covered"]), (shot.a - 200, c.numbers["checks"]), printed)
         self.assertNotIn("скорость ×", printed, "найденное окно — без обхода медленнее или сдвигом")
 
-    def test_fpv(self):
-        """FPV: проходы над самыми жаркими ударами, не перекрываются, по времени; крен в виражах, ночь, запас по высоте."""
-        r = clips.Replay(history((0, 2100)), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
-        r._view = (30, "test")  # прорисовка с запасом: курс прохода выбирается по ударам в кадре, не по чанкам
-        r.fpv_specs = [clips.fpv_spec("shots=2 seconds=9 time=night")]
-        with contextlib.redirect_stdout(io.StringIO()) as printed:
-            c = r.fpv()
-        self.assertEqual(len(c), 1, printed.getvalue())
-        shots = c[0].shots
-        self.assertEqual([s.a for s in shots], [1250 - 54, 1650 - 54], "удар — на 30 % прохода, проходы по времени")
-        self.assertEqual(c[0].preview, "fly")
-        cam = shots[1].camera
-        self.assertEqual((cam["time"], cam["rise"]), (18000, [0, 12, 24]))
-        rolls = [k["roll"] for k in cam["keys"]]
-        self.assertTrue(any(abs(x) > 3 for x in rolls) and all(abs(x) <= 30 for x in rolls), rolls)
-        self.assertGreaterEqual(len(shots[1].subject["keys"]), 2, "жаркий проход: удары 1650–1670 в кадре\n" + printed.getvalue())
-        k0 = cam["keys"][0]
-        self.assertAlmostEqual(k0["eye"][1] - 64, r.FPV_HIGH, delta=1, msg="начало — выше, потом пике к удару")
-        plan = film_plan.film_shot(r.con, "fly-0", shots[1].json())
-        self.assertEqual((plan["time"], plan["cameras"][0]["rise"]), (18000, [0, 12, 24]))
-        self.assertIn("roll", plan["cameras"][0]["keys"][0])
-
     def test_roll_frame(self):
         """Крен плюс — влево, как у ключа Flashback (Cameras.View.rolled): точка справа на горизонте — ниже середины."""
         x, y = clips.frame((0, 0, 0, 0, 0, 30), 1, 1, (-5, 0, 10))
@@ -739,6 +717,56 @@ class HistoryTest(unittest.TestCase):
         top = clips.Replay.seen_chunks(r, DIM, 2)
         self.assertEqual(top[(0, 0)], [(0, 10 ** 9)])
         self.assertTrue(clips.Replay.seen_at(top, (0.5, 64, 0.5), 350), "в Незере верхний мир остаётся")
+
+
+def strikes() -> Path:
+    """Записавший у порта всю запись (прорисовка 20 чанков по обновлениям блоков); шахеды с запада бьют по земле у порта:
+    одиночный в 400, пять кучно в 1200–1260; удар без снаряда в 1600; шахед у края прорисовки в 1800."""
+    s = Scan()
+    base = (-600.5, 64.0, 60.5)
+
+    def drone(uid: str, t_hit: int, hit: tuple):
+        s.entity("airstrike:drone", uid, t_hit - 200, t_hit, line((hit[0] - 420, 90.0, hit[2]), hit, t_hit - 200, t_hit))
+        s.blast(t_hit, "airstrike:blast", hit, uid)
+    drone("D-solo", 400, base)
+    for k in range(5):
+        drone(f"D-{k}", 1200 + 15 * k, (base[0] + 10 * k, 64.0, base[2] + 5 * k))
+    s.blast(1600, "airstrike:blast", base, None)
+    drone("D-edge", 1800, (base[0] + 250, 64.0, base[2]))
+    for i, t in enumerate(range(0, 2100, 7)):
+        s.rows["blocks"].append([t, DIM, math.floor(PORT[0]) + 16 * (i % 21), 64, math.floor(PORT[2]), "minecraft:air"])
+    tmp = Path(tempfile.mkdtemp(prefix="clips-strikes-"))
+    s.write(tmp / "scan", 2100, lambda t: PORT)
+    return replaydb.build(argparse.Namespace(dir=str(tmp / "scan"), db=None, fov=70, aspect=9 / 16, center=0.7, soft=2))
+
+
+class FpvTest(unittest.TestCase):
+    """Проходы FPV: что снимать (удар, снаряд, место для полёта) — здесь, путь — пилот съёмки."""
+
+    def test_fpv(self):
+        r = clips.Replay(strikes(), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
+        r.fpv_specs = [clips.fpv_spec("shots=4 seconds=9 time=night")]
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            c = r.fpv()
+        out = printed.getvalue()
+        self.assertEqual(r.view_radius()[0], 20, out)
+        self.assertEqual(len(c), 1, out)
+        shots = c[0].shots
+        self.assertEqual([s.a for s in shots], [400 - 81, 1200 - 81], "удар — на 45 % прохода, проходы по времени\n" + out)
+        self.assertEqual([s.subject["uuid"] for s in shots], ["D-solo", "D-0"], "самый жаркий — куча 1200–1260, потом одиночный")
+        self.assertIn("без снаряда 1, тесных 1", out, "удар без снаряда и у края прорисовки не берутся")
+        self.assertEqual(shots[1].camera, {"kind": "pilot", "fov": 80.0, "dim": DIM, "time": 18000})
+        self.assertEqual((shots[1].kind, shots[1].subject["weapon"], [k["t"] for k in shots[1].subject["keys"]]), ("fpv", "shahed", [1200]))
+        self.assertIn("рядом ударов за проход 5", shots[1].why)
+        plan = film_plan.film_shot(r.con, "fly-0", shots[1].json())
+        self.assertEqual(plan["cameras"], [{"kind": "pilot", "fov": 80.0}])
+        self.assertEqual((plan["time"], plan["hold"], plan["far"], plan["need"]["keys"]), (18000, 100, False, 1))
+        self.assertTrue(plan["subject"]["path"] and plan["subject"]["path"][-1][0] == 1200, "путь снаряда до удара — пилоту")
+        self.assertIn([400, -600.5, 64.0, 60.5, 12], plan["smoke"], "дым прежних ударов — с поперечником шара шахеда")
+        self.assertIn([1200, -600.5, 64.0, 60.5, 12], plan["smoke"], "и ударов прохода")
+        hit = shots[1].subject["keys"][0]["id"]
+        film_plan._HIT_WEAPONS[id(r.con)] = (object(), {hit: "icbm"})
+        self.assertEqual(film_plan.hit_weapons(r.con)[hit], "shahed", "запись закрытой базы по тому же адресу — не этой")
 
 
 NETHER = "minecraft:the_nether"

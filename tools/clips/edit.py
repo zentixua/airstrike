@@ -221,6 +221,11 @@ def fly_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
     """Подпись пролёта свободной камеры: удары в кадре и оружие налёта."""
     k, sec = n.get("impacts", 0), round(n.get("seconds", 0))
     raid_en, raid_ru = (f"a raid of {en}", f"налёта ({ru})") if en and en != "fly" else ("an air raid", "налёта")
+    if n.get("passes"):
+        # проходы FPV — склейка проходов мимо ударов
+        p = n["passes"]
+        return ((f"FPV drone passes by {p} strikes during {raid_en}." if p > 1 else f"An FPV drone pass by a strike during {raid_en}."),
+                (f"Проходы FPV-дрона мимо ударов во время {raid_ru}: {p}." if p > 1 else f"Проход FPV-дрона мимо удара во время {raid_ru}."))
     if k > 1:
         return (f"A slow camera flight during {raid_en}: {k} strikes in view in {sec} seconds.",
                 f"Медленный пролёт камеры во время {raid_ru}: ударов в кадре за {sec} секунд — {k}.")
@@ -233,7 +238,9 @@ def shown(cand: dict, kept: list[dict]) -> dict:
     """Числа кандидата для подписи — только о планах, которые вошли в ролик (план глазами одного игрока бывает слит из
     нескольких: `drones-0-flyby+shootdown`)."""
     if cand.get("preview") in ("pov", "fly"):
-        # отрезок глазами игрока и пролёт — один план, его события все
+        # отрезок глазами игрока и пролёт — один план, его события все; проходы FPV — сколько их вошло
+        if cand.get("numbers", {}).get("passes"):
+            return {**cand, "numbers": {**cand["numbers"], "passes": len(kept)}}
         return cand
     n = dict(cand.get("numbers", {}))
     has = lambda part: any(part in s["name"].rsplit("-", 1)[-1].split("+") for s in kept)  # noqa: E731

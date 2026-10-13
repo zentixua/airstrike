@@ -214,7 +214,9 @@ final class Cameras {
     }
 
     /** Кандидаты одной камеры плана. */
-    static List<Candidate> of(Plan.Camera c, Subject s, int a, int b, double aspect, World w) {
+    static List<Candidate> of(Plan.Camera c, Plan.Shot shot, double aspect, World w) {
+        Subject s = shot.subject();
+        int a = shot.a(), b = shot.b();
         List<Candidate> out = new ArrayList<>();
         switch (c.kind()) {
             case "pov" -> out.add(new Candidate("pov-" + c.player().replaceAll("[^A-Za-z0-9_.-]", "_"), null, c.player(), c.gui(), c.fov(), true, false));
@@ -263,8 +265,51 @@ final class Cameras {
                     out.add(new Candidate(name, along(keys, c.fov()), null, false, c.fov(), true, true));
                 }
             }
+            case "pilot" -> out.addAll(pilot(c, shot, aspect, w));
             default -> throw new IllegalArgumentException("unknown camera " + c.kind());
         }
+        return out;
+    }
+
+    /** Полётов пилота на план (лучшие разные). */
+    static final int PILOT_FLIGHTS = 3;
+    /** Рельеф для пилота — квадрат стольких блоков от удара в каждую сторону (проход и лучи низа кадра в нём). */
+    static final int PILOT_REACH = 400;
+
+    /**
+     * Камера FPV пилота ({@link Pilot}): полёты мимо удара плана по миру повтора у клиента и дыму ударов
+     * ({@link Plume}), с руками оператора и толчками взрывов ({@link Hands}); удара в окне нет — кандидатов нет.
+     */
+    static List<Candidate> pilot(Plan.Camera c, Plan.Shot shot, double aspect, World w) {
+        Subject s = shot.subject();
+        Subject.Key main = Pilot.mainKey(s, shot.a(), shot.b());
+        if (main == null) {
+            Film.LOG.warn("Film: {}: pilot: no event in the shot", shot.name());
+            return List.of();
+        }
+        long start = System.nanoTime();
+        List<Plume> plumes = new ArrayList<>();
+        for (double[] row : shot.smoke()) {
+            Plume p = Plume.of(row);
+            // удар плана — со своим огненным шаром
+            Subject.Key k = s.keys.stream().filter(o -> Math.abs(o.t() - p.t()) <= 2 && o.pos().distanceTo(p.pos()) <= 4).findFirst().orElse(null);
+            plumes.add(k == null ? p : new Plume(p.t(), p.pos(), k.size()));
+        }
+        if (plumes.stream().noneMatch(p -> Math.abs(p.t() - main.t()) <= 2 && p.pos().distanceTo(main.pos()) <= 4))
+            plumes.add(new Plume(main.t(), main.pos(), main.size()));
+        Pilot.Grid grid = new Pilot.Grid((x, z) -> w.ground(x, z), Mth.floor(main.pos().x), Mth.floor(main.pos().z), PILOT_REACH);
+        Pilot pilot = new Pilot(shot.a(), shot.b(), c.fov(), aspect, s, main, plumes, grid, shot.name().hashCode());
+        List<Hands.Blast> blasts = plumes.stream().filter(p -> p.t() >= shot.a() - 80 && p.t() <= shot.b())
+                .map(p -> new Hands.Blast(p.t(), p.pos(), p.size())).toList();
+        List<Candidate> out = new ArrayList<>();
+        for (Pilot.Flight f : pilot.plan(PILOT_FLIGHTS)) {
+            Film.LOG.info("Film: {}: {}: {}", shot.name(), f.name(), f.why());
+            Path p = Hands.humanize(pilot.path(f), shot.name().hashCode() * 31L + f.name().hashCode(), blasts,
+                    shot.a() - Pilot.BEFORE, shot.b() + Pilot.AFTER);
+            out.add(new Candidate(f.name(), p, null, false, c.fov(), true, false));
+        }
+        Film.LOG.info("Film: {}: pilot planned {} flights past the hit at tick {} in {} ms", shot.name(), out.size(), main.t(),
+                (System.nanoTime() - start) / 1_000_000);
         return out;
     }
 
@@ -420,25 +465,13 @@ final class Cameras {
     }
 
     /**
-     * Дым прежних ударов ({@code [t, x, y, z]}): столб над местом удара последней минуты — 20 блоков в поперечнике и 50
-     * вверх; линия взгляда сквозь него — кадр в дыму.
+     * Дым ударов плана ({@code [t, x, y, z]} и поперечник шара, где известен) на линии взгляда — по модели дыма удара
+     * ({@link Plume}): столб удара, который ещё дымит, и не свой дым цели.
      */
     static boolean smokeOnLine(Vec3 from, Vec3 to, List<double[]> smoke, int t) {
         for (double[] h : smoke) {
-            if (h[0] >= t - 10 || h[0] < t - 1200) continue;
-            Vec3 base = new Vec3(h[1], h[2], h[3]);
-            if (base.distanceTo(to) <= 12) continue;
-            for (int k = 0; k <= 50; k += 10) {
-                if (distToSegment(base.add(0, k, 0), from, to) < 10) return true;
-            }
+            if (h[0] <= t && Plume.of(h).blocks(from, to, t)) return true;
         }
         return false;
-    }
-
-    static double distToSegment(Vec3 p, Vec3 a, Vec3 b) {
-        Vec3 ab = b.subtract(a);
-        double len2 = ab.lengthSqr();
-        double u = len2 < 1e-9 ? 0 : Mth.clamp(p.subtract(a).dot(ab) / len2, 0, 1);
-        return p.distanceTo(a.add(ab.scale(u)));
     }
 }
