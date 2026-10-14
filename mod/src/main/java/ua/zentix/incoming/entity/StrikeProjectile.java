@@ -1396,7 +1396,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         arrivals.add(new ArrivalQueue.Sample(x, y, z, yRot, xRot));
     }
 
-    /** Место на этот тик клиента — из очереди; пуста — прошлым шагом в долг ({@link ArrivalQueue}). */
+    /** Место на этот тик клиента — из очереди; пуста — прогноз в долг от последнего пришедшего места ({@link ArrivalQueue}). */
     private void clientLerp() {
         ArrivalQueue.Sample s = arrivals.next(getX(), getY(), getZ(), getYRot(), getXRot());
         if (s != null) lerpPositionAndRotationStep(1, s.x(), s.y(), s.z(), s.yRot(), s.xRot());

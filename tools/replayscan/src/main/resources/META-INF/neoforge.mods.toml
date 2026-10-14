@@ -1,0 +1,24 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "GPL-3.0-only"
+
+[[mods]]
+modId = "replayscan"
+version = "1.0.0"
+displayName = "Replay Scan"
+authors = "ZentixUA"
+description = '''Opens a Flashback replay without a window, plays it through and writes what happened in it to tables: entities, events, mod packets, block changes, and what the recording player could see. With -Dreplayscan.film it films a plan of shots from the replay and checks every frame. A tool of the Incoming repository; does nothing unless started with -Dreplayscan.replay or -Dreplayscan.film.'''
+
+[[dependencies.replayscan]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.replayscan]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1]"
+ordering = "NONE"
+side = "CLIENT"

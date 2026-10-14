@@ -1,0 +1,89 @@
+// Разбор повторов Flashback в таблицы (README.md): клиентский мод без зависимости от Incoming — повтор старой игры
+// смотрится с jar Incoming того дня. Сборка и юнит-тесты: mod/gradlew -p tools/replayscan build
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.147'
+}
+
+group = 'ua.zentix.replayscan'
+base { archivesName = 'replayscan' }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+repositories {
+    // Distant Horizons API (у DH своего maven нет; Modrinth отдаёт файлы проекта как maven)
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+    mavenCentral()
+}
+
+// Моды запуска (-PmodsDir=<каталог>): все jar оттуда — в run/mods. Нужны Flashback 0.39, Flashback NeoForge Fixed,
+// Sinytra Connector, Forgified Fabric API и моды записи (Incoming того дня, Create, Sable, Aeronautics…)
+def modsDir = project.findProperty('modsDir')
+
+neoForge {
+    version = project.neo_version
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+    runs {
+        // клиент без окна (xvfb-run): открывает повтор, проигрывает его (или снимает по плану -Pfilm) и выходит; свойства —
+        // -P<имя> → replayscan.<имя>
+        client {
+            client()
+            gameDirectory = project.file(project.findProperty('runDir') ?: 'run')
+            ['replay', 'out', 'speed', 'viewers', 'every', 'range', 'subjects', 'ask', 'from', 'to', 'film'].each { key ->
+                def value = project.findProperty(key)
+                if (value == null) return
+                // пути — от каталога, где запущен Gradle (игра идёт в своём каталоге запуска)
+                if (key in ['replay', 'out', 'ask', 'film']) {
+                    def f = new File(value.toString())
+                    value = (f.absolute ? f : new File(gradle.startParameter.currentDir, value.toString())).absolutePath
+                }
+                systemProperty "replayscan.${key}", value.toString()
+            }
+            // Connector ищет «чистый» jar клиента, как в раскладке лаунчера (установщик NeoForge: libraries/net/minecraft/client/…-srg.jar)
+            def clean = project.findProperty('connectorClean') ?: System.getenv('CONNECTOR_CLEAN')
+            if (clean) systemProperty 'connector.clean.path', clean.toString()
+            programArguments.addAll '--width', '640', '--height', '360'
+            // память клиента (-Pxmx): мир повтора со всей сборкой и долгая запись — больше 6 ГБ
+            jvmArgument "-Xmx${project.findProperty('xmx') ?: '6g'}"
+        }
+        configureEach {
+            logLevel = org.slf4j.event.Level.INFO
+        }
+    }
+    mods {
+        replayscan {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+neoForge.addModdingDependenciesTo(sourceSets.test)
+
+tasks.register('copyRunMods', Sync) {
+    from(modsDir ?: 'no-mods-dir') { include '*.jar' }
+    into({ "${project.findProperty('runDir') ?: 'run'}/mods" })
+    onlyIf { modsDir != null }
+}
+tasks.matching { it.name == 'runClient' }.configureEach { dependsOn 'copyRunMods' }
+
+dependencies {
+    // Distant Horizons: только API для компиляции — проверка глубины LOD в кадрах съёмки, если DH стоит (film/DhDepth)
+    compileOnly "maven.modrinth:distanthorizonsapi:${dh_api_version}"
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all,-processing,-serial,-classfile,-this-escape', '-Xmaxerrs', '1000']
+}
