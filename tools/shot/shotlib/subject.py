@@ -79,11 +79,11 @@ def _of(sc: Scene, weapon: str) -> list[Track]:
 
 
 def pick(sc: Scene, sel: str, span: int = 0) -> Pick:
-    """Выбор по строке: `impact:W[@x,z][#n]`, `first:W`, `framed:W`, `flight:W`, `launch:W@x,z[,r]`, `nuke`,
-    `auto` (удар в окне, лучший у камеры сценария; нет — снаряд, которого она держит дольше всех)."""
+    """Выбор по строке: `impact:W[@x,z][#n]`, `first:W`, `framed:W`, `flight:W`, `launch:W@x,z[,r]`, `track:<номер>`,
+    `nuke`, `auto` (удар в окне, лучший у камеры сценария; нет — снаряд, которого она держит дольше всех). Выбирает по
+    всему окну «start»…«end», как трейлер; `span` режет только окно плана (13.10 p12: выбор по первым 30 тикам взял
+    другой шахед, чем вывод)."""
     a0, b0 = window(sc)
-    if span > 0:
-        b0 = min(b0, a0 + span)
     m = re.fullmatch(r"(\w+)(?::([\w*]+))?(?:@(-?[\d.]+),(-?[\d.]+)(?:,([\d.]+))?)?(?:#(\d+))?", sel.strip())
     if not m:
         raise SystemExit(f"не понял объект плана: {sel}")
@@ -138,6 +138,13 @@ def pick(sc: Scene, sel: str, span: int = 0) -> Pick:
         if tr.last < a0 or tr.first > b0:
             raise SystemExit(f"{sel}: в окне {a0}..{b0} полёта нет (журнал не записал снаряд — чинить постановку)")
         p = Pick(tr.weapon, tr, -1, None, size_of(tr.weapon), 0.0, a0, b0)
+    elif kind == "track":
+        # путь журнала по номеру: тот, что ведёт вывод, когда `check` говорит «другой объект»
+        tr = sc.tracks.get(weapon)
+        if tr is None or not len(tr.t):
+            raise SystemExit(f"{sel}: пути нет")
+        im = hit(tr)
+        p = with_key(tr, im, f"{tr.weapon} → удар") if im else Pick(tr.weapon, tr, -1, None, size_of(tr.weapon), 0.0, a0, b0)
     elif kind == "scene":
         raise SystemExit("план-сцена без объекта: камеру выбирает сценарий")
     elif kind == "nuke":
@@ -147,6 +154,8 @@ def pick(sc: Scene, sel: str, span: int = 0) -> Pick:
         p = Pick("ядерный подрыв", None, t, pos, 300.0, 300.0, a0, b0, overlay=True)
     else:
         raise SystemExit(f"не знаю объект «{kind}»")
+    if span > 0:
+        p.b = min(p.b, a0 + span)
     if p.key >= 0:
         p.a = min(p.a, p.key - HIT_MARGIN)
         p.b = max(p.b, p.key + HIT_MARGIN)

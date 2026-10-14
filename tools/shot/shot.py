@@ -23,6 +23,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 
@@ -78,9 +79,12 @@ def bounds(sc: S.Scene, p: J.Pick, radius: float) -> tuple[np.ndarray, np.ndarra
 
 
 def load_world(sc_path: str, p: J.Pick, sc: S.Scene, regions: str, radius: float, cache: str) -> W.World:
-    if os.path.exists(cache):
-        return W.load(cache)
+    """Карта рамки плана; кэш — только если накрывает рамку (другой объект плана — другая рамка)."""
     lo, hi = bounds(sc, p, radius)
+    if os.path.exists(cache):
+        w = W.load(cache)
+        if (w.origin <= lo).all() and (w.origin + np.array(w.kind.shape) >= hi).all():
+            return w
     t0 = time.time()
     w = W.from_regions(regions, lo, hi)
     known = float((w.kind != W.UNKNOWN).mean())
@@ -150,17 +154,32 @@ def line(name: str, r: V.Result) -> str:
 
 def choose(planned: dict, order: list[str]) -> str:
     """Какую камеру выводить: первое по замыслу тело (`order` — порядок тел плана: FPV, дрон, штатив…), которое проходит
-    проверку с запасом; ни одно не проходит — то, которому до нужного меньше всех не хватает."""
-    ok = [k for k in order if k in planned and planned[k].report.get("margin", -1) >= 0.05]
+    проверку с запасом и показывает объект почти как лучшее из прошедших: запас — не меньше лучшего без 0,2, кадры, где
+    объект в кадре и виден, — без 0,15 (13.10 p12: FPV с запасом 0,17 и объектом в 42 % кадров, ныряя в кроны, шёл
+    первым, а дрон давал 0,65 и 90 %). Ни одно не проходит — то, которому до нужного меньше всех не хватает."""
+    rep = {k: planned[k].report for k in planned}
+    ok = [k for k in order if k in rep and rep[k].get("margin", -1) >= 0.05]
     if ok:
-        return ok[0]
-    return max(planned, key=lambda k: (planned[k].report.get("margin", -1), -planned[k].cost))
+        best_m = max(rep[k].get("margin", -1) for k in ok)
+        best_f = max(rep[k].get("subject_framed", 0) for k in ok)
+        near = [k for k in ok if rep[k].get("margin", -1) >= best_m - 0.2 - 1e-9
+                and rep[k].get("subject_framed", 0) >= best_f - 0.15 - 1e-9]
+        return near[0] if near else max(ok, key=lambda k: rep[k].get("margin", -1) + rep[k].get("subject_framed", 0))
+    return max(planned, key=lambda k: (rep[k].get("margin", -1), -planned[k].cost))
+
+
+def subject_for(name: str, arg: str) -> str:
+    """`--subject`: одно на все планы или по планам — `p32=track:3,p12=flight:drone`."""
+    if "=" not in arg:
+        return arg
+    pairs = dict(x.split("=", 1) for x in re.split(r",(?=\w+=)", arg) if "=" in x)
+    return pairs.get(name, "")
 
 
 def plan_one(path: str, args, table: dict):
     name = os.path.basename(path).split(".")[0]
     entry = table.get(name, {})
-    sel = args.subject or entry.get("subject", "auto")
+    sel = subject_for(name, args.subject) or entry.get("subject", "auto")
     span = args.span if args.span is not None else entry.get("span", 0)
     out = os.path.join(args.out, name)
     os.makedirs(out, exist_ok=True)
@@ -169,6 +188,9 @@ def plan_one(path: str, args, table: dict):
     sc = S.from_eventlog(path, blank.world)
     sc.fog = args.fog
     sc.clouds = args.clouds
+    if args.shown:
+        # трейлер выбирает объект по местам, как их показывает вывод (`Shown`), — и здесь до выбора
+        S.smooth_tracks(sc, args.shown)
     p = J.pick(sc, sel, span)
     log(f"  {p.what}: окно {p.a}..{p.b}" + (f", удар {p.key} у {np.round(p.key_pos, 1).tolist()}" if p.key >= 0 else ""))
     w = load_world(path, p, sc, args.regions, args.radius, os.path.join(out, "world.npz"))
@@ -342,7 +364,7 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     # отставать от журнала на тик, и у ракеты в 8–10 блоков за тик это 10 блоков ровно. Сдвиг времени — свойство вывода,
     # а не изъян журнала: берётся лучший, сбит журнал — если и при нём объект далеко
     offs = {}
-    for lag in (-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0):
+    for lag in [k / 2 for k in range(-8, 5)]:  # −4…+2 тика: у film-war4 лучший сдвиг часто на краю −2
         pos_l, _ = subject_at(p, t + lag)
         d = np.linalg.norm(shown - pos_l, axis=1)[back]
         d = d[~np.isnan(d)]
@@ -467,7 +489,7 @@ def main(argv=None):
             s.add_argument("--shown", type=float, default=0.0,
                            help="журнал до очереди мест (film-war2 и раньше): пути снарядов сгладить гауссом σ тиков (≈1.5)")
         if name == "plan":
-            s.add_argument("--subject", default="", help="impact:W[@x,z][#n] first:W framed:W flight:W launch:W@x,z[,r] nuke auto")
+            s.add_argument("--subject", default="", help="impact:W[@x,z][#n] first:W framed:W flight:W launch:W@x,z[,r] track:<номер> nuke auto; по планам — p32=track:3,p12=…")
             s.add_argument("--span", type=int, default=None)
         if name == "demo":
             s.add_argument("--seed", type=int, default=3)

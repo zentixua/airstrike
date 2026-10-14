@@ -327,7 +327,9 @@ def read_eventlog(path: str):
 def from_eventlog(path: str, wld: W.World) -> Scene:
     flights, pts, people, cam, marks, impacts, nukes = read_eventlog(path)
     sc = Scene(wld)
-    for i, rows in pts.items():
+    # порядок путей — порядок появления (строки «new»), как `EventLog.Data.flights`: из равных трейлер берёт первый
+    born = {i: k for k, i in enumerate(flights)}
+    for i, rows in sorted(pts.items(), key=lambda kv: born.get(kv[0], len(born))):
         rows.sort()
         a = np.array(rows, dtype=np.float64)
         # один тик — одна точка

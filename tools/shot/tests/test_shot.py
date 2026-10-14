@@ -394,6 +394,61 @@ class PickTest(unittest.TestCase):
             self.assertEqual(J.pick(sc, "flight:drone").track.id, "2")
 
 
+    def test_span_cuts_the_window_not_the_choice(self):
+        # как `Rig.flight`: объект — тот, что камера держит в кадре дольше всех за всё окно «start»…«end»; `span` плана
+        # режет только окно проверки (13.10 p12: выбор по первым 30 тикам взял другой шахед, чем вывод)
+        with tempfile.TemporaryDirectory() as d:
+            ev = os.path.join(d, "p97.events.jsonl")
+            with open(ev, "w") as f:
+                f.write(json.dumps({"t": 0, "mark": "start"}) + "\n")
+                f.write(json.dumps({"t": 1, "new": 1, "id": "early", "weapon": "drone"}) + "\n")
+                f.write(json.dumps({"t": 1, "new": 2, "id": "late", "weapon": "drone"}) + "\n")
+                for t in range(1, 80):
+                    early = [80, 70, 5] if t < 30 else [80, 70, 400]
+                    late = [80, 70, 400] if t < 20 else [90, 70, 5]
+                    f.write(json.dumps({"t": t, "f": [[1, *early, "cruise", 7], [2, *late, "cruise", 7]],
+                                        "cam": [30, 70, 5, -90, 0, 0, 70]}) + "\n")
+                f.write(json.dumps({"t": 80, "mark": "end"}) + "\n")
+            sc = S.from_eventlog(ev, W.empty((0, 0, 0), (1, 1, 1)))
+            p = J.pick(sc, "flight:drone", 30)
+            self.assertEqual((p.track.id, p.a, p.b), ("2", 1, 30))
+            p = J.pick(sc, "track:1", 30)
+            self.assertEqual((p.track.id, p.key, p.b), ("1", -1, 30))
+
+    def test_ties_go_to_the_first_born(self):
+        # из равных ударов трейлер берёт первый по строкам «new» (`EventLog.Data.flights`), не по первой точке пути
+        with tempfile.TemporaryDirectory() as d:
+            ev = os.path.join(d, "p96.events.jsonl")
+            with open(ev, "w") as f:
+                f.write(json.dumps({"t": 0, "mark": "start"}) + "\n")
+                f.write(json.dumps({"t": 1, "new": 2, "id": "b", "weapon": "rocket"}) + "\n")
+                f.write(json.dumps({"t": 1, "new": 1, "id": "a", "weapon": "rocket"}) + "\n")
+                for t in range(1, 40):
+                    f.write(json.dumps({"t": t, "f": [[1, 50, 90 - t, 20, "cruise", 7], [2, 60, 90 - t, 20, "cruise", 7]]}) + "\n")
+                f.write(json.dumps({"t": 40, "impact": 1, "pos": [50, 50, 20]}) + "\n")
+                f.write(json.dumps({"t": 40, "impact": 2, "pos": [60, 50, 20]}) + "\n")
+                f.write(json.dumps({"t": 50, "mark": "end"}) + "\n")
+            sc = S.from_eventlog(ev, W.empty((0, 0, 0), (1, 1, 1)))
+            self.assertEqual(list(sc.tracks), ["2", "1"])
+            self.assertEqual(J.pick(sc, "first:rocket").track.id, "2")
+
+
+class ChooseTest(unittest.TestCase):
+    def test_first_by_intent_unless_much_worse(self):
+        R = lambda m, f: type("R", (), {"report": {"margin": m, "subject_framed": f}, "cost": 0.0})()  # noqa: E731
+        order = ["fpv", "drone", "tripod"]
+        # 13.10 p12: FPV проходит, но объект в 42 % кадров против 90 % у дрона — дрон
+        self.assertEqual(shot.choose({"fpv": R(0.17, 0.42), "drone": R(0.65, 0.90), "tripod": R(0.3, 0.8)}, order), "drone")
+        # FPV чуть хуже лучшего — FPV, как задумано
+        self.assertEqual(shot.choose({"fpv": R(0.5, 0.85), "drone": R(0.65, 0.90)}, order), "fpv")
+        # не проходит никто — у кого меньше всех не хватает
+        self.assertEqual(shot.choose({"fpv": R(-0.3, 0.2), "drone": R(-0.1, 0.5)}, order), "drone")
+        self.assertEqual(shot.subject_for("p32", "p32=track:3,p01b=impact:missile@2977.5,602.5"), "track:3")
+        self.assertEqual(shot.subject_for("p01b", "p32=track:3,p01b=impact:missile@2977.5,602.5"), "impact:missile@2977.5,602.5")
+        self.assertEqual(shot.subject_for("p12", "p32=track:3"), "")
+        self.assertEqual(shot.subject_for("p12", "flight:drone"), "flight:drone")
+
+
 def lines(path):
     with open(path, encoding="utf-8") as f:
         return [json.loads(x) for x in f if x.strip()]
