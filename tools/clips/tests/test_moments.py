@@ -776,10 +776,11 @@ class FpvTest(unittest.TestCase):
         self.assertIn("рядом ударов за проход 5", shots[1].why)
         plan = film_plan.film_shot(r.con, "fly-0", shots[1].json())
         self.assertEqual(plan["cameras"], [{"kind": "pilot", "fov": 80.0}])
-        self.assertEqual((plan["time"], plan["hold"], plan["far"], plan["need"]["keys"]), (18000, 100, False, 1))
+        self.assertEqual((plan["time"], plan["hold"], plan["far"], plan["need"]["keys"], plan["need"]["smother"]), (18000, 100, False, 1, 0.03),
+                         "кадров в дыму у камеры — не больше 3 %")
         self.assertTrue(plan["subject"]["path"] and plan["subject"]["path"][-1][0] == 1200, "путь снаряда до удара — пилоту")
-        self.assertIn([400, -600.5, 64.0, 60.5, 12], plan["smoke"], "дым прежних ударов — с поперечником шара шахеда")
-        self.assertIn([1200, -600.5, 64.0, 60.5, 12], plan["smoke"], "и ударов прохода")
+        self.assertIn([400, -600.5, 64.0, 60.5, 12, 2], plan["smoke"], "дым прежних ударов — с поперечником шара и видом взрыва шахеда")
+        self.assertIn([1200, -600.5, 64.0, 60.5, 12, 2], plan["smoke"], "и ударов прохода")
         # место названо человеком, а у края чанков места мало: снимается удар, где его больше всего
         r = clips.Replay(strikes(), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
         r.fpv_specs = [clips.fpv_spec("near=-350,60,40 shots=1 seconds=9 time=night")]

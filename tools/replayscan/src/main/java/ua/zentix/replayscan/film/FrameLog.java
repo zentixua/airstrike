@@ -34,6 +34,8 @@ import java.util.UUID;
  * просмотра кадров.
  */
 final class FrameLog {
+    /** Кадр в дыму: столько лучей сетки кадра закрыто дымом у камеры ({@link Smoke#smothered}). */
+    static final double SMOTHERED = 0.6;
     /** Сколько тиков после события оно проверяется: вспышка и огненный шар. */
     static final int KEY_CHECK = 12;
     /** Скорость звука, блоков за тик: мотор мода звучит из точки, где снаряд был, когда звук вышел. */
@@ -52,7 +54,7 @@ final class FrameLog {
     private final Cameras.Path path;
     private final Sounds sounds;
     private final Writer out;
-    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld, inside, lowOut;
+    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld, inside, lowOut, smothered;
     private final int[] keyN, keyOk;
     private int entityId = -1;
 
@@ -143,6 +145,8 @@ final class FrameLog {
         boolean blocked = pov == null && Cameras.inBlocks(mc.level, eye);
         // низ кадра свободной камеры — на земле вне чанков повтора
         boolean low = pov == null && lowOutside(mc, view);
+        // кадр свободной камеры почти весь в дыму у самой камеры
+        double smother = pov == null ? smoke.smothered(view) : 0;
 
         // события в первые тики: каждое — в кадре и не закрыто
         StringBuilder keys = new StringBuilder();
@@ -162,6 +166,7 @@ final class FrameLog {
         if (dh < 0) dhWorld++;
         if (blocked) inside++;
         if (low) lowOut++;
+        if (smother >= SMOTHERED) smothered++;
         if (aim != null && before) {
             boolean good = in && seen >= 0.4 && clear >= 0.5 && !cloud && !fog && (drawn || ready <= 0) && share >= shot.need().share();
             pre++;
@@ -175,8 +180,8 @@ final class FrameLog {
         try {
             out.write(String.format(Locale.ROOT,
                     "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"inside\":%b,\"low_out\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
-                            + "\"fog\":%b,\"drawn\":%b,\"entity\":%b,\"engine\":%.3f,\"unknown\":%.0f,\"keys\":[%s],\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.2f}\n",
-                    t, built, isPov, blocked, low, in, x, y, share, seen, clear, cloud, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
+                            + "\"smother\":%.2f,\"fog\":%b,\"drawn\":%b,\"entity\":%b,\"engine\":%.3f,\"unknown\":%.0f,\"keys\":[%s],\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.2f}\n",
+                    t, built, isPov, blocked, low, in, x, y, share, seen, clear, cloud, smother, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
                     cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -266,7 +271,7 @@ final class FrameLog {
      * и за последнюю секунду; каждое событие видно в первые {@link #KEY_CHECK} тиков (доля событий — по плану);
      * мотор слышен; громкого за кадром не больше, чем в кадре; у плана глазами игрока камера — этот игрок; LOD Distant
      * Horizons с глубиной мира и свободная камера в блоке — ни в одном кадре; низ кадра свободной камеры на земле вне
-     * чанков повтора — не больше чем в 2 % кадров.
+     * чанков повтора — не больше чем в 2 % кадров; кадров в дыму у самой камеры — не больше доли {@code smother} плана.
      */
     Verdict verdict(boolean isPovShot) {
         Plan.Need need = shot.need();
@@ -296,6 +301,8 @@ final class FrameLog {
         if (inside > 0) why.append(String.format(Locale.ROOT, "camera inside blocks in %d of %d frames; ", inside, frames));
         if (lowOut > 0.02 * frames)
             why.append(String.format(Locale.ROOT, "bottom of the frame on ground outside the replay's chunks in %d of %d frames; ", lowOut, frames));
+        if (need.smother() >= 0 && smothered > need.smother() * frames)
+            why.append(String.format(Locale.ROOT, "frame covered by smoke at the camera in %d of %d frames; ", smothered, frames));
         if (dhWorld > 0) why.append(String.format(Locale.ROOT, "Distant Horizons LODs drawn with the world's depth in %d of %d frames; ", dhWorld, frames));
         JsonObject n = new JsonObject();
         n.addProperty("frames", frames);
@@ -312,6 +319,8 @@ final class FrameLog {
         if (DH) n.addProperty("dh_world", dhWorld);
         n.addProperty("inside", inside);
         n.addProperty("low_out", lowOut);
+        n.addProperty("smothered", smothered);
+        n.addProperty("smoke_columns", smoke.columns());
         double rank = rReady + approach + nearHit + keys + 0.5 * engine + (loudOk ? 0.5 : 0) + (isPovShot ? povShare : 1);
         return new Verdict(why.isEmpty(), why.toString().trim(), rank, n);
     }

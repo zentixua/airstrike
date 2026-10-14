@@ -392,6 +392,8 @@ class Candidate:
 # Поперечник огненного шара удара, блоков (для доли кадра и лучей к краям): как у трейлера (Rig.blastOf)
 BLAST = {"grad": 8, "shahed": 12, "lancet": 12, "missile": 18, "bomb": 24, "b2": 24, "icbm": 120}
 SIZE = {"grad": 3, "shahed": 3.5, "lancet": 2.5, "missile": 6, "bomb": 5, "b2": 50, "icbm": 18}
+# вид взрыва у Incoming (S2C.Blast: дым и столб — Plume replayscan): 1 — РСЗО, 2 — шахед (и неизвестный), 3 — ракета, 4 — бомба
+BLAST_LOOK = {"grad": 1, "shahed": 2, "lancet": 2, "missile": 3, "bomb": 4, "b2": 4}
 
 
 def key(f: Flight) -> dict:

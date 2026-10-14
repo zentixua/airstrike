@@ -63,8 +63,13 @@ final class Pilot {
     static final int REACH = 2;
     /** Высота над землёй, где дрон летит «низко»: ниже — земля рядом, выше — уже не низко. */
     static final double LOW = 5, HIGH = 14;
-    /** Запас от дыма, блоков. */
+    /**
+     * Запас от дыма, блоков; взгляд вперёд — столько блоков от камеры не должно быть дыма (иначе он во весь кадр: так
+     * закрыты кадры проходов 13.10, {@link Plume}); удары дальше этого от удара прохода в дым пилота не берутся.
+     */
     static final double SMOKE = 3;
+    static final double[] AHEAD_SMOKE = {8, 16, 24};
+    static final double SMOKE_REACH = 260;
     /** Наибольший крен, °; вверх и вниз взгляд — не больше, °; после удара — вперёд по курсу на столько вниз, °. */
     static final double ROLL = 35, UP = 35, DOWN = 60, AHEAD = 12;
     /** Крен меняется не быстрее, ° за тик (40°/с): быстрее — путь виляет. */
@@ -199,6 +204,9 @@ final class Pilot {
     final List<Plume> plumes;
     /** Другие удары окна: в кадре — в плюс. */
     final List<Plume> others;
+    /** Дым по образцам окна ({@link #a}…{@link #b} через 2 тика): фигуры ударов рядом и свой ли это дым удара прохода. */
+    private final Plume.Shape[][] smoke;
+    private final boolean[][] own;
     final Grid grid;
     final long seed;
     /** Тики пути (с запасом до и после окна) и тик прохода мимо удара — от него путь считается в обе стороны. */
@@ -223,6 +231,54 @@ final class Pilot {
         this.t1 = b + AFTER;
         this.tp = Mth.clamp(main.t() + PASS, t0, t1);
         this.controls = new Controls();
+        int n = (b - a) / 2 + 1;
+        this.smoke = new Plume.Shape[n][];
+        this.own = new boolean[n][];
+        List<Plume.Shape> shapes = new ArrayList<>();
+        List<Boolean> mine = new ArrayList<>();
+        for (int k = 0; k < n; k++) {
+            int t = a + 2 * k;
+            shapes.clear();
+            mine.clear();
+            for (Plume pl : plumes) {
+                if (!pl.alive(t)) continue;
+                int before = shapes.size();
+                pl.shapes(t, shapes);
+                boolean isOwn = pl.pos().distanceTo(main.pos()) <= Plume.OWN;
+                for (int i = shapes.size() - 1; i >= before; i--) {
+                    Plume.Shape s = shapes.get(i);
+                    if (s.alpha() < Plume.SEEN || Math.hypot(s.x() - main.pos().x, s.z() - main.pos().z) > SMOKE_REACH + s.r()) shapes.remove(i);
+                }
+                while (mine.size() < shapes.size()) mine.add(isOwn);
+            }
+            smoke[k] = shapes.toArray(new Plume.Shape[0]);
+            own[k] = new boolean[mine.size()];
+            for (int i = 0; i < own[k].length; i++) own[k][i] = mine.get(i);
+        }
+    }
+
+    /** Расстояние до дыма образца {@code k} (меньше 0 — в дыму). */
+    double smokeClearance(int k, double x, double y, double z) {
+        double best = Double.POSITIVE_INFINITY;
+        for (Plume.Shape s : smoke[k]) best = Math.min(best, s.distance(x, y, z));
+        return best;
+    }
+
+    /** Дым образца {@code k} на линии взгляда (свой дым удара прохода — нет: на него и смотрят). */
+    boolean smokeOnLine(int k, Vec3 from, Vec3 to) {
+        Plume.Shape[] sm = smoke[k];
+        for (int i = 0; i < sm.length; i++) {
+            if (!own[k][i] && sm[i].alpha() >= 0.5 && sm[i].crosses(from, to)) return true;
+        }
+        return false;
+    }
+
+    /** Взгляд из {@code p} вдоль {@code fwd} упирается в дым ближе {@link #AHEAD_SMOKE} блоков (кадр во весь экран в дыму). */
+    boolean smokeAhead(int k, Vec3 p, Vec3 fwd) {
+        for (double d : AHEAD_SMOKE) {
+            if (smokeClearance(k, p.x + fwd.x * d, p.y + fwd.y * d, p.z + fwd.z * d) < 0) return true;
+        }
+        return false;
     }
 
     /**
@@ -380,16 +436,16 @@ final class Pilot {
 
     /** Счёт нарушений по образцам окна — для строки в логе. */
     static final class Tally {
-        int samples, low, out, smoke, hidden, smoky, lowOut, fast, crab, turn, missed;
+        int samples, low, out, smoke, ahead, hidden, smoky, lowOut, fast, crab, turn, missed;
         double speed, height, near = Double.POSITIVE_INFINITY;
 
         @Override
         public String toString() {
             int n = Math.max(1, samples);
             return String.format(Locale.ROOT, "speed %.2f b/t, height %.1f, closest to the hit %.0f; of %d samples: near ground %d, "
-                            + "off chunks %d, in smoke %d, hit hidden by terrain %d, by smoke %d, frame bottom off chunks %d, too fast %d, "
-                            + "sideways %d, fast turn %d; hit unseen %d",
-                    speed / n, height / n, near, samples, low, out, smoke, hidden, smoky, lowOut, fast, crab, turn, missed);
+                            + "off chunks %d, in smoke %d, smoke ahead %d, hit hidden by terrain %d, by smoke %d, frame bottom off chunks %d, "
+                            + "too fast %d, sideways %d, fast turn %d; hit unseen %d",
+                    speed / n, height / n, near, samples, low, out, smoke, ahead, hidden, smoky, lowOut, fast, crab, turn, missed);
         }
     }
 
@@ -424,18 +480,19 @@ final class Pilot {
                 }
                 if (tally != null) tally.height += c;
             }
-            // дым: камера в нём, дым на линии взгляда
-            boolean smoky = false;
-            for (Plume pl : plumes) {
-                if (!pl.alive(t)) continue;
-                double c = pl.clearance(p, t);
-                if (c < SMOKE) {
-                    j += 25 + 10 * (SMOKE - c);
-                    if (tally != null) tally.smoke++;
-                }
-                if (!smoky && pl.blocks(p, q, t)) smoky = true;
+            // дым: камера в нём, перед объективом (весь кадр в дыму), на линии взгляда к удару
+            int k = (t - a) / 2;
+            double sc = smokeClearance(k, p.x, p.y, p.z);
+            if (sc < SMOKE) {
+                j += 25 + 10 * Math.min(SMOKE - sc, 10);
+                if (tally != null) tally.smoke++;
             }
-            if (smoky) {
+            Cameras.View view = view(tr, i);
+            if (smokeAhead(k, p, view.fwd())) {
+                j += 15;
+                if (tally != null) tally.ahead++;
+            }
+            if (smokeOnLine(k, p, q)) {
                 j += 6 * w;
                 if (tally != null) tally.smoky++;
             }
@@ -458,7 +515,6 @@ final class Pilot {
                 j += 0.05 * (dMin * 0.6 - d) * (dMin * 0.6 - d);
             }
             // низ кадра за чанками повтора
-            Cameras.View view = view(tr, i);
             int lo = grid.lowOut(view);
             if (lo > 0) {
                 j += 5 * lo;

@@ -71,9 +71,10 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
      * Пороги проверки по кадрам: доля кадров до первого события, где объект снят ({@code subject}), то же за последнюю
      * секунду до него ({@code near}), доля событий, снятых в первые 12 тиков ({@code keys}), наименьшая доля ширины кадра
      * ({@code share}), доля кадров со слышным мотором ({@code engine}), громкого за кадром не больше {@code loud} громкого
-     * в кадре (меньше 0 — не проверяется).
+     * в кадре (меньше 0 — не проверяется), кадров в дыму у самой камеры ({@link Smoke#smothered}) — не больше доли
+     * {@code smother} (меньше 0 — не проверяется).
      */
-    record Need(double subject, double near, double keys, double share, double engine, double loud) {}
+    record Need(double subject, double near, double keys, double share, double engine, double loud, double smother) {}
 
     static Plan read(Path file) throws IOException {
         JsonObject o = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
@@ -95,7 +96,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
         }
         JsonObject n = s.has("need") ? s.getAsJsonObject("need") : new JsonObject();
         Need need = new Need(dbl(n, "subject", 0.6), dbl(n, "near", 0.6), dbl(n, "keys", 1), dbl(n, "share", 0.01), dbl(n, "engine", 0),
-                dbl(n, "loud", 1));
+                dbl(n, "loud", 1), dbl(n, "smother", -1));
         return new Shot(s.get("name").getAsString(), s.get("a").getAsInt(), s.get("b").getAsInt(), str(s, "dim", "minecraft:overworld"),
                 num(s, "warm", 200), num(s, "hold", 20), s.has("far") && s.get("far").getAsBoolean(), cams, subject(s.getAsJsonObject("subject")),
                 smoke, need, s.has("time") ? s.get("time").getAsLong() : -1);

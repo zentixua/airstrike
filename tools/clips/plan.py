@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "replayscan"))
 import replaydb  # noqa: E402
-from moments import BLAST, flights, incoming_version  # noqa: E402
+from moments import BLAST, BLAST_LOOK, flights, incoming_version  # noqa: E402
 
 # Пороги проверки кадров по роду плана (README replayscan, «Съёмка»): доля кадров до события, где снят объект; то же
 # за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен; громких
@@ -42,7 +42,7 @@ NEED = {
     "fly": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1},
     # проход пилота мимо удара: удар виден в первые тики; снаряд влетает в кадр, когда долетит (пилот его ждёт, но сзади
     # камеры его до пролёта мимо не видно); громкое за кадром — налёт вокруг
-    "fpv": {"subject": 0, "near": 0, "keys": 1, "share": 0, "loud": -1},
+    "fpv": {"subject": 0, "near": 0, "keys": 1, "share": 0, "loud": -1, "smother": 0.03},
 }
 
 
@@ -120,6 +120,7 @@ def cameras(shot: dict) -> list[dict]:
                     "follow": kind != "nuke", "size": size}]
 
 
+SMOKE_LIFE = 4800
 _HIT_WEAPONS: dict[int, tuple] = {}
 
 
@@ -141,14 +142,17 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     if s.get("centre"):
         subject["area"] = {"pos": s["centre"], "size": 2 * s.get("spread", 60)}
     dim = dim_of(con, shot)
+    # столб дыма у Incoming стоит до 4 минут (FarBlasts.Look.life ракеты — 4800 тиков): удары с тех пор
     smoke = con.execute("SELECT id, t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
-                        [dim, a - 1200, b]).fetchall()
-    # поперечник огненного шара удара — по оружию снаряда (дым удара: модель Plume replayscan)
+                        [dim, a - SMOKE_LIFE, b]).fetchall()
+    # поперечник огненного шара и вид взрыва — по оружию снаряда (дым удара: модель Plume replayscan); МБР — без строки:
+    # у ядерного подрыва своя картинка, не столб взрыва
     weapons = hit_weapons(con) if smoke else {}
     far = kind in ("far", "nuke", "fly")
     return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far or kind == "fpv" else 20,
             "far": far, "cameras": cameras(shot), "subject": subject,
-            "smoke": [[t, x, y, z, BLAST.get(weapons.get(i), 16)] for i, t, x, y, z in smoke],
+            "smoke": [[t, x, y, z, BLAST.get(weapons.get(i), 16), BLAST_LOOK.get(weapons.get(i), 2)] for i, t, x, y, z in smoke
+                      if weapons.get(i) != "icbm"],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", ""),
             **({"time": shot["camera"]["time"]} if "time" in shot["camera"] else {})}
 
