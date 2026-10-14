@@ -1,0 +1,181 @@
+"""Изучение карты на придуманном мире: регион пишет тест (улица между домами, высотка, озеро с мостом, метро под землёй,
+холм), mapstudy.py должен найти каждое.
+
+    python3 -m unittest discover -s tools/trailer/tests     (нужны numpy и pillow; без них — пропуск)
+"""
+import json
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+import zlib
+
+try:
+    import numpy as np
+    import PIL  # noqa: F401
+except ImportError:  # облако без пакетов: тест пропускается
+    np = None
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOOL = os.path.join(os.path.dirname(HERE), "mapstudy.py")
+
+
+def _payload(out, v):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            out += bytes([_tag(x)]) + struct.pack(">H", len(k.encode())) + k.encode()
+            _payload(out, x)
+        out += b"\0"
+    elif isinstance(v, list):
+        out += struct.pack(">bi", _tag(v[0]) if v else 0, len(v))
+        for x in v:
+            _payload(out, x)
+    elif isinstance(v, str):
+        out += struct.pack(">H", len(v.encode())) + v.encode()
+    elif isinstance(v, np.ndarray):
+        out += struct.pack(">i", len(v)) + v.astype(">i8").tobytes()
+    else:
+        out += struct.pack(">i", int(v))
+
+
+def _tag(v):
+    return 10 if isinstance(v, dict) else 9 if isinstance(v, list) else 8 if isinstance(v, str) else 12 if isinstance(v, np.ndarray) else 3
+
+
+def pack(vals, bits):
+    per = 64 // bits
+    n = -(-len(vals) // per)
+    v = np.zeros(n * per, np.uint64)
+    v[:len(vals)] = vals
+    v = v.reshape(n, per)
+    out = np.zeros(n, np.uint64)
+    for k in range(per):
+        out |= v[:, k] << np.uint64(k * bits)
+    return out.view(np.int64)
+
+
+def write_world(region_dir, world, cw, ch, rx=0, rz=0):
+    """world[y + 64, z, x] — номера в names; чанки 0..cw-1 × 0..ch-1 от угла региона r.rx.rz."""
+    names = world.names
+    os.makedirs(region_dir, exist_ok=True)
+    head, body = bytearray(8192), bytearray()
+    for cz in range(ch):
+        for cx in range(cw):
+            secs = []
+            for sy in range(-4, 20):
+                blk = world.a[(sy + 4) * 16:(sy + 5) * 16, cz * 16:(cz + 1) * 16, cx * 16:(cx + 1) * 16].reshape(-1)
+                used = np.unique(blk)
+                if len(used) == 1 and used[0] == 0:
+                    continue
+                pal = [names[i] for i in used]
+                idx = np.searchsorted(used, blk)
+                bs = {"palette": [{"Name": n} for n in pal]}
+                if len(pal) > 1:
+                    bs["data"] = pack(idx.astype(np.uint64), max(4, int(np.ceil(np.log2(len(pal))))))
+                secs.append({"Y": sy, "block_states": bs})
+            out = bytearray(b"\x0a\x00\x00")
+            _payload(out, {"Status": "minecraft:full", "xPos": rx * 32 + cx, "zPos": rz * 32 + cz, "sections": secs})
+            data = zlib.compress(bytes(out))
+            rec = struct.pack(">ib", len(data) + 1, 2) + data
+            rec += b"\0" * (-len(rec) % 4096)
+            off = 2 + len(body) // 4096
+            i = cx + cz * 32
+            head[i * 4:i * 4 + 4] = struct.pack(">I", (off << 8) | (len(rec) // 4096))
+            body += rec
+    with open(os.path.join(region_dir, f"r.{rx}.{rz}.mca"), "wb") as f:
+        f.write(head + body)
+
+
+class World:
+    def __init__(self, w, h):
+        self.names = ["minecraft:air"]
+        self.a = np.zeros((384, h, w), np.int32)
+
+    def id(self, name):
+        if name not in self.names:
+            self.names.append(name)
+        return self.names.index(name)
+
+    def box(self, name, x0, y0, z0, x1, y1, z1):
+        """Блоки [x0, x1) × [y0, y1) × [z0, z1)."""
+        self.a[y0 + 64:y1 + 64, z0:z1, x0:x1] = self.id(name)
+
+
+@unittest.skipIf(np is None, "нет numpy или pillow")
+class MapStudyTest(unittest.TestCase):
+    def run_tool(self, reg, out, *args):
+        r = subprocess.run([sys.executable, TOOL, reg, out, "--jobs", "1", *args], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-3000:])
+        with open(os.path.join(out, "mapstudy.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_negative_region(self):
+        """Регион r.-1.-1: места в мире — от его угла (−512, −512)."""
+        w = World(64, 64)
+        w.box("minecraft:grass_block", 0, 64, 0, 64, 65, 64)
+        w.box("minecraft:white_concrete", 20, 65, 30, 26, 110, 36)
+        with tempfile.TemporaryDirectory() as d:
+            reg = os.path.join(d, "region")
+            write_world(reg, w, 4, 4, rx=-1, rz=-1)
+            st = self.run_tool(reg, os.path.join(d, "out"), "--box", "-512", "-512", "-448", "-448")
+        t = st["tall"][0]
+        self.assertEqual((t["x"], t["z"]), (-512 + 20, -512 + 30))
+        self.assertAlmostEqual(t["height"], 45, delta=2)
+
+    def test_city(self):
+        W, H = 192, 128
+        w = World(W, H)
+        w.box("minecraft:stone", 0, -64, 0, W, 60, H)
+        w.box("minecraft:dirt", 0, 60, 0, W, 64, H)
+        w.box("minecraft:grass_block", 0, 64, 0, W, 65, H)
+        # улица вдоль x (z 40..45) между двумя рядами домов высотой 20 и 15
+        w.box("minecraft:black_concrete", 5, 64, 38, 175, 65, 48)
+        w.box("minecraft:stone_bricks", 20, 65, 20, 160, 85, 36)
+        w.box("minecraft:bricks", 20, 65, 50, 160, 80, 66)
+        # высотка 50 блоков
+        w.box("minecraft:white_concrete", 100, 65, 72, 108, 115, 80)
+        # метро: тоннель на y 49..53 вдоль x, рельсы на 50
+        w.box("minecraft:stone_bricks", 10, 48, 8, 150, 55, 14)
+        w.box("minecraft:air", 10, 49, 9, 150, 54, 13)
+        w.box("minecraft:rail", 10, 49, 11, 150, 50, 12)
+        # озеро и мост поперёк
+        w.box("minecraft:water", 100, 58, 90, W, 65, H)
+        w.box("minecraft:oak_planks", 150, 67, 88, 156, 68, H)
+        # холм
+        for r in range(0, 30):
+            w.box("minecraft:stone", 10 + r // 2, 65 + r, 85 + r // 2, 50 - r // 2, 66 + r, 125 - r // 2)
+            w.box("minecraft:grass_block", 10 + r // 2, 66 + r, 85 + r // 2, 50 - r // 2, 67 + r, 125 - r // 2)
+        with tempfile.TemporaryDirectory() as d:
+            reg, out = os.path.join(d, "region"), os.path.join(d, "out")
+            write_world(reg, w, W // 16, H // 16)
+            r = subprocess.run([sys.executable, TOOL, reg, out, "--box", "0", "0", str(W), str(H), "--jobs", "1",
+                                "--points", "улица:90,42;холм:30,105"], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr[-3000:])
+            with open(os.path.join(out, "mapstudy.json"), encoding="utf-8") as f:
+                st = json.load(f)
+            for img in ("map.png", "heights.png", "infra.png"):
+                self.assertTrue(os.path.getsize(os.path.join(out, img)) > 0)
+        tower = [t for t in st["tall"] if 100 <= t["x"] < 108 and 72 <= t["z"] < 80]
+        self.assertTrue(tower, st["tall"])
+        self.assertAlmostEqual(tower[0]["height"], 50, delta=2)
+        street = [s for s in st["streets"] if s["axis"] == "x" and 38 <= s["from"][1] < 48]
+        self.assertTrue(street, st["streets"])
+        self.assertGreaterEqual(street[0]["length"], 150)
+        self.assertGreaterEqual(street[0]["sides"], 14)
+        self.assertTrue(st["metro"], "метро не найдено")
+        self.assertGreaterEqual(st["metro"][0]["rails"], 130)
+        self.assertGreater(st["metro"][0]["under"], 0.9)
+        self.assertTrue(any(b["x"][0] <= 152 <= b["x"][1] for b in st["bridges"]), st["bridges"])
+        self.assertTrue(st["waters"], "озеро не найдено")
+        self.assertTrue(st["districts"])
+        peak = st["peaks"][0]
+        self.assertTrue(abs(peak["x"] - 30) < 6 and abs(peak["z"] - 105) < 6, peak)
+        pts = {p["name"]: p for p in st["points"]}
+        self.assertGreater(pts["улица"]["road_128"], 0.05)
+        self.assertGreaterEqual(pts["холм"]["top"], 90)
+
+
+if __name__ == "__main__":
+    unittest.main()
