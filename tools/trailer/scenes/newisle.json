@@ -37,6 +37,9 @@
    "pose": {"kind": "roof", "near": "c1_tower_w", "radius": 30, "min_height": 30, "dist": [60, 140]}, "target": "c1_glass_w",
    "strikes": [{"from": [-600, -200], "weapon": "missile", "eta": 1.0, "flight": 3, "cruise": 30}], "features": ["cruise", "glass"]},
 
+  {"id": "n04", "act": "1", "title": "Calm FPV over City 1 at dawn", "time": "dawn", "fov": 75, "frames": 3, "dur": 4,
+   "camera": "fpv", "pose": {"kind": "path", "points": [[-60, 150, -300], [-170, 140, -100], [-250, 130, 60]], "tilt": 15},
+   "features": []},
   {"id": "n05", "act": "1", "title": "City 2 wakes up: main street from a roof", "time": "dawn", "fov": 50,
    "pose": {"kind": "roof", "near": "c2_roof", "radius": 40, "min_height": 25, "dist": [40, 140]}, "target": "c2_street", "features": []},
   {"id": "n06", "act": "1", "title": "South launchers at the farm", "time": "dawn", "fov": 45,
@@ -106,7 +109,7 @@
   {"id": "n27", "act": "3-night", "title": "Blackout, district by district", "time": "night", "fov": 50,
    "pose": {"kind": "roof", "near": "c1_core", "radius": 30, "min_height": 60, "dist": [60, 200]}, "target": "c1_east",
    "features": ["blackout"]},
-  {"id": "n28", "act": "3-night", "title": "Blackout in the station", "time": "night", "fov": 70,
+  {"id": "n28", "act": "2", "title": "Lights go out in the station", "time": "day", "fov": 70,
    "pose": {"kind": "fixed", "eye": [-203, 54, 1], "yaw": -90, "pitch": 0}, "features": ["blackout", "metro"]},
   {"id": "n29a", "act": "3-night", "title": "Peak: port crane hit", "time": "night", "fov": 40, "key": 1,
    "pose": {"kind": "ground", "near": [-20, -400], "radius": 60, "dist": [60, 140]}, "target": "port_crane",

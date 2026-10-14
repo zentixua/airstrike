@@ -10,7 +10,8 @@
     uv run tools/trailer/animatic.py <лист.json> <папка scout> <выход.mp4> [--music F] [--size 1280x720]
 
 Лист: {"bar": 1.92, "music": {"file", "parts": [{"at", "track", "end", "fade"}]}, "shots": [{"plan" | "card",
-"dur" | "bars", "text", "note"}]}. `parts` — куски трека на своих местах аниматика (как `PARTS` в edit.py); нет файла
+"dur" | "bars", "text", "note"}]}. `parts` — куски трека на своих местах аниматика (как `PARTS` в edit.py, `gain` — дБ,
+`fade` — затухание в конце, с); нет файла
 музыки — без звука. Плана нет в `poses.json` или у него нет кадра — серый кадр с его подписью.
 """
 import argparse
@@ -125,7 +126,8 @@ def music(sheet, total, path, out):
         f = float(p.get("fade", 0))
         fade = f",afade=t=out:st={max(0.0, n - f):.3f}:d={f:.3f}" if f > 0 else ""
         ms = int(round(float(p["at"]) * 1000))
-        chain.append(f"[0:a]atrim=start={p['track']}:end={p['end']},asetpts=PTS-STARTPTS,afade=t=in:d=0.01{fade},"
+        gain = f",volume={float(p['gain']):.1f}dB" if p.get("gain") else ""
+        chain.append(f"[0:a]atrim=start={p['track']}:end={p['end']},asetpts=PTS-STARTPTS,afade=t=in:d=0.01{fade}{gain},"
                      f"adelay={ms}|{ms}[m{k}]")
         names.append(f"[m{k}]")
     chain.append("".join(names) + f"amix=inputs={len(names)}:normalize=0,apad=whole_dur={total:.3f}[a]")
