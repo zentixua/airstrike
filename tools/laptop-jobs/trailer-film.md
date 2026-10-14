@@ -199,3 +199,23 @@ done
 строки `TRAILER p10`, `TRAILER p20`, `TRAILER p01c`, `TRAILER p35`, `SCENARIO film`. Из вывода — три `report.md` и
 `best.txt`, строки `SCENARIO film heap`/`restart`, ошибки (как в п. 3); у p01c и p20 в `report.md` мотор больше 0 %.
 Потом — п. 6.
+
+## 8. Вспышки отсчёта p40b, p40c и монтаж v3 (видеокарта; после очереди: TikTok clips9, p32 треда переосмыслений)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка (между шагами, не во время записи или вывода).
+p40b — сход «Града» в 0,48 с между цифрами отсчёта — не снят ни разу: в `film-war2` и `film-war4` трубы пакета ещё
+перезаряжались после залпов батареи, и в окне плана схода нет (W2 — объект у края прорисовки, W4 — «момент не
+наступил»). Сцена `scene:p40` — одни вспышки, ночью, на свежих пусковых, без МБР и ядерного удара; окно — с поджига.
+Монтаж v3 — из всего снятого, с этими вспышками и p32 из `film-war2/render-planned2` (шаг 5 задания
+`shot-trailer.md`), если он есть; прежние v2 и монтаж п. 4 не трогаются.
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war7-p40 && chmod -R u+w mod/run/scenario/saves/war7-p40
+INCOMING_TRAILER_DIR=film-war7 INCOMING_WAR_PART=scene:p40 INCOMING_WORLD=war7-p40 \
+INCOMING_TRAILER_SHOTS=p40b,p40c tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war7 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p40b,p40c \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+python3 tools/trailer/report.py mod/run/scenario/film-war7/render --md mod/run/scenario/film-war7/render/report.md
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v3.mp4
+```
+В логе записи: нет `момент не наступил` и `the launcher is busy with the previous order`; прислать строки `TRAILER p40`
+и `SCENARIO film`. Из вывода — `report.md`, `best.txt`, ошибки (как в п. 3); у p40b и p40c мотор больше 0 %. Из
+монтажа — как в п. 6, с `v3` вместо `v2`.

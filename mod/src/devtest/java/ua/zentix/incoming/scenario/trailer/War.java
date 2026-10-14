@@ -301,8 +301,15 @@ final class War {
                     fight();
                     nuke();
                 }
+                case "p40" -> {
+                    // вспышки отсчёта одни, без МБР и ядерного удара за ними: ночь, пусковые свежие — трубы «Града» не
+                    // перезаряжаются после залпов батареи (в film-war2 и film-war4 p40b без схода)
+                    film.run(() -> Film.cmd("time set 17000"));
+                    racks();
+                    nightFlashes();
+                }
                 default -> throw new IllegalArgumentException("INCOMING_WAR_PART=" + part
-                        + ": сцены — dawnSquare, firstStrike, battery, sky, airship, p25, p01d, p34, streets, throughFire, nuke");
+                        + ": сцены — dawnSquare, firstStrike, battery, sky, airship, p25, p01d, p34, streets, throughFire, nuke, p40");
             }
         }
         if (part.equals("p16")) {
@@ -2591,6 +2598,29 @@ final class War {
 
     // ================================================================ IV: МБР и ядерный удар
 
+    /**
+     * p40b, p40c: вспышки ночного боя у батареи (между цифрами отсчёта); пусковые поставила часть «west» или сцена
+     * ({@link #racks}).
+     */
+    private void nightFlashes() {
+        film.run(this::reloadAll);
+        film.waitTicks(40);
+        film.shot("p40b").length(30).hidden()
+                .onReady(() -> fireAll(rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))))
+                .camera(() -> {
+                    Vec3 l = new Vec3(-1474.5, BATTERY_Y, ROW_ROCKET);
+                    return CineCamera.track(l.add(-10, 1.6, -7), () -> l.add(10, 8, 0), 60);
+                })
+                .when(() -> lit(RocketEntity.class, rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))), 400);
+        film.shot("p40c").length(30).hidden()
+                .onReady(() -> fireAll(missileRack.subList(0, Math.min(3, missileRack.size()))))
+                .camera(() -> {
+                    Vec3 l = new Vec3(-1519.5, BATTERY_Y, ROW_MISSILE);
+                    return CineCamera.track(l.add(4, 1.0, -9), () -> l.add(14, 10, 0), 64);
+                })
+                .when(() -> lit(CruiseMissileEntity.class, missileRack.subList(0, Math.min(3, missileRack.size()))), 400);
+    }
+
     private void nuke() {
         film.run(() -> Film.cmd("time set 17000"));
         // расчёт у пусковых ночью
@@ -2611,23 +2641,7 @@ final class War {
                     + " hotbar.0 with incoming:strike_designator[incoming:loadout={weapon:\"nuke\",count:1,spread:0}]");
             cast().command("give " + CREW[0] + " incoming:icbm 1");
         });
-        // p40b, p40c: вспышки ночного боя у батареи (между цифрами отсчёта); пусковые поставила часть «west»
-        film.run(this::reloadAll);
-        film.waitTicks(40);
-        film.shot("p40b").length(30).hidden()
-                .onReady(() -> fireAll(rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))))
-                .camera(() -> {
-                    Vec3 l = new Vec3(-1474.5, BATTERY_Y, ROW_ROCKET);
-                    return CineCamera.track(l.add(-10, 1.6, -7), () -> l.add(10, 8, 0), 60);
-                })
-                .when(() -> lit(RocketEntity.class, rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))), 400);
-        film.shot("p40c").length(30).hidden()
-                .onReady(() -> fireAll(missileRack.subList(0, Math.min(3, missileRack.size()))))
-                .camera(() -> {
-                    Vec3 l = new Vec3(-1519.5, BATTERY_Y, ROW_MISSILE);
-                    return CineCamera.track(l.add(4, 1.0, -9), () -> l.add(14, 10, 0), 64);
-                })
-                .when(() -> lit(CruiseMissileEntity.class, missileRack.subList(0, Math.min(3, missileRack.size()))), 400);
+        nightFlashes();
         // p53 (после титров): ключ, ☢ LAUNCH IN 3, отмена — отсчёт показывает пульт того, кто запускает
         actor(NIGHT_POST, NIGHT_POST.add(100, 4, 0), "incoming:strike_designator[incoming:loadout={weapon:\"nuke\",count:1,spread:0}]");
         film.shot("p53").length(70).hud().player(t -> new Pose(Vec3.ZERO, -90, -6, 0, 70))
