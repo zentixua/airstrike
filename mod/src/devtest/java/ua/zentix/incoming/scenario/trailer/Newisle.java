@@ -52,6 +52,7 @@ import ua.zentix.incoming.entity.RocketEntity;
 import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.net.C2S;
 import ua.zentix.incoming.nuclear.NuclearStrikes;
+import ua.zentix.incoming.nuclear.world.HeapWatch;
 import ua.zentix.incoming.registry.ModBlocks;
 import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
@@ -739,14 +740,20 @@ final class Newisle {
     private long ticks;
 
     /**
-     * Живая куча после последней сборки (пулы кучи, {@code getCollectionUsage}) — строкой раз в минуту: сторож конвейера
-     * снимает клиент, у которого она выше доли {@code limits.heap_share} (утечка в других модах).
+     * Живой объём старшего поколения после последней видимой сборки — тот же, по которому бюджет руин
+     * ({@link HeapWatch}), строкой раз в минуту: сторож конвейера снимает клиент, у которого он выше доли
+     * {@code limits.heap_share} (утечка в других модах). Доля — выше бюджета руин: ядерный дубль легитимно
+     * держит старшее поколение высоким, пока руины строятся. Замера ещё не было — занятое по всем пулам кучи
+     * после сборки (с запасом).
      */
     private static void heap() {
-        long live = 0;
-        for (var p : java.lang.management.ManagementFactory.getMemoryPoolMXBeans()) {
-            var u = p.getType() == java.lang.management.MemoryType.HEAP ? p.getCollectionUsage() : null;
-            if (u != null) live += u.getUsed();
+        long live = HeapWatch.liveOldGeneration();
+        if (live < 0) {
+            live = 0;
+            for (var p : java.lang.management.ManagementFactory.getMemoryPoolMXBeans()) {
+                var u = p.getType() == java.lang.management.MemoryType.HEAP ? p.getCollectionUsage() : null;
+                if (u != null) live += u.getUsed();
+            }
         }
         long max = Runtime.getRuntime().maxMemory();
         Incoming.LOG.info("NEWISLE heap {}% ({} МБ из {})", Math.round(live * 100.0 / max), live >> 20, max >> 20);

@@ -539,7 +539,52 @@ class ProduceTest(unittest.TestCase):
         self.assertTrue(self.status()[0].startswith("stage: stopped, waiting"))
         self.assertIn("проба не прошла: A=camera", self.status()[3])
         self.assertFalse(os.path.exists(os.path.join(self.cfg["work"], "state.json")), "цепочка не начиналась")
-        self.assertEqual([], os.listdir(self.cfg["saves"]))
+        self.assertEqual(["nw-A-a0", "nw-D-a0"], sorted(os.listdir(self.cfg["saves"])),
+                         "миры неудавшейся пробы остаются: пересъёмке после перезапуска нужен вход цепочки")
+
+    def test_night_failed_probe_restart_reshoots_from_first_failed(self):
+        # ночь 2026-10-14: проба провалилась на первом дубле — перезапуск той же строкой обязан переснять его и
+        # всё после него (цепочка), а не застрять навсегда с терминальными пропусками
+        bad = {"seconds": 300, "result": ok_result("A", ["a1"]), "log": "WARN SCENARIO film camera a1: камера в блоках"}
+        code, m = self.night({("A", "record"): bad}, faults={"A": "camera", "D": "disk"})
+        self.assertEqual(P.STOPPED_EXIT, code)
+        code, m2 = self.night({("A", "record", 0): bad}, faults={"A": "camera", "D": "disk"})
+        self.assertEqual(0, code, self.status())
+        smoke = P.load_json(os.path.join(self.cfg["work"], "smoke.json"))
+        self.assertTrue(smoke["pass"], smoke)
+        smoke_state = P.load_json(os.path.join(self.cfg["work"], "smoke", "state.json"))
+        self.assertEqual("passed", smoke_state["takes"]["A"]["status"])
+        self.assertEqual(2, len(smoke_state["takes"]["A"]["attempts"]), "сброшенный дубль переснят с нуля")
+        self.assertTrue(any(k == ("D", "record", 0) and "smoke" in e["INCOMING_TRAILER_DIR"] for k, e in m2.starts),
+                        "дубль после сброшенного тоже переснят (цепочка пробы)")
+        self.assertTrue(any(os.path.basename(src) == "nw-A-a1" and os.path.basename(dst) == "nw-D-a0"
+                            for src, dst in m2.copies), "пересъёмка D — со снимка A")
+
+    def test_night_restart_keeps_passed_prefix_and_events(self):
+        # проба: A прошёл (порча kill — пересъёмка), D провалился; перезапуск переснимает только D, а вердикт A
+        # держится на событиях ограждений из состояния — процесс-то уже другой
+        bad = {"seconds": 300, "result": ok_result("D", ["d1"]), "log": "WARN SCENARIO film camera d1: камера в блоках"}
+        code, m = self.night({("D", "record"): bad}, faults={"A": "kill", "D": "disk"})
+        self.assertEqual(P.STOPPED_EXIT, code)
+        smoke_state = P.load_json(os.path.join(self.cfg["work"], "smoke", "state.json"))
+        self.assertTrue(any(e[0] == "fault-kill" for e in smoke_state["events"]), "события — в состоянии пробы")
+        code, m2 = self.night(faults={"A": "kill", "D": "disk"})
+        self.assertEqual(0, code, self.status())
+        smoke = P.load_json(os.path.join(self.cfg["work"], "smoke.json"))
+        self.assertTrue(smoke["pass"], smoke)
+        self.assertTrue(smoke["checks"]["A=kill"]["ok"], "пройденный дубль не переснимался — вердикт по событиям из состояния")
+        self.assertFalse(any(k[0] == "A" and k[1] == "record" and "smoke" in e["INCOMING_TRAILER_DIR"]
+                             for k, e in m2.starts), "пройденный дубль пробы не переснимается")
+        self.assertTrue(any(os.path.basename(src) == "nw-A-a1" and os.path.basename(dst) == "nw-D-a0"
+                            for src, dst in m2.copies),
+                        "пересъёмка сброшенного дубля — со снимка последнего пройденного")
+
+    def test_heap_kill_share_sits_above_ruins_budget(self):
+        # ядерные дубли легитимно держат живое старшее поколение до бюджета руин (HeapWatch.LIMIT 0.75, выход до
+        # ~0.88 — ночь 2026-10-14, T24): порог убийства конвейера выше, иначе сторож снимает здоровый дубль
+        with open(os.path.join(P.SCENES, "newisle-takes.json"), encoding="utf-8") as f:
+            limits = json.load(f)["limits"]
+        self.assertGreater(float(limits["heap_share"]), 0.9, limits["heap_share"])
 
     def test_status_heartbeat_during_long_record(self):
         c, m = self.conveyor({("A", "record"): {"seconds": 1200, "result": ok_result("A", ["a1"])}})

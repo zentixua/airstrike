@@ -20,13 +20,16 @@ live   — живой дубль Артёма на копии мира, с ко�
 search — поиски P1, каждая проба — на своей копии мастера; найденное — scenes/newisle-found.json (постановщик берёт
          его места и размер залпа раньше своих).
 night  — ночь П2: проба трёх дублей с порчей (по умолчанию T02=kill, T04=disk, T24=camera; своя папка <work>/smoke),
-         прошла — вся цепочка, черновик и чистовой; не прошла — «stopped, waiting». Пройденная проба не повторяется.
+         прошла — вся цепочка, черновик и чистовой; не прошла — «stopped, waiting». Пройденная проба не повторяется,
+         неудавшаяся при перезапуске переснимается с первого неудавшегося дубля.
 status — файл статуса (пять строк).
 
 Ограждения (limits в newisle-takes.json): пауза вместо падения, пока свободно меньше `disk_floor_gb` (+ размер копии
 мира), памяти меньше `ram_floor_gb` + `client_gb` или идёт игра Артёма (`pause_if_running` машины); срок дубля —
 `take_factor` × замер (до замера — `minutes` дубля), срок ночи — `night_hours`; сторож снимает клиент без движения
-(папка дубля не растёт, в логе нет строк, кроме пульса кучи) дольше `stall_seconds`, с живой кучей выше `heap_share` и замечает упавший;
+(папка дубля не растёт, в логе нет строк, кроме пульса кучи) дольше `stall_seconds`, с живой кучей выше `heap_share`
+(пульс мода — живой объём старшего поколения после сборки, как бюджет руин; доля — выше бюджета: ядерный дубль
+легитимно держит кучу высокой) и замечает упавший;
 вышедший или снятый клиент считается ушедшим после его градл-демона (одиночный демон Gradle 8, и при daemon=false,
 дописывает мир ещё секунды); запись и удаление — только в папках работы, путь под защищёнными корнями (`protected`, мастер) — отказ. Неожиданное (дубль
 сказал «stopped», ошибка конвейера) — «остановлен, жду» в статусе и выход с кодом 3: дальше решает человек.
@@ -279,7 +282,7 @@ class Conveyor:
         self.state_file = os.path.join(self.work, "state.json")
         self.state = load_json(self.state_file, {"takes": {}, "measured": {}, "started": None})
         self.status_file = cfg.get("status") or os.path.join(self.work, "status.txt")
-        self.events = []          # что сработало из ограждений (дымовой прогон)
+        self.events = self.state.setdefault("events", [])   # что сработало из ограждений — в состоянии: вердикт пробы переживает перезапуск
         self.night_end = None
         self.current = ""
 
@@ -314,6 +317,11 @@ class Conveyor:
     def save(self):
         write_json(self.state_file, self.state)
 
+    def event(self, *e):
+        """Сработавшее ограждение — сразу в состояние: вердикт пробы читает события конвейер, переживший перезапуск."""
+        self.events.append(e)
+        self.save()
+
     def say(self, line):
         """Строка — в вывод и в produce.log папки работы (сторож ночи читает его вместе со статусом)."""
         self.echo(line)
@@ -345,10 +353,9 @@ class Conveyor:
             if why.startswith("мало места") and self.state.get("released"):
                 world = self.state["released"].pop(0)
                 self.remove(os.path.join(self.saves, world))
-                self.events.append(("prune", self.current_take, world))
-                self.save()
+                self.event("prune", self.current_take, world)
                 continue
-            self.events.append(("pause", self.current, why))
+            self.event("pause", self.current, why)
             self.status("paused", why)
             if self.night_end is not None and self.m.now() + pause > self.night_end:
                 raise Stopped(f"ночь кончилась на паузе: {why}")
@@ -434,7 +441,7 @@ class Conveyor:
             if f is not None:
                 return f
             why = f"видеокарта занята другой задачей ({path})"
-            self.events.append(("pause", self.current, why))
+            self.event("pause", self.current, why)
             self.status("paused", why)
             if self.night_end is not None and self.m.now() + pause > self.night_end:
                 raise Stopped(f"ночь кончилась на паузе: {why}")
@@ -458,7 +465,7 @@ class Conveyor:
                "out": os.path.join(rec, "triage.md")}
         try:
             self.m.start([a.format(**sub) for a in cmd], self.repo, self.env({}), os.path.join(rec, "triage.log"))
-            self.events.append(("triage", take, sub["out"]))
+            self.event("triage", take, sub["out"])
         except (OSError, KeyError, IndexError, ValueError) as e:
             self.say(f"разбор {take} не запущен: {e!r}")
 
@@ -470,7 +477,7 @@ class Conveyor:
         while self.m.client_running() is not None and self.m.now() < end:
             self.m.sleep(1)
         if self.m.client_running() is not None:
-            self.events.append(("client-lingers", self.current_take, "клиент не ушёл после снятия"))
+            self.event("client-lingers", self.current_take, "клиент не ушёл после снятия")
 
     def watch(self, kind, take, cmd, env, rec, limit):
         log = os.path.join(rec, f"{kind}.log")
@@ -491,7 +498,7 @@ class Conveyor:
                 return code, None
             now = self.m.now()
             if kill_at is not None and now >= kill_at:
-                self.events.append(("fault-kill", take, kind))
+                self.event("fault-kill", take, kind)
                 proc.kill(hard=True)
                 kill_at = None
                 continue
@@ -514,7 +521,7 @@ class Conveyor:
                     if game:
                         why = "игра Артёма"
             if why:
-                self.events.append(("watchdog", take, why))
+                self.event("watchdog", take, why)
                 proc.kill()
                 self.wait_client_gone()
                 return None, why
@@ -596,7 +603,7 @@ class Conveyor:
             if resumed:
                 break
             resumed += 1
-            self.events.append(("render-resume", take, killed or f"код {code}"))
+            self.event("render-resume", take, killed or f"код {code}")
         out = {}
         for p in plans:
             verdict, why, path = best.get(p, (None, None, None))
@@ -1076,25 +1083,63 @@ def main(argv=None):
 def night(cfg, smoke, faults, machine=None, takes_file=None, log=print):
     """Ночь П2: проба (дубли `smoke` с порчей `faults`, своя папка <work>/smoke, тот же файл статуса) — каждое
     ограждение сработало и дубли кончились; прошла — вся цепочка в <work> (там же живые дубли вечера), потом черновик
-    и чистовой; не прошла — «stopped, waiting», ночь не тратится. Пройденная проба при перезапуске не повторяется."""
+    и чистовой. Пройденная проба при перезапуске не повторяется; неудавшаяся — переснимается с первого неудавшегося
+    дубля (пройденные раньше на месте, их события — в состоянии пробы), поэтому перезапуск продолжает с места."""
     status = cfg.get("status") or os.path.join(cfg["work"], "status.txt")
     smoke_file = os.path.join(cfg["work"], "smoke.json")
     verdict = load_json(smoke_file)
     if not (verdict and verdict.get("pass")):
+        smoke_reset(cfg, smoke, verdict)
         probe = Conveyor(dict(cfg, work=os.path.join(cfg["work"], "smoke"), status=status), machine=machine,
                          takes_file=takes_file, faults=faults, log=log)
         code = probe.run(smoke)
         verdict = smoke_verdict(probe, faults)
         write_json(smoke_file, verdict)
-        for st in probe.state["takes"].values():           # миры пробы — прочь: цепочка ночи — с мастера
-            for w in {st.get("snapshot"), st.get("kept")} - {None}:
-                probe.remove(os.path.join(probe.saves, w))
         if code or not verdict["pass"]:
+            # миры пробы остаются: пересъёмке после перезапуска нужен вход — снимок последнего пройденного дубля
             bad = [k for k, c in verdict["checks"].items() if not c["ok"]]
             probe.status("stopped, waiting", "проба не прошла: " + (", ".join(bad) or probe.state.get("last_error", "")))
             return STOPPED_EXIT
+        for st in probe.state["takes"].values():           # миры пробы — прочь: цепочка ночи — с мастера
+            for w in {st.get("snapshot"), st.get("kept")} - {None}:
+                probe.remove(os.path.join(probe.saves, w))
     conv = Conveyor(dict(cfg, status=status), machine=machine, takes_file=takes_file, log=log)
     return conv.run()
+
+
+def smoke_reset(cfg, smoke, verdict):
+    """Неудавшаяся проба — с первого неудавшегося дубля переснимается: он и всё после него сбрасываются (их миры —
+    прочь), цепочка пробы откатывается к снимку последнего пройденного (прошедший дубль без снимка тоже сбрасывается).
+    События ограждений и замеры остаются — вердикт пройденного не зависит от перезапуска."""
+    state_file = os.path.join(cfg["work"], "smoke", "state.json")
+    state = load_json(state_file) or {"takes": {}, "measured": {}, "started": None}
+    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    checks = {k.split("=", 1)[0]: c.get("ok") for k, c in (verdict or {}).get("checks", {}).items()}
+    first = next((t for t in smoke if not checks.get(t, True)), None)
+    if first is None:
+        write_json(state_file, state)
+        return
+    saves = cfg.get("saves") or os.path.join(cfg["repo"], "mod", "run", "scenario", "saves")
+    idx = smoke.index(first)
+    while idx > 0:                                          # вход пересъёмки — снимок дубля перед ним, он должен лежать
+        prev = state["takes"].get(smoke[idx - 1]) or {}
+        snap = prev.get("snapshot")
+        if prev.get("status") in ("passed", "chained") and snap and os.path.exists(os.path.join(saves, snap)):
+            break
+        idx -= 1
+    for t in smoke[idx:]:
+        st = state["takes"].pop(t, None)
+        if st:
+            for w in {st.get("snapshot"), st.get("kept")} - {None}:
+                world = os.path.join(saves, w)
+                if under(world, saves) and os.path.exists(world):
+                    shutil.rmtree(world)
+    prev = state["takes"].get(smoke[idx - 1]) if idx > 0 else None
+    state["chain"] = prev.get("snapshot") if prev else None
+    # вход пересъёмки не должен лежать в очереди на удаление: проверка места прошлого прогона могла бы удалить его
+    state["released"] = [w for w in state.get("released", [])
+                         if w != state["chain"] and os.path.exists(os.path.join(saves, w))]
+    write_json(state_file, state)
 
 
 def smoke_verdict(conv, faults):

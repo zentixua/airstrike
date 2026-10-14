@@ -26,7 +26,7 @@ import java.util.Set;
  * Без старого поколения у пулов (чужая JVM) — запасной замер: занято после последней сборки по всем пулам кучи
  * ({@link #fallbackLive}). Один на JVM: память у неё одна на все миры.
  */
-final class HeapWatch {
+public final class HeapWatch {
     private static final HeapWatch INSTANCE = new HeapWatch();
     /** Доля кучи (живой объём), выше которой руины заранее больше не строятся. */
     static final double LIMIT = 0.75;
@@ -55,6 +55,15 @@ final class HeapWatch {
 
     static HeapWatch get() {
         return INSTANCE;
+    }
+
+    /**
+     * Живой объём старшего поколения после последней видимой сборки — для пульса кучи конвейера съёмки
+     * (Newisle.heap): та же величина, по которой бюджет руин, чтобы сторож конвейера сравнивал её с долей выше
+     * бюджета. У пулов без старшего поколения — запасной замер по всем пулам (с запасом); −1 — замера не было.
+     */
+    public static long liveOldGeneration() {
+        return INSTANCE.available() ? INSTANCE.live : fallbackLive();
     }
 
     /**
