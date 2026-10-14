@@ -44,25 +44,42 @@ final class CineCamera {
     @Nullable
     private static Path path;
     private static Pose pose;
+    /**
+     * Камера-призрак ({@link #ghost}): путь плана есть (поза идёт в журнал повтора, по ней камеру ставит вывод), а кадр
+     * — глазами игрока: живой дубль Артёма (Newisle), он видит свой экран и подсказки.
+     */
+    private static boolean ghost;
     /** Угол кадра для вида игрока (NaN — как в настройках). */
     static double viewFov = Double.NaN;
 
     private CineCamera() {}
 
     static boolean active() {
-        return path != null;
+        return path != null && !ghost;
     }
 
     static void use(Path p) {
         Minecraft mc = Minecraft.getInstance();
         if (eye == null || eye.level() != mc.level) eye = new Marker(EntityType.MARKER, mc.level);
         path = p;
+        ghost = false;
         apply(0);
         mc.setCameraEntity(eye);
     }
 
+    /** Путь плана без захвата кадра: поза — для журнала и проверок, вид — игрока ({@link #ghost}). */
+    static void ghost(Path p) {
+        Minecraft mc = Minecraft.getInstance();
+        if (eye == null || eye.level() != mc.level) eye = new Marker(EntityType.MARKER, mc.level);
+        path = p;
+        ghost = true;
+        apply(0);
+        if (mc.player != null) mc.setCameraEntity(mc.player);
+    }
+
     static void release() {
         path = null;
+        ghost = false;
         viewFov = Double.NaN;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) mc.setCameraEntity(mc.player);
@@ -88,11 +105,11 @@ final class CineCamera {
     }
 
     static void angles(ViewportEvent.ComputeCameraAngles e) {
-        if (path != null && pose != null) e.setRoll(e.getRoll() + pose.roll());
+        if (path != null && pose != null && !ghost) e.setRoll(e.getRoll() + pose.roll());
     }
 
     static void fov(ViewportEvent.ComputeFov e) {
-        if (path != null && pose != null) {
+        if (path != null && pose != null && !ghost) {
             e.setFOV(pose.fov());
         } else if (!Double.isNaN(viewFov) && e.usedConfiguredFov()) {
             // вид игрока: угол плана поверх настроек, приближение бинокля (модификатор) сохраняется

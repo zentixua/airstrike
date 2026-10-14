@@ -23,6 +23,11 @@ public final class Trailer extends Film {
     }
 
     private void script() {
+        if (Newisle.selected()) {
+            setup();
+            new Newisle(this).stage();
+            return;
+        }
         setup();
         new War(this).stage();
         finish();

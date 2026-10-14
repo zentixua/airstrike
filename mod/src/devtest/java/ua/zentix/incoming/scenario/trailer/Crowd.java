@@ -67,6 +67,15 @@ final class Crowd {
         }
     }
 
+    /** Все бегут к точке {@code to}, каждый — через {@code min}…{@code max} тиков: не разом, как по команде. */
+    void flee(Vec3 to, int min, int max) {
+        for (Person p : people) {
+            p.mode = Mode.FLEE;
+            p.point = to;
+            p.nextAt = server.getTickCount() + min + random.nextInt(Math.max(1, max - min + 1));
+        }
+    }
+
     /** Все смотрят на точку (в небо на ракету, на гриб); {@code jitter} — разброс взглядов, блоков. */
     void watch(Vec3 at, double jitter) {
         for (Person p : people) {

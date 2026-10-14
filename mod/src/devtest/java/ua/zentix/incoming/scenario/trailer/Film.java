@@ -323,6 +323,8 @@ abstract class Film {
         /** Снимать кадрами вживую и при записи повторов (без интерфейса мода): объект дальше прорисовки. */
         private boolean live;
         private boolean hiddenActor;
+        /** Камера-призрак ({@link CineCamera#ghost}): путь — в журнал, кадр — глазами игрока (живой дубль). */
+        private boolean ghostCamera;
         private boolean prep = true;
         /** Ждать прогрузки почти на всю дальность прорисовки (общий план с высоты), а не только рядом с камерой. */
         private int readyChunks = 4;
@@ -388,6 +390,12 @@ abstract class Film {
 
         Shot hidden() {
             hiddenActor = true;
+            return this;
+        }
+
+        /** Камера плана — призраком: игрок в кадре сам и видит своё ({@link CineCamera#ghost}), поза пишется в журнал. */
+        Shot ghost() {
+            ghostCamera = true;
             return this;
         }
 
@@ -538,7 +546,8 @@ abstract class Film {
                     mc.getToasts().clear();  // «New Recipes Unlocked» и прочие всплывашки не в кадр
                     if (camera != null) {
                         path = camera.get();
-                        CineCamera.use(path);
+                        if (ghostCamera) CineCamera.ghost(path);
+                        else CineCamera.use(path);
                     } else {
                         CineCamera.release();
                     }

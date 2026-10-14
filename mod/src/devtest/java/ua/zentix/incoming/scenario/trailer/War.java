@@ -350,7 +350,7 @@ final class War {
 
     // ================================================================ мир и помощники
 
-    private void config() {
+    void config() {
         film.run(() -> {
             Film.cmd("difficulty peaceful");
             Film.cmd("gamerule doFireTick false");
@@ -1090,7 +1090,7 @@ final class War {
     }
 
     /** Бот следит глазами за ближайшим снарядом этого типа (каждые 2 тика), не дольше {@code ticks} тиков. */
-    private void trackLook(String bot, Class<? extends Entity> type, int ticks) {
+    void trackLook(String bot, Class<? extends Entity> type, int ticks) {
         MinecraftServer server = server();
         int[] left = {ticks / 2};
         Runnable[] step = new Runnable[1];
@@ -1596,15 +1596,18 @@ final class War {
      * Узел сети на копии карты для съёмки (своей сети у Zearth нет): взрыв рядом выбивает его, и район {@code radius}
      * гаснет каскадом мода ({@code Blackouts}). Высота y = 0 — земля. Узлы снимает {@link #gridRestore}.
      */
-    private void gridNode(Vec3 p, int radius) {
-        film.onServer(level -> {
-            BlockPos at = BlockPos.containing(p.x, p.y <= 0 ? groundY(level, p.x, p.z) : p.y, p.z);
-            gridNodes.add(PowerGrid.get(level).addNode(at, radius, false).id());
-        });
+    void gridNode(Vec3 p, int radius) {
+        film.onServer(level -> addGridNode(level, p, radius));
+    }
+
+    /** То же сразу (поток сервера). */
+    void addGridNode(ServerLevel level, Vec3 p, int radius) {
+        BlockPos at = BlockPos.containing(p.x, p.y <= 0 ? groundY(level, p.x, p.z) : p.y, p.z);
+        gridNodes.add(PowerGrid.get(level).addNode(at, radius, false).id());
     }
 
     /** Свет — обратно (за 10 с, как командой {@code grid restore}), узлы съёмки — прочь: дальше город снова в огнях. */
-    private void gridRestore() {
+    void gridRestore() {
         film.onServer(level -> {
             Blackouts.restore(level, null, 0);
             gridNodes.forEach(id -> PowerGrid.get(level).removeNode(id));
@@ -1632,14 +1635,19 @@ final class War {
      * фонарь не проверяет опору, красные цепи не трогаются. Чанки станции грузятся сразу (до записи плана).
      */
     private static int wireStation(ServerLevel level) {
+        return wireStation(level, STATION_MIN, STATION_MAX);
+    }
+
+    /** То же для станции в рамке {@code min}…{@code max} (Newisle: станция у кафе Города 1). */
+    static int wireStation(ServerLevel level, BlockPos min, BlockPos max) {
         int n = 0;
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-        for (int cx = STATION_MIN.getX() >> 4; cx <= STATION_MAX.getX() >> 4; cx++) {
-            for (int cz = STATION_MIN.getZ() >> 4; cz <= STATION_MAX.getZ() >> 4; cz++) {
+        for (int cx = min.getX() >> 4; cx <= max.getX() >> 4; cx++) {
+            for (int cz = min.getZ() >> 4; cz <= max.getZ() >> 4; cz++) {
                 LevelChunk c = level.getChunk(cx, cz);
-                for (int x = Math.max(cx * 16, STATION_MIN.getX()); x <= Math.min(cx * 16 + 15, STATION_MAX.getX()); x++) {
-                    for (int z = Math.max(cz * 16, STATION_MIN.getZ()); z <= Math.min(cz * 16 + 15, STATION_MAX.getZ()); z++) {
-                        for (int y = STATION_MIN.getY(); y <= STATION_MAX.getY(); y++) {
+                for (int x = Math.max(cx * 16, min.getX()); x <= Math.min(cx * 16 + 15, max.getX()); x++) {
+                    for (int z = Math.max(cz * 16, min.getZ()); z <= Math.min(cz * 16 + 15, max.getZ()); z++) {
+                        for (int y = min.getY(); y <= max.getY(); y++) {
                             BlockState s = c.getBlockState(p.set(x, y, z));
                             BlockState to = s.is(Blocks.TORCH) || s.is(Blocks.REDSTONE_TORCH) ? Blocks.LANTERN.defaultBlockState()
                                     : s.is(Blocks.WALL_TORCH) || s.is(Blocks.REDSTONE_WALL_TORCH)
@@ -1661,7 +1669,7 @@ final class War {
      * Ждать, пока вошли все боты: вход с местом ждёт чанков в фоне (до 30 с), и шаги ботам до входа уходят в пустоту.
      * Бот считается вошедшим, когда клиент его видит (все боты сцен — рядом с камерой).
      */
-    private void settle() {
+    void settle() {
         film.waitUntil(() -> {
             Cast.joining.removeIf(n -> film.bot(n) != null);
             return Cast.joining.isEmpty();
@@ -1671,19 +1679,22 @@ final class War {
     }
 
     /** ЗРК сцены убираются после неё: иначе они сбивают шахеды следующих планов (вокруг — весь Восток). */
-    private void clearSams(Vec3 center, int radius) {
-        film.onServer(level -> {
-            int cx = Mth.floor(center.x) >> 4, cz = Mth.floor(center.z) >> 4, rc = (radius >> 4) + 1;
-            for (int x = cx - rc; x <= cx + rc; x++) {
-                for (int z = cz - rc; z <= cz + rc; z++) {
-                    LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
-                    if (chunk == null) continue;
-                    for (BlockPos p : List.copyOf(chunk.getBlockEntities().keySet())) {
-                        if (chunk.getBlockEntity(p) instanceof SamBlockEntity) level.removeBlock(p, false);
-                    }
+    void clearSams(Vec3 center, int radius) {
+        film.onServer(level -> removeSams(level, center, radius));
+    }
+
+    /** То же сразу (поток сервера). */
+    static void removeSams(ServerLevel level, Vec3 center, int radius) {
+        int cx = Mth.floor(center.x) >> 4, cz = Mth.floor(center.z) >> 4, rc = (radius >> 4) + 1;
+        for (int x = cx - rc; x <= cx + rc; x++) {
+            for (int z = cz - rc; z <= cz + rc; z++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
+                if (chunk == null) continue;
+                for (BlockPos p : List.copyOf(chunk.getBlockEntities().keySet())) {
+                    if (chunk.getBlockEntity(p) instanceof SamBlockEntity) level.removeBlock(p, false);
                 }
             }
-        });
+        }
     }
 
     private void setLauncher(BlockPos p, String mission, Vec3 target, int load) {
@@ -1698,7 +1709,7 @@ final class War {
      * пусками 2–14 тиков, первая — сразу (13.10: все разом — «слишком синхронно, нереалистично»). Зерно у сценария
      * своё: дубли пишутся одинаково.
      */
-    private void fireAll(List<BlockPos> rack) {
+    void fireAll(List<BlockPos> rack) {
         List<BlockPos> order = new ArrayList<>(rack);
         net.minecraft.Util.shuffle(order, fireOrder);
         int t = 0;
@@ -1728,7 +1739,7 @@ final class War {
      * поджига (не раньше 10–12 тиков, у «Града» — пока труба не перезарядится), и условие «снаряд у батареи» начинало
      * план с пустых направляющих: в p10a и p35 первый сход был после склейки, в p01c — ни одного (14.10).
      */
-    private boolean lit(Class<? extends StrikeProjectile> type, List<BlockPos> rack) {
+    boolean lit(Class<? extends StrikeProjectile> type, List<BlockPos> rack) {
         for (Entity e : mc.level.entitiesForRendering()) {
             if (!type.isInstance(e) || e.isRemoved() || ((StrikeProjectile) e).flightPhase() == FlightPhase.READY) continue;
             for (BlockPos p : rack) {
@@ -2491,7 +2502,7 @@ final class War {
     }
 
     /** Точка мира на открытой карте наведения — в координатах GUI (проекция карты; закрыта — отражением). */
-    private double[] mapPoint(Vec3 p) {
+    double[] mapPoint(Vec3 p) {
         try {
             var m = MapScreen.class.getDeclaredMethod("projection");
             m.setAccessible(true);
