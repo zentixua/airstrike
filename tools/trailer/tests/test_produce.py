@@ -76,6 +76,7 @@ class FakeMachine(P.Machine):
         self.script = script
         self.free, self.mem = 100.0, 30.0
         self.game_until = None
+        self.client_until = None
         self.starts = []
         self.procs = []
         self.copies = []
@@ -100,6 +101,12 @@ class FakeMachine(P.Machine):
     def running(self, patterns):
         if self.game_until is not None and self.t < self.game_until:
             return "4242", "prism"
+        return None
+
+    def client_running(self):
+        # «градл-демон» клиента жив до client_until: переживает убийство запускателя и ещё дописывает мир
+        if self.client_until is not None and self.t < self.client_until:
+            return "9", "org.gradle.launcher.daemon.bootstrap.GradleDaemon"
         return None
 
     def tree_gb(self, path):
@@ -214,6 +221,20 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(1, tries[1]["variant"])
         v = P.smoke_verdict(c, {"A": "kill"})
         self.assertTrue(v["pass"], v)
+
+    def test_killed_clients_world_removed_after_gradle_gone(self):
+        # запускатель убивается сразу, а JVM-клиент — под одиночным градл-демоном вне группы сессии и уходит
+        # секундами позже, дописывая мир: копия мира удаляется только после него, иначе rmtree ловил
+        # «Directory not empty» (ночь 2026-10-14)
+        c, m = self.conveyor(faults={"A": "kill"})
+        m.client_until = m.t + 90 + 6              # демон переживает убийство запускателя на 6 с
+        gone = []
+        m.remove_tree = lambda path: (gone.append((os.path.basename(path), m.t)),
+                                      P.Machine.remove_tree(m, path))
+        self.assertEqual(0, c.run(["A"]))
+        first = next(t for name, t in gone if name == "nw-A-a0")
+        self.assertGreaterEqual(first, m.client_until, "копия мира — после ухода демона")
+        self.assertTrue(P.smoke_verdict(c, {"A": "kill"})["pass"])
 
     def test_disk_pause_then_go_on(self):
         c, m = self.conveyor(faults={"A": "disk"})
