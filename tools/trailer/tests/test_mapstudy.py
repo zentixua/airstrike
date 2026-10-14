@@ -164,6 +164,14 @@ class MapStudyTest(unittest.TestCase):
         w.box("minecraft:oak_planks", 20, 28, 170, 130, 35, 177)
         w.box("minecraft:air", 20, 29, 171, 130, 34, 176)
         w.box("minecraft:rail", 20, 29, 173, 130, 30, 174)
+        # шахта без начала в чанке (карта из старой версии игры): коридор с рельсами, крепь из забора и досок, паутина
+        w.box("minecraft:air", 20, 24, 140, 131, 28, 145)
+        w.box("minecraft:rail", 20, 24, 142, 131, 25, 143)
+        for x in range(22, 131, 5):
+            w.box("minecraft:oak_fence", x, 24, 140, x + 1, 27, 141)
+            w.box("minecraft:oak_fence", x, 24, 144, x + 1, 27, 145)
+            w.box("minecraft:oak_planks", x, 27, 140, x + 1, 28, 145)
+        w.box("minecraft:cobweb", 41, 27, 141, 42, 28, 142)
         # пласт камня Create под землёй — природа, не тоннель
         w.box("create:asurine", 200, 20, 100, 240, 40, 140)
         # башня из стекла с каменной крышей: дом, а не гора
@@ -195,6 +203,8 @@ class MapStudyTest(unittest.TestCase):
         self.assertGreaterEqual(street[0]["sides"], 14)
         self.assertEqual(len(st["metro"]), 1, st["metro"])     # рельсы шахты — не линия метро
         self.assertGreaterEqual(st["metro"][0]["rails"], 130)
+        self.assertTrue(any(m["rails"] >= 100 and m["y"][0] == 24 for m in st["mines"]), st["mines"])
+        self.assertFalse(any(t["z"][0] <= 142 <= t["z"][1] and t["x"][1] - t["x"][0] > 60 for t in st["tunnels"]), st["tunnels"])
         self.assertGreater(st["metro"][0]["under"], 0.9)
         self.assertTrue(any(55 <= x["x"] <= 90 and x["line"] == 1 for x in st["stations"]), st["stations"])
         self.assertFalse(any(x["x"] < 50 or x["x"] > 100 for x in st["stations"]), st["stations"])

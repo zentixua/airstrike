@@ -17,10 +17,11 @@
 - высотки: вершины строений от 30 блоков над землёй, по одной на 40 блоков;
 - улицы-каньоны: прямые мощёные полосы (искусственный верх у земли) вдоль x или z от 100 блоков, по обе стороны —
   дома; оценка — медиана меньшей из двух сторон;
-- взлётные полосы: прямые мощёные полосы от 300 блоков шириной от 16;
+- взлётные полосы: прямые мощёные полосы от 150 блоков шириной от 12;
 - вода и глубина; мосты — искусственный настил над водой; метро — рельсы ниже земли на 4+ блока (станции — подземный
   зал шире тоннеля), железные дороги по земле отдельно; шахты и другие постройки генерации мира — по рамкам их частей
-  в чанках, мимо метро и застройки;
+  в чанках, мимо метро и застройки; шахты, у которых рамок нет (карта собрана в старой версии игры), — по секциям с
+  паутиной или крепью шахты (деревянный забор и доски) под землёй;
 - горы: вершины рельефа, их превышение над округой и видны ли с них центры районов (луч по карте высот);
 - точки: что вокруг и какие другие точки и районы с неё видны; вырезки — 1 блок на пиксель.
 Пишет `map.png` (цвет сверху с тенью, сетка 256, точки), `heights.png` (строения по высоте), `infra.png` (дороги, вода,
@@ -74,9 +75,15 @@ SOFT = re.compile(
     r"sweet_berry_bush|brown_mushroom|red_mushroom|glow_lichen|snow|cobweb|.*torch|.*_button|.*_sign|.*_banner|"
     r"pink_petals|moss_carpet|.*_carpet|cave_vines.*|weeping_vines.*|twisting_vines.*)$")
 AIRISH = re.compile(r"^minecraft:(air|cave_air|void_air)$")
-# постройки генерации под землёй: их рельсы и стены — не метро
 RUNWAY_LEN, RUNWAY_WIDTH = 150, 12
+# постройки генерации под землёй: их рельсы и стены — не метро
 GEN_UNDER = ("mineshaft", "ancient_city", "stronghold", "trial_chambers", "buried_treasure", "monument")
+# крепь шахты генерации: стойки — деревянный забор, балка — доски (MineshaftPieces); паутина — в её коридорах. У Newisle
+# начал шахт в чанках нет (по ним — gen_under) там, где карта собрана в старой версии игры: в первом проходе (14.10)
+# коридоры шахт у Города 2 вышли линиями метро на 30–60 блоков под землёй
+MINE_FENCE = re.compile(r"^minecraft:(oak|dark_oak|spruce|birch|jungle|acacia|mangrove|cherry)_fence$")
+MINE_PLANKS = re.compile(r"^minecraft:[a-z_]+_planks$")
+NSEC = (320 - MIN_Y) // 16
 WATER = re.compile(r"^minecraft:(water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$")
 RAIL = re.compile(r"(^minecraft:(rail|powered_rail|detector_rail|activator_rail)$|^create:track$)")
 # мостовая: тёмное и серое — асфальт и тротуар, белое и жёлтое — разметка
@@ -128,8 +135,9 @@ def top_index(mask):
 
 def read_region(args):
     """Колонки региона 512×512: верх любой, верх твёрдый, блок поверхности (номер в своих именах), верх воды, слои
-    искусственного по 4 блока (биты), рельсы [(x, y, z)], части построек генерации [(id, x0, y0, z0, x1, y1, z1)] и
-    счёт искусственных блоков глубоко под землёй (ниже y 40) по именам — что ещё природное, а не стройка."""
+    искусственного по 4 блока (биты), рельсы [(x, y, z)], части построек генерации [(id, x0, y0, z0, x1, y1, z1)],
+    счёт искусственных блоков глубоко под землёй (ниже y 40) по именам — что ещё природное, а не стройка, и секции с
+    приметами шахты [чанк z][чанк x][секция] (паутина или забор с досками)."""
     path, rx, rz = args
     n = 512
     top_any = np.full((n, n), MIN_Y - 1, np.int16)
@@ -139,6 +147,7 @@ def read_region(args):
     upper = np.zeros((n, n), np.int32)
     slabs = np.zeros((n, n, SLAB_BYTES), np.uint8)
     have = np.zeros((n, n), bool)
+    mines = np.zeros((32, 32, NSEC), bool)
     rails, structs, deep = [], [], {}
     names, ids = ["minecraft:air"], {"minecraft:air": 0}
     for ch in region_chunks(path):
@@ -174,6 +183,9 @@ def read_region(args):
                 bits = max(4, math.ceil(math.log2(len(pal))))
                 idx = unpack(s["block_states"]["data"], bits, 4096).reshape(16, 16, 16)
             y0 = s["Y"] * 16
+            if 0 <= s["Y"] + 4 < NSEC and ("minecraft:cobweb" in pal or (any(MINE_FENCE.match(p) for p in pal)
+                                                                        and any(MINE_PLANKS.match(p) for p in pal))):
+                mines[lz0 // 16, lx0 // 16, s["Y"] + 4] = True
             for p in pal:
                 if p not in ids:
                     ids[p] = len(names)
@@ -209,7 +221,7 @@ def read_region(args):
                 yy, zz, xx = np.nonzero(rail[idx])
                 for y, z, x in zip(yy, zz, xx):
                     rails.append((rx * 512 + lx0 + int(x), y0 + int(y), rz * 512 + lz0 + int(z)))
-    return rx, rz, have, top_any, top_solid, water, surf, upper, slabs, rails, names, structs, deep
+    return rx, rz, have, top_any, top_solid, water, surf, upper, slabs, rails, names, structs, deep, mines
 
 
 def sliding(a, k, axis, fn):
@@ -338,12 +350,19 @@ def main():
     surf = np.zeros((H, W), np.int32)
     upper = np.zeros((H, W), np.int32)
     slabs = np.zeros((H, W, SLAB_BYTES), np.uint8)
+    cx_min, cz_min = x0 >> 4, z0 >> 4
+    mine = np.zeros((((z1 - 1) >> 4) - cz_min + 1, ((x1 - 1) >> 4) - cx_min + 1, NSEC), bool)   # секции с приметами шахты
     rails, structs, deep = [], [], {}
     names, gids = ["minecraft:air"], {"minecraft:air": 0}
     with Pool(a.jobs) as pool:
         for k, res in enumerate(pool.imap_unordered(read_region, files)):
-            rx, rz, hv, ta, ts, tw, sf, up, sb, rl, nm, stc, dp = res
+            rx, rz, hv, ta, ts, tw, sf, up, sb, rl, nm, stc, dp, mn = res
             structs += stc
+            ci0, cj0 = rz * 32 - cz_min, rx * 32 - cx_min
+            si, sj = max(0, -ci0), max(0, -cj0)
+            ei, ej = min(32, mine.shape[0] - ci0), min(32, mine.shape[1] - cj0)
+            if ei > si and ej > sj:
+                mine[ci0 + si:ci0 + ei, cj0 + sj:cj0 + ej] |= mn[si:ei, sj:ej]
             for n_, c_ in dp.items():
                 deep[n_] = deep.get(n_, 0) + c_
             for n in nm:
@@ -428,10 +447,19 @@ def main():
     bh = np.where(have, top_f - ground, 0)
     wet = have & (water >= top) & (water > MIN_Y)
     wet_depth = np.where(wet, water - top, 0)
-    # подземное искусственное (ниже земли на 4+ блока) и стройка выше земли под природной крышей
+    # подземное искусственное (ниже земли на 4+ блока) и стройка выше земли под природной крышей; секции с приметами
+    # шахты под землёй — не тоннели
+    zi, xi = ((z0 + np.arange(H)) >> 4) - cz_min, ((x0 + np.arange(W)) >> 4) - cx_min
+    mine_cols = {}
+
+    def mine_at(s_):
+        if s_ not in mine_cols:
+            mine_cols[s_] = mine[:, :, s_][np.ix_(zi, xi)]
+        return mine_cols[s_]
     under = np.zeros((H, W), bool)
     for k in ks:
-        under |= layer(k) & (MIN_Y + k * 4 + 3 < ground - 4)
+        under |= layer(k) & (MIN_Y + k * 4 + 3 < ground - 4) & ~mine_at(k // 4)
+    mine_cols.clear()
     mm_above = man_made_between(ground + 1, top_f)
     under &= have & ~gen_under
     built = have & (bh >= 4) & (~natural_top | mm_above) & ~gen_surface
@@ -557,14 +585,15 @@ def main():
     rails_a = np.array(rails, np.int64).reshape(-1, 3)
     if len(rails_a):   # рельсы шахт генерации — не дороги карты
         rails_a = rails_a[~gen_under[rails_a[:, 2] - z0, rails_a[:, 0] - x0]]
-    metro, railways, stations = [], [], []
+    metro, railways, stations, mines = [], [], [], []
     if len(rails_a):
         g = ground[rails_a[:, 2] - z0, rails_a[:, 0] - x0]
         deep_all = rails_a[:, 1] < g - 3
+        mine_all = mine[(rails_a[:, 2] >> 4) - cz_min, (rails_a[:, 0] >> 4) - cx_min, np.clip((rails_a[:, 1] >> 4) + 4, 0, NSEC - 1)]
         # станции: рельс под землёй, вокруг которого подземный зал шире тоннеля (15 × 15 почти весь искусственный)
         hall = box_mean(under, 15) >= 0.85
         for kind, out in ((True, metro), (False, railways)):
-            ra = rails_a[deep_all == kind]
+            ra, mr = rails_a[deep_all == kind], mine_all[deep_all == kind]
             if not len(ra):
                 continue
             rx_, ry_, rz_ = ra[:, 0], ra[:, 1], ra[:, 2]
@@ -589,6 +618,9 @@ def main():
                         "z": [int(pz.min()), int(pz.max())], "y": [int(ry_[sel].min()), int(ry_[sel].max())], "extent": ext,
                         "ends": ends, "depth_median": round(float(np.median((gg - ry_)[sel])), 1),
                         "district": district_at(int(px.mean()), int(pz.mean()))}
+                if kind and mr[sel].mean() >= 0.5:   # больше половины рельсов — в секциях с крепью или паутиной: шахта
+                    mines.append({k_: line[k_] for k_ in ("rails", "x", "z", "y", "extent", "depth_median", "district")})
+                    continue
                 line["_stations"] = []
                 h_ = hall[rz_[sel] - z0, rx_[sel] - x0] if kind else np.zeros(n, bool)
                 if h_.any():
@@ -824,7 +856,7 @@ def main():
              "built_share": round(float(built[have].mean()), 3), "road_share": round(float(road[have].mean()), 3),
              "water_share": round(float(wet[have].mean()), 3),
              "districts": districts, "tall": tall, "streets": streets, "runways": runways, "metro": metro[:30],
-             "railways": railways[:30], "stations": stations[:60],
+             "railways": railways[:30], "stations": stations[:60], "mines": sorted(mines, key=lambda m: -m["rails"]),
              "tunnels": tunnels[:30], "bridges": bridges[:40], "waters": waters[:20], "peaks": peaks, "points": points,
              "generated": gen_list, "deep_census": sorted(deep.items(), key=lambda kv: -kv[1])[:40],
              "surface_census_outside_map": outside_census, "images": list(outs), "crops": crops}
@@ -901,6 +933,11 @@ def summary(st):
               for c in st["crops"]]
     L += ["", "## Проверка разбора", "", "Постройки генерации мира (начала; внутри самой карты):", ""]
     L += [f"- {g['id']}: {g['starts']} ({g['inside_map']})" for g in st.get("generated", [])] or ["- нет данных о постройках"]
+    mn = st.get("mines", [])
+    L += ["", f"Шахты без начал в чанках (рельсы под землёй в секциях с крепью или паутиной, не метро): {len(mn)}, "
+              f"рельсов {sum(m['rails'] for m in mn)}" + ("; крупные: " + "; ".join(
+                  f"x {m['x'][0]}..{m['x'][1]}, z {m['z'][0]}..{m['z'][1]}, y {m['y'][0]}..{m['y'][1]} ({m['rails']})" for m in mn[:6])
+                                                       if mn else "")]
     L += ["", "Искусственное ниже y 40 (блоков): " + ", ".join(f"{n.split(':')[-1] if n.startswith('minecraft:') else n} {c}"
                                                              for n, c in st.get("deep_census", [])[:25])]
     L += ["", "Не природный верх вне самой карты (колонок): " + ", ".join(
