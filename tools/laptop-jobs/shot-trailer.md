@@ -91,5 +91,19 @@ uv run tools/shot/shot.py check $W2/render-planned/*/*/qa.jsonl $W4/render-plann
 Прислать: `render-planned/report.md` и `best.txt` обеих папок, `check-planned.log`, строки `SCENARIO film solve <план>` и
 `SCENARIO film verdict`, по кадру из середины каждого вывода.
 
+## Шаг 4: сверка вывода заново (процессор, минуты; можно рядом с работой видеокарты)
+`check` теперь выбирает объект по журналу записи (как `Rig`), а места берёт из журнала вывода по UUID снаряда: по камере
+плана в журнале вывода правило «дольше всех в кадре» брало другой снаряд (p01d, p25, p28, p38 — «другой объект» при
+PASS вывода). У p32 он ещё скажет, сдвинулся ли удар между журналами («УДАР У ВЫВОДА ДРУГОЙ»).
+```sh
+cd /mnt/data/projects/airstrike/mod/run/shot-wt && git fetch origin claude/project-thread-aealhl && git checkout <коммит>
+uv run --with numpy --with scipy --with pillow python -m unittest discover -s tools/shot/tests
+uv run tools/shot/shot.py check $W2/render-planned/*/*/qa.jsonl --regions "$R" --out $OUT/check-planned \
+    --shown 1.5 --clouds 320 2>&1 | tee $OUT/check-planned-war2-2.log
+uv run tools/shot/shot.py check $W4/render-planned/*/*/qa.jsonl --regions "$R" --out $OUT/check-planned \
+    --clouds 320 2>&1 | tee $OUT/check-planned-war4-2.log
+```
+Прислать `check-planned-war2-2.log` и `check-planned-war4-2.log` с приставкой `filming-rethink-laptop-4-`.
+
 ## После
 `git worktree remove mod/run/shot-wt`; `mod/run/shot-out` оставить до конца работы над трейлером (кэш карты).
