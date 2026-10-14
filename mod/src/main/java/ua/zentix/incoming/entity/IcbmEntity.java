@@ -15,12 +15,16 @@ import java.util.UUID;
 
 /**
  * Межконтинентальная баллистическая ракета — только участок разгона (DESIGN-nuke §7): вертикальный старт
- * из земли у запустившего, разгон 0.5 → 25 блоков/тик, доворот на курс цели и уход за потолок мира.
- * Дальше полёт — таймер запланированного удара; сама ракета ничего не взрывает.
+ * из земли у запустившего, разгон первой ступенью по тяге и массе из паспорта ({@link WeaponSpec.Ascent}: на отрыве
+ * ~1,5 g, растёт по мере выгорания топлива), строго отвесно из шахты, потом лёгкий наклон к курсу цели и уход за потолок
+ * мира — через ~8,5 с на y 64. Дальше полёт — таймер запланированного удара; сама ракета ничего не взрывает.
  */
 public class IcbmEntity extends StrikeProjectile {
     /** Паспорт МБР: предельная скорость разгона, длина, запас хода. */
     private static final WeaponSpec.Airframe AIR = WeaponSpec.NUKE.airframe();
+    /** Разгон первой ступени (паспорт). */
+    private static final WeaponSpec.Ascent ASCENT = WeaponSpec.NUKE.ascent();
+    private static final Vec3 UP = new Vec3(0, 1, 0);
 
     public IcbmEntity(EntityType<? extends IcbmEntity> type, Level level) {
         super(type, level);
@@ -54,28 +58,28 @@ public class IcbmEntity extends StrikeProjectile {
         flight.set(a[0], -89);
         setYRot(a[0]);
         setXRot(-89);
-        speed = 0.5;
+        // горячий старт из шахты: со стола — с нуля
+        speed = 0;
         setPhase(FlightPhase.IGNITION);
     }
 
     @Override
     protected void serverTick(ServerLevel level) {
-        // разгон: сначала медленно отрывается от стола, потом всё быстрее
-        speed = Math.min(AIR.cruiseSpeed(), speed + (age < 40 ? 0.08 : 0.35));
+        speed = Math.min(AIR.cruiseSpeed(), ASCENT.step(speed, age));
         if (age >= 40) setPhase(FlightPhase.BOOST);
-        if (age > 60) {
-            // доворот на курс цели: к пологим 45° над горизонтом
-            flight.holdPitch(-45, 0.02, 0.6, 0.05);
-        }
-        Vec3 dir = flight.forward();
+        // до наклона — строго по оси шахты (тангаж контроллера не круче 89°), потом нос плавно к курсу цели
+        if (age > ASCENT.pitchOverTick()) flight.holdPitch(-ASCENT.climbPitch(), 0.02, 0.6, 0.05);
+        Vec3 dir = age > ASCENT.pitchOverTick() ? flight.forward() : UP;
         Vec3 next = position().add(dir.scale(speed));
         // за пределами неба, по запасу хода или на краю тикающих чанков МБР больше не нужна: дальше летит «удар» (NuclearStrikes)
-        if (next.y > level.getMaxBuildHeight() + 256 || exhausted()) {
+        if (next.y > level.getMaxBuildHeight() + ASCENT.ceiling() || exhausted()) {
             discard();
             return;
         }
         if (leavesTickingChunks(level, next)) return;
-        moveAlong(level, next, dir);
+        // чанк впереди — по курсу над землёй: ракета идёт почти отвесно, и чанк «на 16 блоков вперёд по носу» был бы
+        // в паре блоков по горизонтали — она входила бы в новый чанк раньше, чем у него начнут тикать сущности
+        moveAlong(level, next, Vec3.directionFromRotation(0, flight.yaw()));
     }
 
     @Override

@@ -44,11 +44,12 @@ import java.util.function.ToDoubleFunction;
  * @param airframe   сущность, которой летит оружие (у B-2 — сам бомбардировщик)
  * @param payload    вторая сущность полёта: бомба, которую сбрасывает носитель; null — её нет
  * @param munition   боеприпас: предмет, который пуск снимает из инвентаря стреляющего ({@link Munitions})
+ * @param ascent     разгон ракетной ступени по тяге и массе (МБР); null — у оружия его нет
  */
 public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo salvo, Warhead warhead,
                          Supplier<ModConfigSpec.IntValue> power, Launch launch, Route route, Tracking tracking, @Nullable LauncherRack rack,
                          Blast blast, double charge, boolean penetrates, float confirmPitch, Airframe airframe, @Nullable Airframe payload,
-                         Munition munition) {
+                         Munition munition, @Nullable Ascent ascent) {
 
     /** Как оружие пускается. */
     public enum Launch {
@@ -192,6 +193,41 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     }
 
     /**
+     * Разгон твёрдотопливной ступени вертикального старта: тяга постоянна, масса падает по мере выгорания топлива,
+     * поэтому ускорение растёт — a(t) = T / (m₀ − ṁ·t) − g, ṁ = топливо / время работы. Сопротивление воздуха и рост
+     * тяги с высотой не учтены; g вычитается целиком, как при отвесном подъёме: при наклоне до {@code 90 − climbPitch}
+     * от вертикали это меньше 2 % ускорения. Тангаж упрощён — открытой программы тангажа нет: до {@code pitchOverTick}
+     * ракета идёт строго по оси (хвост выходит из шахты), потом плавно наклоняется к курсу цели до {@code climbPitch}.
+     *
+     * @param thrust        тяга, Н
+     * @param launchMass    стартовая масса ракеты, кг
+     * @param propellant    топливо ступени, кг
+     * @param burnSeconds   время работы ступени, с
+     * @param pitchOverTick с этого тика нос наклоняется к курсу цели
+     * @param climbPitch    угол подъёма над горизонтом после наклона, °
+     * @param ceiling       выше потолка мира на столько блоков ракета больше не нужна (дальше летит удар)
+     */
+    public record Ascent(double thrust, double launchMass, double propellant, double burnSeconds, int pitchOverTick, float climbPitch,
+                         int ceiling) {
+        /** Ускорение свободного падения, м/с². */
+        static final double G = 9.81;
+
+        /** Чистое ускорение вдоль корпуса через {@code seconds} с после старта, м/с² (после выгорания — как в конце). */
+        public double accel(double seconds) {
+            double t = Math.min(Math.max(seconds, 0), burnSeconds);
+            return thrust / (launchMass - propellant / burnSeconds * t) - G;
+        }
+
+        /**
+         * Скорость после тика разгона {@code tick} (с 1: первый тик после старта), блоков/тик: прирост — ускорение
+         * начала тика, м/с² × 0,05² (блок = метр, тик = 0,05 с).
+         */
+        public double step(double speed, int tick) {
+            return speed + accel((tick - 1) / 20.0) / 400;
+        }
+    }
+
+    /**
      * Летательный аппарат: числа, которыми сущность снаряда отличается от других.
      *
      * @param entity        тип сущности (поставщик: паспорт не трогает реестр, пока его не спросят)
@@ -230,8 +266,9 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      *
      * @param visibility доля дальности радара, с которой снаряд виден: 1 — со всей, 0.15 — малозаметный B-2 только
      *                   вблизи; крылатую ракету на бреющем и мелкий «Ланцет» радар берёт ближе шахеда
-     * @param intercept  ЗРК тратит на него ракету-перехватчик: шахед, ракета, «Ланцет», B-2. МБР перехватчику не догнать
-     *                   (25 блоков/тик на разгоне), неуправляемый снаряд «Града» не стоит ракеты, падающая бомба — поздно
+     * @param intercept  ЗРК тратит на него ракету-перехватчик: шахед, ракета, «Ланцет», B-2. МБР — не цель ЗРК: ПВО мода
+     *                   против ударов по месту, а перехват МБР — другая система; неуправляемый снаряд «Града» не стоит
+     *                   ракеты, падающая бомба — поздно
      */
     public record Signature(double visibility, boolean intercept) {}
 
@@ -296,7 +333,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Airframe(() -> ModEntities.DRONE.get(), 2.1, 3.0, 3.0, 1.6, 45, 20, 256, 1.83, 12, 900 * 2.1, 4.3,
                     new LaunchProfile(8, 38, 0.075, 8, -9), 0, new Attack(16, 0, 0),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.ENGINE, new Signature(1.0, true)),
-            null, Munition.single(() -> ModItems.SHAHED.get()));
+            null, Munition.single(() -> ModItems.SHAHED.get()), null);
 
     /**
      * Крылатая ракета: 80 м/с (4 блока/тик, ≈290 км/ч) — медленнее настоящей, чтобы подлёт было видно; бреющий полёт
@@ -312,7 +349,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Airframe(() -> ModEntities.CRUISE_MISSILE.get(), 4.0, 5.0, 3.0, 2.0, 12, 12, 256, 2.96, 8, 700 * 4.0, 6.5,
                     new LaunchProfile(6, 40, 0.09, 8, -14), 256, new Attack(64, 160, 185),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.WHISTLE, new Signature(0.7, true)),
-            null, Munition.single(() -> ModItems.CRUISE_MISSILE.get()));
+            null, Munition.single(() -> ModItems.CRUISE_MISSILE.get()), null);
 
     /**
      * B-2 на эшелоне +170 над местом падения бомбы, 12 блоков/тик, разворот 1°/тик (радиус ~690 блоков), сброс за ~85
@@ -327,10 +364,18 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, 0, BombDrop.NOSE, 0, 300 * BombDrop.MAX_SPEED,
                     BombDrop.REACH_PAD, null, 0, Attack.NONE,
                     ph -> Hearing.ENGINE, new Signature(0.1, false)),
-            Munition.single(() -> ModItems.BUNKER_BUSTER.get()));
+            Munition.single(() -> ModItems.BUNKER_BUSTER.get()), null);
 
     /**
-     * МБР с ядерной боеголовкой: только участок разгона до 25 блоков/тик; удар — таймер {@code NuclearStrikes}. Сила
+     * МБР с ядерной боеголовкой: только участок разгона (предел — 25 блоков/тик); удар — таймер {@code NuclearStrikes}.
+     * Разгон — первая ступень LGM-30G Minuteman III: стартовая масса 36 030 кг (79 432 фунта) и тяга первой ступени
+     * 203 158 фунтов (903,7 кН) — USAF Fact Sheet «LGM-30G Minuteman III»
+     * (https://www.af.mil/About-Us/Fact-Sheets/Display/Article/104466/lgm-30g-minuteman-iii/); топливо первой ступени —
+     * 20 780 кг за 61 с (S. Fetter, «A Ballistic Missile Primer», табл. первой ступени Minuteman: у Minuteman III она та же,
+     * https://gotech.spp.umd.edu/sites/default/files/2019-08/1990-MissilePrimer.pdf). На отрыве 1,56 g, к 10 с — 1,82 g:
+     * 165 м/с и ~810 м по оси. Строго отвесно 3 с (хвост выходит из шахты 25 блоков к ~1,8 с), потом наклон к курсу
+     * цели до 85° над горизонтом; за потолок мира + 320 уходит через ~8,5 с на y 64, отойдя на ~30 блоков вбок: дальше
+     * вбок она уходила бы из готовых чанков у места пуска. Сила
      * взрыва — {@code bunkerPower}: своей настройки у МБР нет, её подрыв ядерный (мощность — килотонны {@code Loadout.Nuke}),
      * а поле паспорта обязательно. Промаха нет: у настоящей МБР он в сотни метров, но при ядерном заряде ничего не меняет,
      * а подрыв точно в отметке совпадает с её сиреной и предупреждением.
@@ -340,7 +385,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Route(null, 0, 0, 0, 0, 0, 0), Tracking.POINT, null, Blast.NONE, 0, false, 0.5f,
             new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 0, 9, 0, 600 * 25, 0, null, 0, Attack.NONE,
                     ph -> ph.boosterLit() ? Hearing.ICBM : 0, new Signature(1.0, false)),
-            null, Munition.single(() -> ModItems.ICBM.get()));
+            null, Munition.single(() -> ModItems.ICBM.get()), new Ascent(903_700, 36_030, 20_780, 61, 60, 85, 320));
 
     /**
      * РСЗО в духе БМ-21 «Град»: неуправляемые реактивные снаряды по баллистике с пакета из 40 труб, залп очередью
@@ -353,7 +398,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Route(null, 0, 600, 0.01, 0, 0, 0), Tracking.POINT, LauncherRack.ROCKET, Blast.ROCKET, 6.4, false, 0.5f,
             new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 0, 1.45, 2, 2400 * 4, 1.5, null, 0, Attack.NONE,
                     ph -> launching(ph) ? Hearing.ROCKET_LAUNCH : Hearing.ROCKET_AIR, new Signature(1.0, false)),
-            null, new Munition(() -> ModItems.GRAD_ROCKETS.get(), LauncherRack.ROCKET.slots()));
+            null, new Munition(() -> ModItems.GRAD_ROCKETS.get(), LauncherRack.ROCKET.slots()), null);
 
     /**
      * Барражирующий боеприпас в духе «Ланцета»: ≈115 км/ч, с катапульты (толчок за полсекунды, без огня) к цели,
@@ -367,5 +412,5 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Airframe(() -> ModEntities.LOITER.get(), 1.6, 4.0, 3.0, 2.0, 45, 25, 35, 1.3, 4, 2400 * 1.6, 3.0,
                     new LaunchProfile(4, 10, 0.16, 4, -8), 0, Attack.NONE,
                     ph -> ph.onLauncher() ? Hearing.ENGINE : Hearing.LOITER_DIVE, new Signature(0.5, true)),
-            null, Munition.single(() -> ModItems.LANCET.get()));
+            null, Munition.single(() -> ModItems.LANCET.get()), null);
 }

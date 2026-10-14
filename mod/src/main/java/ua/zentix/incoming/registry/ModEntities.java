@@ -101,7 +101,7 @@ public final class ModEntities {
     }
 
     /**
-     * Снаряды быстрые (до 25 блоков за тик у МБР), поэтому позиция уходит клиентам каждый тик,
+     * Снаряды быстрые (до 12 блоков за тик у B-2), поэтому позиция уходит клиентам каждый тик,
      * а дальность отслеживания больше ванильной: их должно быть видно и слышно издалека.
      */
     private static <T extends Entity> DeferredHolder<EntityType<?>, EntityType<T>> projectile(String name, EntityType.Builder<T> builder, int trackingChunks) {
