@@ -193,7 +193,9 @@ class ProduceTest(unittest.TestCase):
         world_b = st["B"]["snapshot"]
         self.assertEqual(world_b, "nw-B-a0")
         # снимки, что больше не вход, — в очереди на удаление (лежат, пока место есть: перевывод по замечанию)
-        self.assertEqual(["nw-A-a0", "nw-C-a0", "nw-B-a0"], c.state["released"])
+        # вход B (снимок A) держится до живого дубля Артёма
+        self.assertEqual("nw-A-a0", st["B"]["before"])
+        self.assertEqual(["nw-C-a0", "nw-B-a0"], c.state["released"])
         self.assertEqual(["nw-A-a0", "nw-B-a0", "nw-C-a0", "nw-D-a0"], sorted(os.listdir(self.cfg["saves"])))
         lines = self.status()
         self.assertEqual(5, len(lines))
@@ -363,6 +365,24 @@ class ProduceTest(unittest.TestCase):
         with self.assertRaises(P.Stopped):
             c.remove(os.path.join(film, "DistantHorizons.toml"))
 
+    def test_live_take_after_the_night_starts_from_its_chain_input(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run())                           # ночь без Артёма: B в цепочке — только удары
+        self.assertEqual(0, P.live(c, "B", standin=True))
+        src, dst = m.copies[-1]
+        self.assertEqual(os.path.join(self.cfg["saves"], "nw-A-a0"), src, "живой дубль — с мира, где цепочка вошла в B")
+        self.assertEqual("nw-B-a100", os.path.basename(dst))
+        self.assertNotIn("nw-A-a0", c.state["released"])
+        self.assertEqual(0, c.run())                           # утро: вывод живого и монтаж, вход B — в очередь
+        self.assertIsNotNone(c.state["live"]["B"]["attempts"][-1]["plans"])
+        self.assertIn("nw-A-a0", c.state["released"])
+        self.assertIn("nw-B-a100", c.state["released"])
+
+    def test_live_take_before_any_chain_uses_master(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, P.live(c, "B", standin=True))
+        self.assertEqual(self.master, m.copies[-1][0])
+
     def test_search_and_live_stop_without_a_world(self):
         os.remove(os.path.join(self.master, "level.dat"))
         c, m = self.conveyor()
@@ -530,15 +550,16 @@ class ProduceTest(unittest.TestCase):
 
     def test_low_disk_prunes_released_worlds_before_pausing(self):
         c, m = self.conveyor()
-        self.assertEqual(0, c.run(["A", "B"]))                 # A — в очереди на удаление
-        self.assertEqual(["nw-A-a0"], c.state["released"])
+        self.assertEqual(0, c.run(["A", "B", "C"]))            # ветка C — лист, в очереди на удаление
+        self.assertEqual(["nw-C-a0"], c.state["released"])
         m.free = 10.0                                          # порог 4 + копия 1 — хватает
-        frees = iter([4.5, 30.0])                              # до D: мало, после удаления A — хватает
+        frees = iter([4.5, 30.0])                              # до D: мало, после удаления C — хватает
         m.disk_free_gb = lambda path: next(frees, 30.0)
-        self.assertEqual(0, c.run(["A", "B", "D"]))
-        self.assertTrue(any(e[0] == "prune" and e[2] == "nw-A-a0" for e in c.events))
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        self.assertTrue(any(e[0] == "prune" and e[2] == "nw-C-a0" for e in c.events))
         self.assertFalse(any(e[0] == "pause" for e in c.events), "место нашлось без паузы")
-        self.assertFalse(os.path.exists(os.path.join(self.cfg["saves"], "nw-A-a0")))
+        self.assertFalse(os.path.exists(os.path.join(self.cfg["saves"], "nw-C-a0")))
+        self.assertTrue(os.path.exists(os.path.join(self.cfg["saves"], "nw-A-a0")), "вход дубля Артёма цел")
 
     def test_low_memory_pauses(self):
         c, m = self.conveyor()

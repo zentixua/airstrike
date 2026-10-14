@@ -10,11 +10,11 @@
 
 run    — цепочка: дубль `chain` идёт на копии снимка после прошлого дубля цепочки (первый — на копии мастера),
          `branch:<дубль>` — на копии снимка того дубля (цепочка его не берёт); дубль с Артёмом в цепочке — только удары,
-         без записи (его планы — из живого дубля). После записи — вывод планов дубля и проверка; не прошёл — та же
+         без записи (его планы — из живого дубля), а мир его входа держится до живого дубля. После записи — вывод планов дубля и проверка; не прошёл — та же
          копия входа и запасная камера (INCOMING_NEWISLE_VARIANT 1, 2), после `retries` пересъёмок — пропуск. Конец —
          черновик монтажа из прошедших планов (newisle_cut.py). Повторный запуск продолжает с места (state.json).
-live   — живой дубль Артёма на копии мастера: окно игры на его экране, подсказки, начало по Enter (`--standin` — бот
-         вместо него, слепой прогон P1).
+live   — живой дубль Артёма на копии мира, с которого цепочка шла в его дубль (цепочки ещё не было — мастера): окно
+         игры на его экране, подсказки, начало по Enter (`--standin` — бот вместо него, слепой прогон P1).
 search — поиски P1, каждая проба — на своей копии мастера; найденное — scenes/newisle-found.json (постановщик берёт
          его места и размер залпа раньше своих).
 night  — ночь П2: проба трёх дублей с порчей (по умолчанию T02=kill, T04=disk, T24=camera; своя папка <work>/smoke),
@@ -576,6 +576,10 @@ class Conveyor:
         chain_only = "artem" in t
         st = self.state["takes"].setdefault(take, {"attempts": []})
         src = self.input_for(take)
+        if chain_only and "before" not in st:
+            # мир, с которого цепочка идёт в дубль Артёма: его живой дубль снимается на копии этого мира
+            st["before"] = None if src == self.master else os.path.basename(src)
+            self.save()
         retries = int(self.limits["retries"])
         # продолжение после остановки: пересъёмки, что уже были, в счёт
         variant = sum(1 for x in st["attempts"] if not x.get("interrupted"))
@@ -656,6 +660,7 @@ class Conveyor:
             self.current_take = take
             last["plans"] = self.render(take, last["rec"], covered(None, self.takes[take]))
             self.release(last["world"])
+            self.release(self.state["takes"].get(take, {}).get("before"))
             self.save()
 
     def cut(self, final=False):
@@ -696,8 +701,12 @@ class Conveyor:
         """Снимок, который больше не вход ни одному дублю впереди (его планы выведены), — в очередь на удаление. Удаляет
         его проверка места (старые первыми), когда места мало; до того мир лежит: перевывод плана по замечанию берёт LOD
         DH из мира, где план записан."""
-        if not world:
+        if not world or world == self.state.get("chain"):
             return
+        for t, tk in self.takes.items():           # вход дубля Артёма — до его живого дубля
+            live = self.state.get("live", {}).get(t, {}).get("attempts") or ()
+            if "artem" in tk and self.state["takes"].get(t, {}).get("before") == world and not any(a["ok"] for a in live):
+                return
         for t in self.plan_order:
             src = self.takes[t].get("from", "chain")
             if src.startswith("branch:") and self.state["takes"].get(src[7:], {}).get("snapshot") == world \
@@ -930,13 +939,18 @@ Conveyor.trial = trial_method
 # ---------------------------------------------------------------- живой дубль
 
 def live(conv, take, standin=False):
-    """Живой дубль Артёма (или бот вместо него) на копии мастера: запись и вывод его планов, как у цепочки."""
+    """Живой дубль Артёма (или бот вместо него) на копии мира, с которого цепочка шла в его дубль (до цепочки — мастера):
+    запись и вывод его планов, как у цепочки; дубли после него цепочка уже сняла с мира своего прогона его ударов."""
     conv.plan_order = [take]
     conv.only = [take]
     conv.preflight()
     st = conv.state.setdefault("live", {}).setdefault(take, {"attempts": []})
     n = len(st["attempts"])
-    a = conv.attempt(take, 100 + n, 0, conv.master, live=not standin, standin=standin)
+    before = conv.state["takes"].get(take, {}).get("before")
+    src = os.path.join(conv.saves, before) if before else conv.master
+    if not os.path.exists(os.path.join(src, "level.dat")):
+        raise Stopped(f"{take}: нет мира входа {src}")
+    a = conv.attempt(take, 100 + n, 0, src, live=not standin, standin=standin)
     st["attempts"].append({"ok": a["ok"], "reason": a["reason"], "rec": a["rec"], "world": a["world"], "standin": standin})
     conv.save()
     conv.status("done" if a["ok"] else "stopped, waiting", f"живой {take}: " + ("снят" if a["ok"] else a["reason"]))
