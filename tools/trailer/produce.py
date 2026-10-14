@@ -271,7 +271,7 @@ class Conveyor:
         self.echo = log
         self.last_status = ("starting", "")
         os.makedirs(self.work, exist_ok=True)
-        self.log_file = os.path.join(self.work, "produce.log")
+        self.log_file = cfg.get("produce_log") or os.path.join(self.work, "produce.log")
         self.state_file = os.path.join(self.work, "state.json")
         self.state = load_json(self.state_file, {"takes": {}, "measured": {}, "started": None})
         self.status_file = cfg.get("status") or os.path.join(self.work, "status.txt")
@@ -1024,14 +1024,20 @@ def main(argv=None):
 
 
 def night(cfg, smoke, faults, machine=None, takes_file=None, log=print):
-    """Ночь П2: проба (дубли `smoke` с порчей `faults`, своя папка <work>/smoke, тот же файл статуса) — каждое
-    ограждение сработало и дубли кончились; прошла — вся цепочка в <work> (там же живые дубли вечера), потом черновик
-    и чистовой; не прошла — «stopped, waiting», ночь не тратится. Пройденная проба при перезапуске не повторяется."""
+    """Ночь П2: проба (дубли `smoke` с порчей `faults`, своя папка <work>/smoke, статус и produce.log — общие) —
+    каждое ограждение сработало и дубли кончились; прошла — вся цепочка в <work> (там же живые дубли вечера), потом
+    черновик и чистовой; не прошла — «stopped, waiting», ночь не тратится. Пройденная проба при перезапуске не
+    повторяется. Пуск стирает watch.txt: вердикт сторожа описывает прошлый пуск, живой сторож напишет новый."""
     status = cfg.get("status") or os.path.join(cfg["work"], "status.txt")
+    produce_log = cfg.get("produce_log") or os.path.join(cfg["work"], "produce.log")
+    watch = os.path.join(cfg["work"], "watch.txt")
+    if os.path.exists(watch):
+        os.remove(watch)
     smoke_file = os.path.join(cfg["work"], "smoke.json")
     verdict = load_json(smoke_file)
     if not (verdict and verdict.get("pass")):
-        probe = Conveyor(dict(cfg, work=os.path.join(cfg["work"], "smoke"), status=status), machine=machine,
+        probe = Conveyor(dict(cfg, work=os.path.join(cfg["work"], "smoke"), status=status,
+                              produce_log=produce_log), machine=machine,
                          takes_file=takes_file, faults=faults, log=log)
         code = probe.run(smoke)
         verdict = smoke_verdict(probe, faults)

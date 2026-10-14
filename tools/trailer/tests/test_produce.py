@@ -516,6 +516,18 @@ class ProduceTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.cfg["work"], "state.json")), "цепочка не начиналась")
         self.assertEqual([], os.listdir(self.cfg["saves"]))
 
+    def test_night_shares_produce_log_and_drops_stale_watch_verdict(self):
+        os.makedirs(self.cfg["work"], exist_ok=True)
+        stale = os.path.join(self.cfg["work"], "watch.txt")
+        with open(stale, "w", encoding="utf-8") as f:
+            f.write("STATUS: BROKEN: конвейер остановился (прошлый пуск)\n")
+        code, m = self.night()
+        self.assertEqual(0, code)
+        self.assertFalse(os.path.exists(stale), "вердикт сторожа мёртвого пуска не переживает перезапуск ночи")
+        self.assertIn("stage: recording", P.read(os.path.join(self.cfg["work"], "produce.log")),
+                      "строки пробы — в общем produce.log, который читает сторож ночи")
+        self.assertFalse(os.path.exists(os.path.join(self.cfg["work"], "smoke", "produce.log")))
+
     def test_status_heartbeat_during_long_record(self):
         c, m = self.conveyor({("A", "record"): {"seconds": 1200, "result": ok_result("A", ["a1"])}})
         stamps = []
