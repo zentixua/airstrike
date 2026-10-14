@@ -124,13 +124,16 @@ def cameras(shot: dict) -> list[dict]:
 SMOKE_LIFE = 4800
 # бомба: глубже этого под верхом (BunkerCover.BREACH_DEPTH) взрыв не прорывается наружу — без шара, столб из провала
 BREACH_DEPTH = 10
+# вид взрыва в пакете взрыва (S2C.Blast: шахед 0, ракета 1, бомба 2, РСЗО 3; так и в 2.10) → вид дыма Plume
+PACKET_LOOK = {0: 2, 1: 3, 2: 4, 3: 1}
 _HIT_WEAPONS: dict[int, tuple] = {}
 
 
-def smoke_row(t: int, x: float, y: float, z: float, surface: float | None, weapon: str | None) -> list:
-    """Строка дыма удара для Plume replayscan: место, поперечник шара, вид взрыва. Дым бомбы — над верхом (surfaceY пакета
-    взрыва, как у FarBlasts.add), не у заряда в толще; заряд глубже BREACH_DEPTH — вид 5 (столб без шара)."""
-    look = BLAST_LOOK.get(weapon, 2)
+def smoke_row(t: int, x: float, y: float, z: float, surface: float | None, weapon: str | None, kind: int | None = None) -> list:
+    """Строка дыма удара для Plume replayscan: место, поперечник шара, вид взрыва — по пакету взрыва, как у мода, без пакета
+    — по оружию снаряда. Дым бомбы — над верхом (surfaceY пакета, как у FarBlasts.add), не у заряда в толще; заряд глубже
+    BREACH_DEPTH — вид 5 (столб без шара)."""
+    look = PACKET_LOOK.get(kind, BLAST_LOOK.get(weapon, 2))
     if look == 4 and surface is not None:
         if math.floor(int(surface) - y) > BREACH_DEPTH:
             look = 5
@@ -161,9 +164,10 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     smoke = con.execute("""
         WITH k AS (SELECT id, t, x, y, z, events FROM impact_kinds
                    WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? AND srcs NOT LIKE '%nuke_detonation%'),
-        s AS (SELECT k.id, max(TRY_CAST(json_extract(ev.data, '$.surfaceY') AS DOUBLE)) AS surface
+        s AS (SELECT k.id, max(TRY_CAST(json_extract(ev.data, '$.surfaceY') AS DOUBLE)) AS surface,
+                     min(TRY_CAST(json_extract(ev.data, '$.kind') AS INTEGER)) AS kind
               FROM k, unnest(k.events) AS u(e) JOIN events ev ON ev.e = u.e WHERE regexp_matches(ev.src, ':blast$') GROUP BY k.id)
-        SELECT k.id, k.t, k.x, k.y, k.z, s.surface FROM k LEFT JOIN s ON s.id = k.id ORDER BY k.t""",
+        SELECT k.id, k.t, k.x, k.y, k.z, s.surface, s.kind FROM k LEFT JOIN s ON s.id = k.id ORDER BY k.t""",
                         [dim, a - SMOKE_LIFE, b]).fetchall()
     # поперечник огненного шара и вид взрыва — по оружию снаряда (дым удара: модель Plume replayscan); МБР — без строки:
     # у ядерного подрыва своя картинка, не столб взрыва
@@ -171,7 +175,8 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     far = kind in ("far", "nuke", "fly")
     return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far or kind == "fpv" else 20,
             "far": far, "cameras": cameras(shot), "subject": subject,
-            "smoke": [smoke_row(t, x, y, z, surface, weapons.get(i)) for i, t, x, y, z, surface in smoke if weapons.get(i) != "icbm"],
+            "smoke": [smoke_row(t, x, y, z, surface, weapons.get(i), blast) for i, t, x, y, z, surface, blast in smoke
+                      if weapons.get(i) != "icbm"],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", ""),
             **({"time": shot["camera"]["time"]} if "time" in shot["camera"] else {})}
 

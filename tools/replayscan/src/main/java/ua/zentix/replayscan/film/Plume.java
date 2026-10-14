@@ -207,7 +207,7 @@ record Plume(int t, Vec3 pos, double size, Look look) {
      * блоков от цели — её же (огненный шар и его дым и есть то, на что смотрят).
      */
     boolean blocks(Vec3 from, Vec3 to, double at) {
-        if (!alive(at) || beside(pos, to, OWN)) return false;
+        if (!alive(at) || own(to)) return false;
         for (Shape s : shapes(at)) {
             if (s.alpha() >= 0.5 && s.crosses(from, to)) return true;
         }
@@ -224,6 +224,11 @@ record Plume(int t, Vec3 pos, double size, Look look) {
     static boolean beside(Vec3 a, Vec3 b, double d) {
         double dx = a.x - b.x, dz = a.z - b.z;
         return dx * dx + dz * dz <= d * d;
+    }
+
+    /** Дым этого удара — свой для цели в {@code to}: рядом с ним или под ним (заряд бомбы), а не снаряд высоко над ним. */
+    boolean own(Vec3 to) {
+        return beside(pos, to, OWN) && to.y <= pos.y + OWN;
     }
 
     // ---------------------------------------------------------------- частицы мода

@@ -76,6 +76,9 @@ class PlumeTest {
         Vec3 eye = AT.add(-60, 8, 0);
         assertFalse(shahed.blocks(eye, AT.add(0, 4, 0), 160), "looking at the hit itself");
         assertTrue(shahed.blocks(eye, AT.add(60, 8, 0), 160), "looking through it at something beyond");
+        // снаряд высоко над прежним ударом — дым удара ему не свой; заряд бомбы под провалом — свой
+        assertFalse(shahed.own(AT.add(3, 100, 0)), "a shell high above");
+        assertTrue(shahed.own(AT.add(3, -20, 0)), "a charge under the crater");
     }
 
     @Test

@@ -785,6 +785,8 @@ class FpvTest(unittest.TestCase):
                          "бомба в 24 блоках под верхом: дым над провалом, столб без шара")
         self.assertEqual(film_plan.smoke_row(5, 0.5, 58.0, 0.5, 64.5, "b2"), [5, 0.5, 64.5, 0.5, 24, 4], "в 6 блоках — прорыв наружу")
         self.assertEqual(film_plan.smoke_row(5, 0.5, 64.0, 0.5, None, "missile"), [5, 0.5, 64.0, 0.5, 18, 3])
+        self.assertEqual(film_plan.smoke_row(5, 0.5, 40.0, 0.5, 64.0, None, 2), [5, 0.5, 64.0, 0.5, 16, 5], "бомба без снаряда — по пакету")
+        self.assertEqual(film_plan.smoke_row(5, 0.5, 64.0, 0.5, None, "shahed", 3), [5, 0.5, 64.0, 0.5, 12, 1], "вид — по пакету взрыва")
         # место названо человеком, а у края чанков места мало: снимается удар, где его больше всего
         r = clips.Replay(strikes(), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
         r.fpv_specs = [clips.fpv_spec("near=-350,60,40 shots=1 seconds=9 time=night")]
