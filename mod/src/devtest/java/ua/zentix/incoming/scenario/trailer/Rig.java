@@ -585,6 +585,23 @@ final class Rig {
         };
     }
 
+    /**
+     * Запасная к камере сценария: тот же путь выше на {@code up} блоков — FPV, что в записи прошёл над ступенькой ближе
+     * {@link World#CLEAR} (p18: 0,1 над лестницей метро), как пилот, взявший чуть выше. Оценка и проверка — как у остальных.
+     */
+    static Kind ownUp(boolean close, double up) {
+        return (s, a, b, w, d) -> {
+            CineCamera.Path path = recorded(d);
+            if (path == null) return List.of();
+            double mm = 12 / Math.tan(Math.toRadians(path.at(a).fov() / 2));
+            CineCamera.Path lifted = t -> {
+                Pose p = path.at(t);
+                return new Pose(p.pos().add(0, up, 0), p.yaw(), p.pitch(), p.roll(), p.fov());
+            };
+            return List.of(new Candidate(String.format(Locale.ROOT, "own-%.0fmm-up%.0f", mm, up * 100), lifted, mm, close));
+        };
+    }
+
     /** Камера сценария по журналу (вне журнала — ближайшая поза); null — сценарий камеру не вёл. */
     @Nullable
     static CineCamera.Path recorded(EventLog.Data d) {
