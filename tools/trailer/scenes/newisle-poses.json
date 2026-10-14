@@ -1,0 +1,1920 @@
+[
+ {
+  "id": "n01",
+  "title": "Morning: smoke over City 1 from the mountains",
+  "time": "day",
+  "camera": "peak",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -660.5,
+     182.7,
+     -272.5
+    ],
+    "yaw": -61.5,
+    "pitch": -1.3,
+    "fov": 35.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 562.0,
+  "sight": true,
+  "ok": true,
+  "notes": "вершина 181, до цели 562"
+ },
+ {
+  "id": "n02",
+  "title": "Shaheds low over the lake east of the bridge",
+  "time": "dawn",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -120.0,
+     72.0,
+     440.0
+    ],
+    "yaw": 174.0,
+    "pitch": -15.4,
+    "fov": 60.0
+   },
+   {
+    "t": 1.5,
+    "eye": [
+     -110.0,
+     72.0,
+     395.0
+    ],
+    "yaw": 171.9,
+    "pitch": -17.0,
+    "fov": 60.0
+   },
+   {
+    "t": 3.0,
+    "eye": [
+     -100.0,
+     72.0,
+     350.0
+    ],
+    "yaw": 169.3,
+    "pitch": -18.8,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 446.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 92 блоков"
+ },
+ {
+  "id": "n03",
+  "title": "Cruise missile into the glass tower",
+  "time": "day",
+  "camera": "roof",
+  "frames": [
+   {
+    "t": 1.2,
+    "eye": [
+     -227.6,
+     137.7,
+     -20.2
+    ],
+    "yaw": -104.5,
+    "pitch": -13.7,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -151.0,
+   157.0,
+   -40.0
+  ],
+  "distance": 79.0,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша 72 блоков над землёй, у края, до цели 79"
+ },
+ {
+  "id": "n04",
+  "title": "Calm FPV over City 1 at dawn",
+  "time": "dawn",
+  "camera": "fpv",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -120.0,
+     160.0,
+     -230.0
+    ],
+    "yaw": 33.7,
+    "pitch": 20.5,
+    "fov": 75.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -160.0,
+     155.0,
+     -170.0
+    ],
+    "yaw": 33.7,
+    "pitch": 20.5,
+    "fov": 75.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -200.0,
+     150.0,
+     -110.0
+    ],
+    "yaw": 33.7,
+    "pitch": 20.5,
+    "fov": 75.0
+   }
+  ],
+  "target": null,
+  "distance": null,
+  "sight": null,
+  "ok": true,
+  "notes": "путь 145 блоков"
+ },
+ {
+  "id": "n05",
+  "title": "City 2 wakes up: main street from a roof",
+  "time": "dawn",
+  "camera": "roof",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -752.1,
+     130.7,
+     667.4
+    ],
+    "yaw": 16.2,
+    "pitch": 35.1,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -779.0,
+   63.0,
+   760.0
+  ],
+  "distance": 96.0,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша 66 блоков над землёй, у края, до цели 96"
+ },
+ {
+  "id": "n06",
+  "title": "South launchers at the farm",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -1112.5,
+     76.7,
+     364.5
+    ],
+    "yaw": -160.1,
+    "pitch": 7.3,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -1100.0,
+   72.0,
+   330.0
+  ],
+  "distance": 37.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 37"
+ },
+ {
+  "id": "n07a",
+  "title": "North spotter with binoculars on the hill",
+  "time": "dawn",
+  "camera": "peak",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -571.5,
+     171.7,
+     -75.5
+    ],
+    "yaw": -80.0,
+    "pitch": -3.2,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 411.0,
+  "sight": true,
+  "ok": true,
+  "notes": "вершина 170, до цели 411"
+ },
+ {
+  "id": "n07",
+  "title": "Volkov at the console: the next salvo, four routes",
+  "time": "night",
+  "camera": "hud",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -792.0,
+     131.0,
+     644.0
+    ],
+    "yaw": 180.0,
+    "pitch": 15.0,
+    "fov": 70.0
+   }
+  ],
+  "target": null,
+  "distance": null,
+  "sight": null,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n08",
+  "title": "North SAM in the port",
+  "time": "dawn",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -35.5,
+     68.7,
+     -446.5
+    ],
+    "yaw": 53.8,
+    "pitch": -30.3,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -69.0,
+   93.0,
+   -422.0
+  ],
+  "distance": 42.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 42"
+ },
+ {
+  "id": "n09",
+  "title": "North battery at the airport",
+  "time": "dawn",
+  "camera": "roof",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     272.4,
+     107.7,
+     -713.5
+    ],
+    "yaw": -53.8,
+    "pitch": 18.9,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   359.0,
+   71.0,
+   -650.0
+  ],
+  "distance": 107.0,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша 34 блоков над землёй, у края, до цели 107"
+ },
+ {
+  "id": "n10",
+  "title": "Launch off the rail (redstone)",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -1113.5,
+     76.7,
+     362.5
+    ],
+    "yaw": -157.4,
+    "pitch": 7.6,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -1100.0,
+   72.0,
+   330.0
+  ],
+  "distance": 35.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 35"
+ },
+ {
+  "id": "n11",
+  "title": "Two cruise missiles cross the gorge in profile",
+  "time": "dawn",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -1032.0,
+     150.0,
+     -133.0
+    ],
+    "yaw": -27.4,
+    "pitch": 41.1,
+    "fov": 50.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -1022.0,
+     154.5,
+     -135.5
+    ],
+    "yaw": -17.7,
+    "pitch": 44.1,
+    "fov": 50.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -1012.0,
+     159.0,
+     -138.0
+    ],
+    "yaw": -7.7,
+    "pitch": 46.2,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -1004.0,
+   97.0,
+   -79.0
+  ],
+  "distance": 61.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 22 блоков"
+ },
+ {
+  "id": "n12",
+  "title": "City 1 street before the strike",
+  "time": "day",
+  "camera": "street",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -110.5,
+     70.0,
+     -140.5
+    ],
+    "yaw": -0.0,
+    "pitch": -6.8,
+    "fov": 60.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -110.5,
+     70.0,
+     -46.5
+    ],
+    "yaw": -0.0,
+    "pitch": -9.8,
+    "fov": 60.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -110.5,
+     75.0,
+     47.5
+    ],
+    "yaw": -0.0,
+    "pitch": -9.8,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 148.0,
+  "sight": true,
+  "ok": true,
+  "notes": "улица [-111, -141]→[-111, 47] (189 блоков, стороны 15), 0 блоков от замысла"
+ },
+ {
+  "id": "n13",
+  "title": "Siren",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -104.5,
+     76.7,
+     -4.5
+    ],
+    "yaw": 149.5,
+    "pitch": -62.2,
+    "fov": 70.0
+   }
+  ],
+  "target": [
+   -126.0,
+   157.0,
+   -41.0
+  ],
+  "distance": 42.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 42"
+ },
+ {
+  "id": "n14",
+  "title": "Down into the metro",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -142.5,
+     74.7,
+     20.5
+    ],
+    "yaw": 173.2,
+    "pitch": 24.4,
+    "fov": 75.0
+   }
+  ],
+  "target": [
+   -144.0,
+   69.0,
+   8.0
+  ],
+  "distance": 13.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 13"
+ },
+ {
+  "id": "n15",
+  "title": "Ceiling dust in the station",
+  "time": "day",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -144.0,
+     57.0,
+     8.0
+    ],
+    "yaw": 90.0,
+    "pitch": -5.0,
+    "fov": 70.0
+   }
+  ],
+  "target": null,
+  "distance": null,
+  "sight": null,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n16",
+  "title": "First strike on the south tower",
+  "time": "day",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 2,
+    "eye": [
+     -160.0,
+     85.0,
+     -60.0
+    ],
+    "yaw": 166.5,
+    "pitch": -49.4,
+    "fov": 55.0
+   }
+  ],
+  "target": [
+   -172.0,
+   145.0,
+   -110.0
+  ],
+  "distance": 51.0,
+  "sight": false,
+  "ok": false,
+  "notes": "из 131 мест ни с одного не видно цели; цель закрыта"
+ },
+ {
+  "id": "n17",
+  "title": "Shaheds over the lake, SAM fires",
+  "time": "dawn",
+  "camera": "roof",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -154.9,
+     134.7,
+     57.4
+    ],
+    "yaw": 25.1,
+    "pitch": 8.8,
+    "fov": 55.0
+   }
+  ],
+  "target": [
+   -250.0,
+   100.0,
+   260.0
+  ],
+  "distance": 224.0,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша 65 блоков над землёй, у края, до цели 224"
+ },
+ {
+  "id": "n18",
+  "title": "Missile hits a South airship over the lake",
+  "time": "day",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -507.5,
+     73.7,
+     152.5
+    ],
+    "yaw": 7.2,
+    "pitch": -8.4,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -530.0,
+   100.0,
+   330.0
+  ],
+  "distance": 179.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 179"
+ },
+ {
+  "id": "n19",
+  "title": "Biplanes on the runway",
+  "time": "day",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     375.5,
+     72.7,
+     -601.5
+    ],
+    "yaw": 161.2,
+    "pitch": 1.9,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   359.0,
+   71.0,
+   -650.0
+  ],
+  "distance": 51.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 51"
+ },
+ {
+  "id": "n20",
+  "title": "FPV over the street fight in the west district",
+  "time": "day",
+  "camera": "fpv",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -520.0,
+     91.0,
+     6.0
+    ],
+    "yaw": -90.0,
+    "pitch": 29.0,
+    "fov": 75.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -455.0,
+     85.0,
+     6.0
+    ],
+    "yaw": -92.6,
+    "pitch": 18.5,
+    "fov": 75.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -390.0,
+     91.0,
+     3.0
+    ],
+    "yaw": -92.6,
+    "pitch": 18.5,
+    "fov": 75.0
+   }
+  ],
+  "target": [
+   -400.0,
+   67.0,
+   6.0
+  ],
+  "distance": 120.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 131 блоков"
+ },
+ {
+  "id": "n21",
+  "title": "Grad carpet along the motorway",
+  "time": "day",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 2,
+    "eye": [
+     -40.0,
+     112.0,
+     -452.0
+    ],
+    "yaw": -88.7,
+    "pitch": 24.5,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   51.0,
+   71.0,
+   -445.0
+  ],
+  "distance": 91.0,
+  "sight": true,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n22",
+  "title": "Shahed down the avenue",
+  "time": "day",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -230.0,
+     73.0,
+     -35.0
+    ],
+    "yaw": -90.0,
+    "pitch": 4.8,
+    "fov": 60.0
+   },
+   {
+    "t": 1.5,
+    "eye": [
+     -165.0,
+     73.0,
+     -35.0
+    ],
+    "yaw": -90.0,
+    "pitch": 4.8,
+    "fov": 60.0
+   },
+   {
+    "t": 3.0,
+    "eye": [
+     -100.0,
+     73.0,
+     -35.0
+    ],
+    "yaw": -90.0,
+    "pitch": 4.8,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -68.0,
+   67.0,
+   -35.0
+  ],
+  "distance": 162.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 130 блоков"
+ },
+ {
+  "id": "n23",
+  "title": "Lancet camera retargets onto the North's SAM",
+  "time": "day",
+  "camera": "onboard",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -230.0,
+     150.0,
+     330.0
+    ],
+    "yaw": -171.0,
+    "pitch": 24.1,
+    "fov": 60.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -217.5,
+     132.5,
+     280.0
+    ],
+    "yaw": -172.9,
+    "pitch": 25.9,
+    "fov": 60.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -205.0,
+     115.0,
+     230.0
+    ],
+    "yaw": -176.8,
+    "pitch": 29.5,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -200.0,
+   64.0,
+   140.0
+  ],
+  "distance": 192.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 109 блоков"
+ },
+ {
+  "id": "n24",
+  "title": "B-2 bombs a North bunker in the desert",
+  "time": "day",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 2,
+    "eye": [
+     -484.5,
+     74.7,
+     -1062.5
+    ],
+    "yaw": -153.0,
+    "pitch": 5.1,
+    "fov": 35.0
+   }
+  ],
+  "target": [
+   -440.0,
+   66.0,
+   -1150.0
+  ],
+  "distance": 98.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 98"
+ },
+ {
+  "id": "n25a",
+  "title": "FPV at sunset from the bridge toward burning City 1",
+  "time": "sunset",
+  "camera": "fpv",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -529.0,
+     95.0,
+     250.0
+    ],
+    "yaw": -162.1,
+    "pitch": 7.8,
+    "fov": 75.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -504.2,
+     100.1,
+     173.2
+    ],
+    "yaw": -155.0,
+    "pitch": 8.0,
+    "fov": 75.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -470.0,
+     105.0,
+     100.0
+    ],
+    "yaw": -155.0,
+    "pitch": 8.0,
+    "fov": 75.0
+   }
+  ],
+  "target": [
+   -228.0,
+   139.0,
+   -20.0
+  ],
+  "distance": 404.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 162 блоков"
+ },
+ {
+  "id": "n25",
+  "title": "Onboard the missile through the gorge",
+  "time": "dawn",
+  "camera": "onboard",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -1100.0,
+     95.0,
+     -60.0
+    ],
+    "yaw": -101.2,
+    "pitch": 3.8,
+    "fov": 70.0
+   },
+   {
+    "t": 1.5,
+    "eye": [
+     -1000.0,
+     90.2,
+     -79.8
+    ],
+    "yaw": -101.4,
+    "pitch": -1.6,
+    "fov": 70.0
+   },
+   {
+    "t": 3.0,
+    "eye": [
+     -900.0,
+     95.0,
+     -100.0
+    ],
+    "yaw": -101.4,
+    "pitch": -1.6,
+    "fov": 70.0
+   }
+  ],
+  "target": null,
+  "distance": null,
+  "sight": null,
+  "ok": true,
+  "notes": "путь 204 блоков"
+ },
+ {
+  "id": "n26a",
+  "title": "FPV at night over the dark City 1",
+  "time": "night",
+  "camera": "fpv",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -110.0,
+     215.0,
+     -130.0
+    ],
+    "yaw": 38.7,
+    "pitch": 16.8,
+    "fov": 75.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -151.1,
+     214.9,
+     -78.8
+    ],
+    "yaw": 42.0,
+    "pitch": 19.3,
+    "fov": 75.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -195.0,
+     212.0,
+     -30.0
+    ],
+    "yaw": 42.0,
+    "pitch": 19.3,
+    "fov": 75.0
+   }
+  ],
+  "target": [
+   -228.0,
+   139.0,
+   -20.0
+  ],
+  "distance": 161.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 131 блоков"
+ },
+ {
+  "id": "n26",
+  "title": "Binoculars: the swarm at dusk",
+  "time": "sunset",
+  "camera": "hud",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -570.5,
+     171.7,
+     -76.5
+    ],
+    "yaw": -80.6,
+    "pitch": 5.4,
+    "fov": 12.0
+   }
+  ],
+  "target": [
+   -228.0,
+   139.0,
+   -20.0
+  ],
+  "distance": 347.0,
+  "sight": true,
+  "ok": true,
+  "notes": "вершина 170, до цели 347"
+ },
+ {
+  "id": "n27",
+  "title": "Blackout, district by district",
+  "time": "sunset",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -140.0,
+     204.0,
+     10.0
+    ],
+    "yaw": -137.3,
+    "pitch": 36.3,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -20.0,
+   74.0,
+   -120.0
+  ],
+  "distance": 177.0,
+  "sight": true,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n28",
+  "title": "Lights go out in the station",
+  "time": "sunset",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -138.0,
+     57.0,
+     8.0
+    ],
+    "yaw": -90.0,
+    "pitch": 0.0,
+    "fov": 70.0
+   }
+  ],
+  "target": null,
+  "distance": null,
+  "sight": null,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n29a",
+  "title": "Port crane hit",
+  "time": "day",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 1,
+    "eye": [
+     -1.5,
+     69.0,
+     -436.5
+    ],
+    "yaw": 77.9,
+    "pitch": -30.7,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -69.0,
+   110.0,
+   -422.0
+  ],
+  "distance": 69.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 69"
+ },
+ {
+  "id": "n29b",
+  "title": "Shaheds hit the airport",
+  "time": "day",
+  "camera": "roof",
+  "frames": [
+   {
+    "t": 1,
+    "eye": [
+     272.4,
+     107.7,
+     -713.5
+    ],
+    "yaw": -53.8,
+    "pitch": 18.9,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   359.0,
+   71.0,
+   -650.0
+  ],
+  "distance": 107.0,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша 34 блоков над землёй, у края, до цели 107"
+ },
+ {
+  "id": "n29c",
+  "title": "Glass twins hit",
+  "time": "day",
+  "camera": "roof",
+  "frames": [
+   {
+    "t": 1,
+    "eye": [
+     -228.5,
+     138.7,
+     -18.9
+    ],
+    "yaw": -102.2,
+    "pitch": -9.9,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -126.0,
+   157.0,
+   -41.0
+  ],
+  "distance": 105.0,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша 73 блоков над землёй, у края, до цели 105"
+ },
+ {
+  "id": "n30",
+  "title": "Second key",
+  "time": "night",
+  "camera": "hud",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -1116.0,
+     70.6,
+     262.0
+    ],
+    "yaw": 161.6,
+    "pitch": 7.2,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -1120.0,
+   69.0,
+   250.0
+  ],
+  "distance": 13.0,
+  "sight": false,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n31",
+  "title": "Silo opens, ICBM launch",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -1167.5,
+     73.7,
+     378.5
+    ],
+    "yaw": -159.7,
+    "pitch": -8.4,
+    "fov": 30.0
+   }
+  ],
+  "target": [
+   -1120.0,
+   94.0,
+   250.0
+  ],
+  "distance": 137.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 137"
+ },
+ {
+  "id": "n32",
+  "title": "ICBM climbs past the mountains",
+  "time": "night",
+  "camera": "peak",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -660.5,
+     182.7,
+     -272.5
+    ],
+    "yaw": 41.3,
+    "pitch": -11.2,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -1120.0,
+   320.0,
+   250.0
+  ],
+  "distance": 696.0,
+  "sight": true,
+  "ok": true,
+  "notes": "вершина 181, до цели 696"
+ },
+ {
+  "id": "n33",
+  "title": "MISSILE ATTACK on City 1 screens",
+  "time": "night",
+  "camera": "hud",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -110.5,
+     68.6,
+     -140.5
+    ],
+    "yaw": 22.5,
+    "pitch": -40.6,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 148.0,
+  "sight": false,
+  "ok": true,
+  "notes": "улица [-111, -141]→[-111, 47] (189 блоков, стороны 15), 0 блоков от замысла"
+ },
+ {
+  "id": "n34",
+  "title": "Flash over City 1",
+  "time": "night",
+  "camera": "peak",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -584.5,
+     226.7,
+     -355.5
+    ],
+    "yaw": -49.9,
+    "pitch": 3.3,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 546.0,
+  "sight": true,
+  "ok": true,
+  "notes": "вершина 225, до цели 546"
+ },
+ {
+  "id": "n35",
+  "title": "The wave crosses the lake (City 2 roof)",
+  "time": "night",
+  "camera": "roof",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -740.6,
+     130.7,
+     656.4
+    ],
+    "yaw": -139.0,
+    "pitch": -4.2,
+    "fov": 35.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 875.0,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша 63 блоков над землёй, у края, до цели 875"
+ },
+ {
+  "id": "n36",
+  "title": "The wave takes City 1 (hill)",
+  "time": "night",
+  "camera": "peak",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -571.5,
+     171.7,
+     -75.5
+    ],
+    "yaw": -80.0,
+    "pitch": -3.2,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 411.0,
+  "sight": true,
+  "ok": true,
+  "notes": "вершина 170, до цели 411"
+ },
+ {
+  "id": "n37",
+  "title": "CCTV: an ordinary day by the café",
+  "time": "day",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -153.5,
+     80.0,
+     3.5
+    ],
+    "yaw": -29.9,
+    "pitch": 20.2,
+    "fov": 85.0
+   }
+  ],
+  "target": [
+   -144.0,
+   73.0,
+   20.0
+  ],
+  "distance": 19.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 19"
+ },
+ {
+  "id": "n38",
+  "title": "CCTV: people run to the metro",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -153.5,
+     80.0,
+     3.5
+    ],
+    "yaw": -29.9,
+    "pitch": 20.2,
+    "fov": 85.0
+   }
+  ],
+  "target": [
+   -144.0,
+   73.0,
+   20.0
+  ],
+  "distance": 19.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 19"
+ },
+ {
+  "id": "n39",
+  "title": "CCTV: the strike across the street",
+  "time": "day",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 1.2,
+    "eye": [
+     -162.5,
+     80.0,
+     12.5
+    ],
+    "yaw": -7.3,
+    "pitch": -65.4,
+    "fov": 85.0
+   }
+  ],
+  "target": [
+   -160.0,
+   123.0,
+   32.0
+  ],
+  "distance": 20.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 20"
+ },
+ {
+  "id": "n40",
+  "title": "Indoor CCTV: the café windows blow in",
+  "time": "day",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -147.0,
+     72.4,
+     25.0
+    ],
+    "yaw": 61.7,
+    "pitch": -73.7,
+    "fov": 85.0
+   }
+  ],
+  "target": [
+   -160.0,
+   123.0,
+   32.0
+  ],
+  "distance": 15.0,
+  "sight": true,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n41",
+  "title": "Night: a Grad carpet over City 1 from above",
+  "time": "night",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -95.0,
+     215.0,
+     -170.0
+    ],
+    "yaw": 41.6,
+    "pitch": 41.6,
+    "fov": 50.0
+   },
+   {
+    "t": 2.0,
+    "eye": [
+     -170.0,
+     215.0,
+     -110.0
+    ],
+    "yaw": 9.5,
+    "pitch": 74.1,
+    "fov": 50.0
+   },
+   {
+    "t": 4.0,
+    "eye": [
+     -245.0,
+     215.0,
+     -50.0
+    ],
+    "yaw": -113.2,
+    "pitch": 54.6,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -175.0,
+   108.0,
+   -80.0
+  ],
+  "distance": 120.0,
+  "sight": true,
+  "ok": true,
+  "notes": "путь 192 блоков"
+ },
+ {
+  "id": "n42",
+  "title": "The desert town at night",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -554.5,
+     66.7,
+     -1063.5
+    ],
+    "yaw": 31.5,
+    "pitch": -10.5,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -575.0,
+   74.0,
+   -1030.0
+  ],
+  "distance": 39.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 39"
+ },
+ {
+  "id": "n43",
+  "title": "Faces follow the missiles south",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -567.5,
+     65.7,
+     -1025.5
+    ],
+    "yaw": 121.0,
+    "pitch": -43.5,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -575.0,
+   74.0,
+   -1030.0
+  ],
+  "distance": 9.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 9"
+ },
+ {
+  "id": "n44",
+  "title": "The desert town at night watches the North burn",
+  "time": "night",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -585.0,
+     63.5,
+     -1055.0
+    ],
+    "yaw": -21.7,
+    "pitch": -6.6,
+    "fov": 50.0
+   },
+   {
+    "t": 2.5,
+    "eye": [
+     -588.5,
+     65.0,
+     -1063.5
+    ],
+    "yaw": -21.7,
+    "pitch": -6.5,
+    "fov": 50.0
+   },
+   {
+    "t": 5.0,
+    "eye": [
+     -592.0,
+     66.5,
+     -1072.0
+    ],
+    "yaw": -21.7,
+    "pitch": -6.4,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 1131.0,
+  "sight": false,
+  "ok": true,
+  "notes": "путь 19 блоков"
+ },
+ {
+  "id": "n45",
+  "title": "Mobile group on the shore waits",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -330.5,
+     68.7,
+     102.5
+    ],
+    "yaw": 28.5,
+    "pitch": 21.1,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -340.0,
+   61.0,
+   120.0
+  ],
+  "distance": 20.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 20"
+ },
+ {
+  "id": "n46",
+  "title": "Mobile group shoots the shahed down",
+  "time": "dawn",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -341.5,
+     65.8,
+     112.5
+    ],
+    "yaw": -11.3,
+    "pitch": -77.7,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -340.0,
+   101.0,
+   120.0
+  ],
+  "distance": 8.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 8"
+ },
+ {
+  "id": "n47",
+  "title": "The crowd at the nuclear flash",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -583.0,
+     63.5,
+     -1042.0
+    ],
+    "yaw": -21.8,
+    "pitch": -6.7,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 1118.0,
+  "sight": false,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n48",
+  "title": "Night: City 1 asleep",
+  "time": "night",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -40.0,
+     150.0,
+     -260.0
+    ],
+    "yaw": 28.6,
+    "pitch": 17.1,
+    "fov": 40.0
+   },
+   {
+    "t": 2.5,
+    "eye": [
+     -50.0,
+     149.0,
+     -247.5
+    ],
+    "yaw": 27.9,
+    "pitch": 17.9,
+    "fov": 40.0
+   },
+   {
+    "t": 5.0,
+    "eye": [
+     -60.0,
+     148.0,
+     -235.0
+    ],
+    "yaw": 27.1,
+    "pitch": 18.9,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -160.0,
+   73.0,
+   -40.0
+  ],
+  "distance": 251.0,
+  "sight": false,
+  "ok": true,
+  "notes": "путь 32 блоков"
+ },
+ {
+  "id": "n49",
+  "title": "A man on a terrace, calm night",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -154.0,
+     42.0,
+     -56.0
+    ],
+    "yaw": -135.0,
+    "pitch": -5.9,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -120.0,
+   47.0,
+   -90.0
+  ],
+  "distance": 48.0,
+  "sight": false,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n50a",
+  "title": "His face in the flash",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -148.0,
+     137.0,
+     -62.0
+    ],
+    "yaw": 45.0,
+    "pitch": 86.6,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -120.0,
+   47.0,
+   -90.0
+  ],
+  "distance": 40.0,
+  "sight": false,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n50",
+  "title": "The blast wave blows the glass in",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.6,
+    "eye": [
+     -154.0,
+     42.0,
+     -56.0
+    ],
+    "yaw": -135.0,
+    "pitch": -5.9,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -120.0,
+   47.0,
+   -90.0
+  ],
+  "distance": 48.0,
+  "sight": false,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n51",
+  "title": "Launches one by one into the night",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -1113.5,
+     76.7,
+     364.5
+    ],
+    "yaw": -158.6,
+    "pitch": 7.2,
+    "fov": 45.0
+   }
+  ],
+  "target": [
+   -1100.0,
+   72.0,
+   330.0
+  ],
+  "distance": 37.0,
+  "sight": true,
+  "ok": true,
+  "notes": "земля, до цели 37"
+ },
+ {
+  "id": "n53",
+  "title": "A fisherman by the bridge: shaheds pass over him",
+  "time": "dawn",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -513.0,
+     59.5,
+     232.0
+    ],
+    "yaw": -135.6,
+    "pitch": -12.9,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -505.0,
+   57.0,
+   225.0
+  ],
+  "distance": 11.0,
+  "sight": false,
+  "ok": true,
+  "notes": "место задано"
+ },
+ {
+  "id": "n52",
+  "title": "Missiles pass low over the desert town",
+  "time": "night",
+  "camera": "ground",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -571.5,
+     65.7,
+     -1023.5
+    ],
+    "yaw": 59.7,
+    "pitch": -6.9,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -680.0,
+   81.0,
+   -960.0
+  ],
+  "distance": 126.0,
+  "sight": false,
+  "ok": true,
+  "notes": "цели не видно ни с одного из 12 мест, взято лучшее, до цели 126"
+ }
+]

@@ -9,7 +9,7 @@
 аниматик и кадры мест на ноутбуке.
 
     uv run tools/trailer/scout.py <сценарий.json> <папка mapstudy> <выход> [--regions <мир>/region] [--previs]
-        [--only n13,n22] [--size 768x432]
+        [--only n13,n22] [--size 768x432] [--places <дубли.json>] [--places <найденное.json>]
 
 Сценарий: {"places": {имя: точка}, "plans": [{"id", "title", "time", "camera", "fov", "pose", "target", "strikes",
 "frames", "dur", "key", "need_sight"}]}. Точка — `[x, z]` (верх колонки + 2: глаз стоящего), `[x, y, z]`,
@@ -19,7 +19,8 @@
 - `fixed` — `eye` и `look` (точка) или `yaw`/`pitch`;
 - `roof` — крыша (строение от `min_height` блоков, ровная 3×3) в `radius` от `near`, в `dist` блоков от цели, откуда
   цель видна, глаз — у края крыши к цели; из подходящих — выше над целью и ближе к середине `dist`;
-- `ground` — то же на земле вне домов и воды (`above` — глаз);
+- `ground` — то же на земле вне домов и воды (`above` — глаз; `max_height` — сколько верх колонки может быть над
+  землёй под ним, по умолчанию 1,5: улица над залом метро — 4);
 - `peak` — самая высокая колонка в `radius` от `at`, откуда видна цель;
 - `street` — улица-каньон из `mapstudy.json`, ближайшая к `near`: путь камеры вдоль её оси на `above` над землёй,
   к цели (или к `toward`), `frames` кадров за `dur` секунд;
@@ -173,8 +174,9 @@ def candidates(h, near, radius, step=3):
     return X.astype(float) + 0.5, Z.astype(float) + 0.5, zi, xi
 
 
-def pick_spot(h, pose, target, roof, places):
-    """Крыша или место на земле с видом на цель (см. шапку): (глаз, заметка) или (None, почему нет)."""
+def pick_spot(h, pose, target, roof, places, need_sight=True):
+    """Крыша или место на земле с видом на цель (см. шапку): (глаз, заметка) или (None, почему нет). Без
+    `need_sight` и без места с видом — лучшее по счёту место (цель под землёй, снаряды над головой)."""
     near = xz(h, pose["near"], places)
     radius = pose.get("radius", 60)
     lo, hi = pose.get("dist", (0, 1e9))
@@ -183,7 +185,8 @@ def pick_spot(h, pose, target, roof, places):
     if roof:
         ok = (bh >= pose.get("min_height", 12)) & flat(h, zi, xi)
     else:
-        ok = (bh <= 1.5) & flat(h, zi, xi)
+        # `max_height` — улица над пустотой (зал метро под ней) тоже земля
+        ok = (bh <= pose.get("max_height", 1.5)) & flat(h, zi, xi)
     d = np.hypot(X - target[0], Z - target[2])
     ok &= (d >= lo) & (d <= hi) & ~h.water[zi, xi] & h.open_sky(zi, xi)
     if not ok.any():
@@ -204,6 +207,9 @@ def pick_spot(h, pose, target, roof, places):
                 tall = float(h.top_at(e[0], e[2]) - h.ground_at(e[0], e[2]))
                 return e, f"крыша {tall:.0f} блоков над землёй, у края, до цели {dd:.0f}"
             return e, f"земля, до цели {dd:.0f}"
+    if not need_sight:
+        e = to_edge(h, eyes[order[0]], target) if roof else eyes[order[0]]
+        return e, f"цели не видно ни с одного из {len(idx)} мест, взято лучшее, до цели {math.hypot(e[0] - target[0], e[2] - target[2]):.0f}"
     return None, f"из {len(idx)} мест ни с одного не видно цели"
 
 
@@ -263,7 +269,7 @@ def resolve(h, plan, places):
         eyes = [point(h, pose["eye"], places)] * n
         notes.append("место задано")
     elif kind in ("roof", "ground"):
-        e, why = pick_spot(h, pose, target, kind == "roof", places)
+        e, why = pick_spot(h, pose, target, kind == "roof", places, plan.get("need_sight", True))
         notes.append(why)
         if e is None:
             ok = False
@@ -465,6 +471,8 @@ def main():
     ap.add_argument("--previs", action="store_true")
     ap.add_argument("--only", default="")
     ap.add_argument("--size", default="768x432")
+    ap.add_argument("--places", action="append", default=[],
+                    help="JSON с «places» поверх мест сценария, по порядку (места дублей, найденное поисками)")
     a = ap.parse_args()
     with open(a.scenario, encoding="utf-8") as f:
         sc = json.load(f)
@@ -472,7 +480,11 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     only = {s for s in a.only.split(",") if s}
     size = tuple(int(v) for v in a.size.split("x"))
-    places = sc.get("places", {})
+    places = dict(sc.get("places", {}))
+    for extra in a.places:
+        if os.path.isfile(extra):
+            with open(extra, encoding="utf-8") as f:
+                places.update(json.load(f).get("places", {}))
     results, cache = [], {}
     for plan in sc["plans"]:
         if only and plan["id"] not in only:
