@@ -1706,7 +1706,8 @@ final class War {
 
     /**
      * Пуск ряда пусковых — вразнобой, как у расчётов, каждый со своей командой «огонь»: порядок перемешан, между
-     * пусками 2–14 тиков, первая — сразу (13.10: все разом — «слишком синхронно, нереалистично»). Зерно у сценария
+     * пусками 20–60 тиков (как наводка и пуск у соседних установок; 13.10 — все разом «слишком синхронно,
+     * нереалистично», залпы в один тик — замечание Артёма 15.10), первая — сразу. Зерно у сценария
      * своё: дубли пишутся одинаково.
      */
     void fireAll(List<BlockPos> rack) {
@@ -1715,14 +1716,19 @@ final class War {
         int t = 0;
         for (BlockPos p : order) {
             later(t, () -> Film.cmd("incoming launcher " + p.getX() + " " + p.getY() + " " + p.getZ() + " fire"));
-            t += 2 + fireOrder.nextInt(13);
+            t += FIRE_GAP + fireOrder.nextInt(FIRE_GAP_SPREAD);
         }
     }
 
+    /** Разброс пусков батареи в {@link #fireAll}: зазор между пусками и его разброс, тиков. */
+    private static final int FIRE_GAP = 20, FIRE_GAP_SPREAD = 41;
     private final RandomSource fireOrder = RandomSource.create(10);
 
-    /** Перезарядка «Града» после поджига ({@code LauncherRack.ROCKET}) и разброс начала пакетов в {@link #fireAll}. */
-    private static final int RELOAD = 1200 + 4 * 14 + 20;
+    /**
+     * Перезарядка «Града» после поджига ({@code LauncherRack.ROCKET}) и разброс пусков батареи в {@link #fireAll}
+     * (до 10 установок: 9 зазоров по 60 тиков и запас), прежде чем батарея примет новый приказ.
+     */
+    private static final int RELOAD = 1200 + 9 * (FIRE_GAP + FIRE_GAP_SPREAD - 1) + 20;
     /** Время игры у клиента, когда загорелся первый «Град» залпа p10b (начало его окна). */
     private long volleyAt = Long.MIN_VALUE / 2;
 

@@ -224,7 +224,7 @@ final class FrameQa {
         }
         boolean ready = mc.levelRenderer.hasRenderedAllSections();
         double smoke = smokeShare(mc, cam, eye, tanX, tanY), axis = axisAngle(mc, e, eye);
-        Frame fr =new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, light, veil);
+        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, light, veil);
         frames.add(fr);
         sound.frame(t - start, cam);
         while (!marks.isEmpty() && marks.peekFirst().t() <= t) sound.mark(marks.pollFirst().what());

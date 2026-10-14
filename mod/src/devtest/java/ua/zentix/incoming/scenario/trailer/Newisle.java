@@ -83,7 +83,7 @@ import java.util.function.Function;
  * сцены ({@code stage}), записи планов по порядку истории, действия после них ({@code after}); в конце — ждёт полёты,
  * сохраняет мир (снимок для следующего дубля цепочки) и пишет итог дубля JSON ({@code INCOMING_NEWISLE_RESULT}).
  * Удары — командами мода, как оператор: пуски по одному времени ({@link NewisleData#schedule}), опорный — по времени до
- * удара из пакетов сервера. Камеры — из разведки ({@code newisle-poses.json}); общий план повтора ставит вывод.
+ * удара из пакетов сервера; пуски идут через один разносчик ({@link #launch}) и не встают в один тик. Камеры — из разведки ({@code newisle-poses.json}); общий план повтора ставит вывод.
  * <p>
  * Режимы: {@code INCOMING_NEWISLE_LIVE=1} — живой дубль Артёма (он в кадре сам, подсказки на экране, камера-призрак),
  * {@code INCOMING_NEWISLE_STANDIN=1} — вместо него бот (слепой прогон), {@code INCOMING_NEWISLE_VARIANT=1|2} — пересъёмка
@@ -176,7 +176,26 @@ final class Newisle {
         result.addProperty("fault", fault);
         result.addProperty("shots_selected", System.getenv().getOrDefault("INCOMING_TRAILER_SHOTS", ""));
         NeoForge.EVENT_BUS.addListener(this::tick);
+        NeoForge.EVENT_BUS.addListener(this::serverTickStart);
+        NeoForge.EVENT_BUS.addListener(this::serverTickEnd);
         NeoForge.EVENT_BUS.addListener(this::drawHints);
+    }
+
+    /**
+     * Миллисекунды на тик встроенного сервера ({@code ServerTickEvent.Pre/Post}, {@code System.nanoTime} в потоке
+     * сервера), с точностью 0,1 мс; ключ — время игры в конце тика. Пишет поток сервера, читает поток клиента в конце
+     * записи ({@code mspt} у плана) — {@link java.util.concurrent.ConcurrentHashMap}.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<Long, Double> serverTickMs = new java.util.concurrent.ConcurrentHashMap<>();
+    private long tickStartNanos;
+
+    private void serverTickStart(net.neoforged.neoforge.event.tick.ServerTickEvent.Pre e) {
+        tickStartNanos = System.nanoTime();
+    }
+
+    private void serverTickEnd(net.neoforged.neoforge.event.tick.ServerTickEvent.Post e) {
+        double ms = (System.nanoTime() - tickStartNanos) / 1e6;
+        serverTickMs.put(e.getServer().overworld().getGameTime(), Math.round(ms * 10) / 10.0);
     }
 
     /**
@@ -517,6 +536,16 @@ final class Newisle {
         JsonArray st = new JsonArray();
         for (Launched l : run.mine) st.add(l.report(run.startTick));
         o.add("strikes", st);
+        // сервер под отставание дёргает цели (Артём, 14.10): миллисекунды на тик от начала плана до конца
+        // (startTick — та же база, что actual ударов; тик с временем игры t — тик, кончившийся в t)
+        if (run.startTick >= 0) {
+            JsonArray mspt = new JsonArray();
+            for (long t = run.startTick + 1; t <= mc.level.getGameTime(); t++) {
+                Double v = serverTickMs.get(t);
+                if (v != null) mspt.add(v);
+            }
+            o.add("mspt", mspt);
+        }
         if (run.shot.has("cover")) o.add("cover", run.shot.get("cover"));
         shotsOut.add(o);
     }
@@ -569,7 +598,7 @@ final class Newisle {
         final int index;
         final Strike strike;
         final Vec3 target;
-        final double flight, after;
+        final double flight, after, delay;
         final long at;
         final Set<UUID> before = new HashSet<>();
         @Nullable
@@ -577,12 +606,13 @@ final class Newisle {
         long gone = -1, nearestTick = -1;
         double nearest = Double.MAX_VALUE;
 
-        Launched(int index, Strike strike, double flight, double after) {
+        Launched(int index, Strike strike, double flight, double after, double delay) {
             this.index = index;
             this.strike = strike;
             this.target = strike.to();
             this.flight = flight;
             this.after = after;
+            this.delay = delay;
             this.at = mc.level.getGameTime();
             for (ClientFlights.Tracked f : ClientFlights.all()) before.add(f.id);
         }
@@ -630,7 +660,9 @@ final class Newisle {
         JsonObject report(long start) {
             JsonObject o = new JsonObject();
             o.addProperty("weapon", strike.weapon().getSerializedName());
-            o.addProperty("eta", strike.eta());
+            // удар сдвинут разносчиком пусков: eta — с задержкой, иначе проверка срока (±1 с) его провалит
+            o.addProperty("eta", strike.eta() + delay);
+            o.addProperty("delay", delay);
             o.addProperty("pass", strike.pass() != null);
             o.addProperty("bound", id != null);
             o.addProperty("flight", flight);
@@ -644,10 +676,36 @@ final class Newisle {
         }
     }
 
-    /** Пуск удара {@code i} записи командой оператора (игрок съёмки): с места пуска через точки пути. */
+    /**
+     * Пуск удара {@code i} записи — через разносчик: пуски постановщика не встают в один тик (Артём, 14.10: установки не
+     * стреляют в одну миллисекунду). Пуск ближе зазора к прошлому ждёт остаток ({@link War#later}); зазор — с разбросом
+     * по зерну дубля и варианта: то же место пуска (ближе {@link #SAME_PLACE} блоков) и то же оружие — как очередь одной
+     * трубы «Града» (9–13 тиков), разные места — как разные расчёты (20–60 тиков).
+     */
     private void launch(Run run, int i) {
         Strike s = run.strikes.get(i);
-        Launched l = new Launched(i, s, run.schedule.flight()[i], s.afterPass(data.speeds()));
+        long at = launchAt(mc.level.getGameTime(), lastLaunchTick, lastLaunchAt, lastLaunchWeapon, s.weapon(), s.from(), random);
+        lastLaunchTick = at;
+        lastLaunchAt = s.from();
+        lastLaunchWeapon = s.weapon();
+        int wait = (int) (at - mc.level.getGameTime());
+        if (wait > 0) war.later(wait, () -> fire(run, i, wait / 20.0));
+        else fire(run, i, 0);
+    }
+
+    /** Тик пуска разносчика: сейчас или остаток зазора после прошлого пуска. Чистая — для юнит-теста. */
+    static long launchAt(long now, long lastTick, @Nullable Vec3 lastAt, @Nullable WeaponType lastWeapon, WeaponType weapon,
+                         Vec3 from, RandomSource random) {
+        if (lastAt == null || lastWeapon == null) return now;
+        boolean same = weapon == lastWeapon && Math.hypot(from.x - lastAt.x, from.z - lastAt.z) < SAME_PLACE;
+        int gap = same ? SAME_GAP + random.nextInt(SAME_SPREAD) : OTHER_GAP + random.nextInt(OTHER_SPREAD);
+        return Math.max(now, lastTick + gap);
+    }
+
+    /** Сам пуск командой оператора (игрок съёмки): с места пуска через точки пути. */
+    private void fire(Run run, int i, double delay) {
+        Strike s = run.strikes.get(i);
+        Launched l = new Launched(i, s, run.schedule.flight()[i], s.afterPass(data.speeds()), delay);
         StringBuilder via = new StringBuilder();
         if (!s.via().isEmpty()) {
             via.append(" via");
@@ -658,6 +716,15 @@ final class Newisle {
         run.mine.add(l);
         launched.add(l);
     }
+
+    /** Прошлый пуск разносчика: тик, место и оружие — по ним зазор следующему. */
+    private long lastLaunchTick = Long.MIN_VALUE;
+    @Nullable
+    private Vec3 lastLaunchAt;
+    @Nullable
+    private WeaponType lastLaunchWeapon;
+    /** Одно место пуска — ближе столько блоков; зазоры очереди одного места и разных мест, тиков (разброс — сверху). */
+    private static final int SAME_PLACE = 40, SAME_GAP = 9, SAME_SPREAD = 5, OTHER_GAP = 20, OTHER_SPREAD = 41;
 
     private void tick(ClientTickEvent.Post e) {
         if (++ticks % 1200 == 0) heap();

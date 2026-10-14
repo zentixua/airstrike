@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Конвейер трейлера на Newisle без человека: дубли по порядку истории (scenes/newisle-takes.json) — запись повтором на
-копии мира, проверка по данным игры, вывод камерами из повтора, пересъёмка запасной камерой, черновик монтажа 720p.
+копии мира, проверка по данным игры (produce.py: итог и лог; take_checks.py: пуски в один тик, отставание сервера,
+полёт МБР, сирена, стая в бинокль — запись; поворот камеры, ось ракеты, тряска, FPV, МБР в кадре, застывшие кадры —
+вывод), вывод камерами из повтора, пересъёмка запасной камерой, черновик монтажа 720p.
 
     python3 tools/trailer/produce.py run    --config МАШИНА.json [--work ПАПКА] [--takes T02,T04,T24] [--fault T02=kill …]
     python3 tools/trailer/produce.py live   --config МАШИНА.json --take T03 [--standin]
@@ -53,6 +55,8 @@ import signal
 import subprocess
 import sys
 import time
+
+import take_checks
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENES = os.path.join(HERE, "scenes")
@@ -559,13 +563,16 @@ class Conveyor:
         if result.get("status") == "stopped":
             raise Stopped(f"{take}: {result.get('reason')}")
         problems = check_take(result, read(os.path.join(rec, "record.log")), self.takes[take])
+        problems += take_checks.record_problems(rec, self.takes[take], result)
         problems += check_hud(os.path.join(rec, "hud.jsonl"))
         out.update(ok=not problems, reason="; ".join(problems), problems=problems)
         return out
 
     def render(self, take, rec, plans):
         """Вывод планов из повторов записи; итог — {план: (PASS|FAIL, причина)}. Снятый сторожем вывод продолжается с
-        того, что уже в best.txt (INCOMING_FILM_RESUME), один раз; снятый игрой Артёма — после паузы, не в счёт."""
+        того, что уже в best.txt (INCOMING_FILM_RESUME), один раз; снятый игрой Артёма — после паузы, не в счёт.
+        PASS плана проверяется по данным вывода (take_checks): поворот камеры, ось ракеты, тряска, FPV, МБР,
+        застывшие кадры — провал делает план FAIL, и дубль переснимается."""
         if not plans:
             return {}
         resumed = 0
@@ -587,8 +594,26 @@ class Conveyor:
             self.events.append(("render-resume", take, killed or f"код {code}"))
         out = {}
         for p in plans:
-            out[p] = best.get(p, ("FAIL", f"не выведен ({killed or f'код {code}'})"))
+            verdict, why, path = best.get(p, (None, None, None))
+            if verdict is None:
+                out[p] = ("FAIL", f"не выведен ({killed or f'код {code}'})")
+                continue
+            if verdict == "PASS" and path and path != "-":
+                problems = take_checks.render_problems(path, p, **self.render_flags(take, rec, p, path))
+                if problems:
+                    self.say(f"{take}: вывод {p} не прошёл — {'; '.join(problems)}")
+                    out[p] = ("FAIL", "; ".join(problems))
+                    continue
+            out[p] = (verdict, why)
         return out
+
+    def render_flags(self, take, rec, plan, path):
+        """Какие проверки вывода нужны плану: FPV, МБР; onboard, HUD и ядерные — без тряски."""
+        shot = next((s for s in self.takes[take].get("shots", []) if plan in s.get("plans", [])), {})
+        flights, nuke = take_checks.read_events(os.path.join(rec, "replays", f"{plan}.events.jsonl"))
+        return {"fpv": shot.get("camera") == "fpv" or os.path.basename(path).startswith("fpv"),
+                "icbm": any(f.weapon in take_checks.ICBM_WEAPONS for f in flights),
+                "shake": not (nuke or shot.get("camera") == "onboard" or shot.get("hud"))}
 
     def take(self, take):
         """Дубль цепочки до итога: запись, проверка, вывод, пересъёмка запасной камерой, пропуск."""
@@ -861,11 +886,12 @@ def covered(result, take):
 
 
 def parse_best(path):
+    """Строки best.txt вывода: план → (PASS/FAIL, причина, папка кандидата или «-»)."""
     best = {}
     for line in read(path).splitlines():
         parts = line.split(maxsplit=3)
         if len(parts) >= 3:
-            best[parts[0]] = (parts[2], parts[3] if len(parts) > 3 else "")
+            best[parts[0]] = (parts[2], parts[3] if len(parts) > 3 else "", parts[1])
     return best
 
 
