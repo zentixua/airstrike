@@ -1,0 +1,501 @@
+"""Конвейер Newisle (produce.py) на придуманной машине: часы, место, память, процессы клиента — подделка, миры —
+маленькие папки во временном каталоге. Каждое ограждение срабатывает и конвейер после него идёт дальше.
+
+    python3 -m unittest discover -s tools/trailer/tests
+"""
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import produce as P  # noqa: E402
+
+LIMITS = {"retries": 2, "stall_seconds": 300, "heap_share": 0.6, "take_factor": 2.0, "night_hours": 9.5, "disk_floor_gb": 4,
+          "ram_floor_gb": 3, "client_gb": 10, "pause_minutes": 30, "flights_wait_s": 120}
+
+
+def takes_json(path):
+    data = {"limits": LIMITS, "takes": [
+        {"id": "A", "from": "chain", "minutes": 5, "shots": [{"plans": ["a1"], "seconds": 4, "cover": {"a1": {"subject": "scene"}}}]},
+        {"id": "B", "from": "chain", "minutes": 5, "artem": {"stand": [0, 0], "look": [1, 1], "hints": ["x"]},
+         "shots": [{"plans": ["b1"], "seconds": 4, "cover": {"b1": {"subject": "scene"}}}]},
+        {"id": "C", "from": "branch:B", "minutes": 5, "shots": [{"plans": ["c1"], "seconds": 4, "cover": {"c1": {"subject": "scene"}}}]},
+        {"id": "D", "from": "chain", "minutes": 5, "shots": [{"plans": ["d1"], "seconds": 4, "cover": {"d1": {"subject": "scene"}}}]},
+    ]}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
+class FakeProc:
+    def __init__(self, machine, plan, env, log):
+        self.m, self.plan, self.env, self.log = machine, plan, env, log
+        self.start = machine.t
+        self.code = None
+        self.killed = False
+
+    def finish(self):
+        rec = self.env.get("INCOMING_TRAILER_DIR")
+        with open(self.log, "a", encoding="utf-8") as f:
+            f.write(self.plan.get("log", "") + "\n")
+        if "render" in self.plan:
+            os.makedirs(os.path.join(rec, "render"), exist_ok=True)
+            with open(os.path.join(rec, "render", "best.txt"), "w", encoding="utf-8") as f:
+                for shot in self.env["INCOMING_FILM_SHOTS"].split(","):
+                    verdict = self.plan["render"].get(shot, "PASS")
+                    f.write(f"{shot} {rec}/render/{shot}/own {verdict}\n")
+        elif "result" in self.plan:
+            with open(self.env["INCOMING_NEWISLE_RESULT"], "w", encoding="utf-8") as f:
+                json.dump(self.plan["result"], f)
+        self.code = self.plan.get("code", 0)
+
+    def poll(self):
+        if self.code is not None or self.killed:
+            return self.code
+        if self.plan.get("hang"):
+            return None
+        if self.m.t - self.start >= self.plan.get("seconds", 60):
+            self.finish()
+        return self.code
+
+    def kill(self, hard=False):
+        self.killed = True
+        self.code = -9 if hard else -15
+
+
+class FakeMachine(P.Machine):
+    """Часы идут только сном конвейера; клиент ведёт себя по сценарию теста (ключ — дубль, вид, камера)."""
+
+    def __init__(self, script):
+        self.t = 1000.0
+        self.script = script
+        self.free, self.mem = 100.0, 30.0
+        self.game_until = None
+        self.starts = []
+        self.procs = []
+        self.copies = []
+        self.cmds = []
+        self.head = "abc123def"
+
+    def git_head(self, repo):
+        return self.head
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+    def disk_free_gb(self, path):
+        return self.free
+
+    def mem_available_gb(self):
+        return self.mem
+
+    def running(self, patterns):
+        if self.game_until is not None and self.t < self.game_until:
+            return "4242", "prism"
+        return None
+
+    def tree_gb(self, path):
+        return 1.0
+
+    def copy_tree(self, src, dst):
+        self.copies.append((src, dst))
+        super().copy_tree(src, dst)
+
+    def newest_mtime(self, paths):
+        p = self.procs[-1] if self.procs else None
+        if p and p.plan.get("silent"):
+            return p.start
+        return self.t
+
+    def start(self, cmd, cwd, env, log):
+        kind = "render" if "INCOMING_FILM_SHOTS" in env else "record"
+        take = env.get("INCOMING_NEWISLE_TAKE") or env.get("INCOMING_NEWISLE_TRIAL", "").replace(":", "-")
+        if cmd[0] == "cut":
+            take = "cut"
+        elif kind == "render":
+            take = os.path.basename(os.path.dirname(env["INCOMING_TRAILER_DIR"]))
+        key = (take, kind, int(env.get("INCOMING_NEWISLE_VARIANT", 0)))
+        self.starts.append((key, dict(env)))
+        self.cmds.append(list(cmd))
+        plan = self.script.get(key) or self.script.get((take, kind)) or default(kind, take, env)
+        if callable(plan):
+            plan = plan(env)
+        p = FakeProc(self, plan, env, log)
+        self.procs.append(p)
+        return p
+
+
+def ok_result(take, plans, saved=True):
+    return {"take": take, "status": "done", "saved": saved,
+            "shots": [{"plans": [p], "replay": p, "moment": True, "selected": True, "strikes": []} for p in plans]}
+
+
+def default(kind, take, env):
+    if take == "cut":
+        return {"seconds": 60}
+    if kind == "render":
+        return {"seconds": 120, "render": {}}
+    plans = {"A": ["a1"], "B": ["b1"], "C": ["c1"], "D": ["d1"]}.get(take, [])
+    return {"seconds": 300, "result": ok_result(take, plans), "log": "NEWISLE heap 30% (3000 МБ из 10000)"}
+
+
+class ProduceTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.tmp.name
+        self.master = os.path.join(root, "master")
+        os.makedirs(os.path.join(self.master, "region"))
+        with open(os.path.join(self.master, "level.dat"), "w") as f:
+            f.write("master")
+        self.takes = os.path.join(root, "takes.json")
+        takes_json(self.takes)
+        self.cfg = {"repo": root, "master": self.master, "work": os.path.join(root, "work"), "saves": os.path.join(root, "saves"),
+                    "protected": [os.path.join(root, "golden")], "record": ["record"], "render": ["render"],
+                    "cut": ["cut"], "pause_if_running": ["prism"], "fault_kill_s": 90}
+        os.makedirs(self.cfg["saves"])
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def conveyor(self, script=None, faults=None):
+        m = FakeMachine(script or {})
+        script = m.script
+        script.setdefault(("cut", "record"), {"seconds": 60})
+        return P.Conveyor(self.cfg, machine=m, takes_file=self.takes, faults=faults, log=lambda *_: None), m
+
+    def status(self):
+        with open(os.path.join(self.cfg["work"], "status.txt"), encoding="utf-8") as f:
+            return f.read().splitlines()
+
+    def test_full_chain_branch_and_cleanup(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run())
+        st = c.state["takes"]
+        self.assertEqual("passed", st["A"]["status"])
+        self.assertEqual("chained", st["B"]["status"], "дубль с Артёмом в цепочке — только удары")
+        self.assertEqual("passed", st["C"]["status"])
+        self.assertEqual("passed", st["D"]["status"])
+        envs = {k: e for k, e in m.starts}
+        self.assertEqual("-", envs[("B", "record", 0)]["INCOMING_TRAILER_SHOTS"], "без записи")
+        # ветка C — на копии снимка B; D — цепочка от B, не от C
+        world_b = st["B"]["snapshot"]
+        self.assertEqual(world_b, "nw-B-a0")
+        # снимки, что больше не вход, — в очереди на удаление (лежат, пока место есть: перевывод по замечанию)
+        self.assertEqual(["nw-A-a0", "nw-C-a0", "nw-B-a0"], c.state["released"])
+        self.assertEqual(["nw-A-a0", "nw-B-a0", "nw-C-a0", "nw-D-a0"], sorted(os.listdir(self.cfg["saves"])))
+        lines = self.status()
+        self.assertEqual(5, len(lines))
+        self.assertEqual("stage: done", lines[0])
+        self.assertTrue(lines[1].startswith("takes: сняты 4, не сняты 0, осталось 0"), lines[1])
+        self.assertIn("чистовой ждёт", lines[4], "лист аниматика — настоящий, его планов тут нет: только черновик")
+        self.assertEqual(["cut", "--draft"], m.cmds[-1])
+        self.assertTrue(os.path.exists(os.path.join(self.master, "level.dat")), "мастер цел")
+
+    def test_killed_client_is_retaken_with_spare_camera(self):
+        c, m = self.conveyor(faults={"A": "kill"})
+        self.assertEqual(0, c.run(["A"]))
+        tries = c.state["takes"]["A"]["attempts"]
+        self.assertEqual(2, len(tries))
+        self.assertIn("без итога", tries[0]["reason"])
+        self.assertEqual(1, tries[1]["variant"])
+        v = P.smoke_verdict(c, {"A": "kill"})
+        self.assertTrue(v["pass"], v)
+
+    def test_disk_pause_then_go_on(self):
+        c, m = self.conveyor(faults={"A": "disk"})
+        t0 = m.t
+        self.assertEqual(0, c.run(["A"]))
+        self.assertTrue(any(e[0] == "pause" and "мало места" in e[2] for e in c.events))
+        self.assertGreaterEqual(m.t - t0, 30 * 60, "пауза — сном, не падением")
+        self.assertTrue(P.smoke_verdict(c, {"A": "disk"})["pass"])
+
+    def test_bad_camera_fails_check_then_spare_passes(self):
+        bad = {"seconds": 300, "result": ok_result("A", ["a1"]), "log": "WARN SCENARIO film camera a1: камера в блоках"}
+        c, m = self.conveyor({("A", "record", 0): bad}, faults={"A": "camera"})
+        self.assertEqual(0, c.run(["A"]))
+        envs = [e for k, e in m.starts if k[1] == "record"]
+        self.assertEqual("camera", envs[0].get("INCOMING_NEWISLE_FAULT"))
+        self.assertNotIn("INCOMING_NEWISLE_FAULT", envs[1], "запасная камера — без порчи")
+        self.assertTrue(P.smoke_verdict(c, {"A": "camera"})["pass"])
+
+    def test_silent_client_and_heap_are_cut_off(self):
+        script = {("A", "record", 0): {"hang": True, "silent": True},
+                  ("A", "record", 1): {"hang": True, "log": "NEWISLE heap 75% (7500 МБ из 10000)"}}
+        c, m = self.conveyor(script)
+        # куча видна сторожу, пока клиент жив: строка — сразу в лог
+        def heap_now(env):
+            with open(os.path.join(env["INCOMING_TRAILER_DIR"], "record.log"), "a") as f:
+                f.write("NEWISLE heap 75% (7500 МБ из 10000)\n")
+            return {"hang": True}
+        m.script[("A", "record", 1)] = heap_now
+        self.assertEqual(0, c.run(["A"]))
+        reasons = [a["reason"] for a in c.state["takes"]["A"]["attempts"]]
+        self.assertIn("нет движения", reasons[0])
+        self.assertIn("куча", reasons[1])
+        self.assertEqual("passed", c.state["takes"]["A"]["status"])
+
+    def test_take_time_limit(self):
+        c, m = self.conveyor({("A", "record", 0): {"hang": True}})
+        self.assertEqual(0, c.run(["A"]))
+        r = c.state["takes"]["A"]["attempts"][0]["reason"]
+        self.assertIn("срок 10 мин", r, "2 × оценка 5 мин до первого замера")
+
+    def test_retries_then_skip_and_chain_goes_on_from_struck_world(self):
+        bad = {"seconds": 300, "result": dict(ok_result("A", ["a1"]), shots=[{"replay": "a1", "moment": False, "selected": True}]),
+               "log": ""}
+        c, m = self.conveyor({("A", "record"): bad})
+        self.assertEqual(0, c.run(["A", "B"]))
+        a = c.state["takes"]["A"]
+        self.assertEqual("skipped", a["status"])
+        self.assertEqual(3, len(a["attempts"]), "две пересъёмки, потом пропуск")
+        self.assertEqual("nw-A-a0", a["snapshot"], "цепочка — от мира, где удары легли")
+        b_env = [e for k, e in m.starts if k[0] == "B"][0]
+        self.assertEqual("nw-B-a0", b_env["INCOMING_WORLD"])
+
+    def test_render_fail_is_retaken(self):
+        c, m = self.conveyor({("A", "render"): lambda env: {"seconds": 60, "render": {"a1": "FAIL"}}
+                              if len([s for s in m.starts if s[0][1] == "render"]) == 1 else {"seconds": 60, "render": {}}})
+        self.assertEqual(0, c.run(["A"]))
+        tries = c.state["takes"]["A"]["attempts"]
+        self.assertFalse(tries[0]["ok"])
+        self.assertIn("a1", tries[0]["reason"])
+        self.assertTrue(tries[1]["ok"])
+
+    def test_stopped_take_stops_and_waits(self):
+        c, m = self.conveyor({("A", "record"): {"seconds": 10, "result": {"status": "stopped", "reason": "нет поз камер a1"}}})
+        self.assertEqual(P.STOPPED_EXIT, c.run())
+        lines = self.status()
+        self.assertTrue(lines[0].startswith("stage: stopped, waiting"), lines[0])
+        self.assertIn("нет поз камер a1", lines[3])
+        self.assertEqual("waits for: решения человека", lines[4])
+
+    def test_game_running_pauses_and_interrupts_without_counting(self):
+        c, m = self.conveyor()
+        m.game_until = m.t + 10        # игра Артёма запущена: пауза до начала
+        orig = m.start
+
+        def start(cmd, cwd, env, log):
+            p = orig(cmd, cwd, env, log)
+            if len(m.starts) == 1:
+                m.game_until = m.t + 100   # игра запустилась посреди записи: клиент снят, попытка не в счёт
+            return p
+        m.start = start
+        self.assertEqual(0, c.run(["A"]))
+        tries = c.state["takes"]["A"]["attempts"]
+        self.assertTrue(tries[0].get("interrupted"))
+        self.assertEqual(0, tries[1]["variant"], "та же камера: снятие не по вине дубля")
+        self.assertTrue(any(e[0] == "pause" and "игра" in e[2] for e in c.events))
+
+    def test_resume_skips_done_takes(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A"]))
+        c2, m2 = self.conveyor()
+        self.assertEqual(0, c2.run(["A", "B"]))
+        self.assertFalse(any(k[0] == "A" for k, _ in m2.starts), "снятое не переснимается")
+        self.assertEqual(os.path.join(self.cfg["saves"], "nw-A-a0"), m2.copies[0][0], "B — со снимка A из прошлого запуска")
+
+    def test_night_limit(self):
+        c, m = self.conveyor()
+        c.limits["night_hours"] = 0.1      # 6 минут: второй дубль уже не начинается, черновик — из снятого
+        self.assertEqual(0, c.run())
+        self.assertIn("ночь кончилась, не дошли B, C, D", self.status()[4])
+        self.assertEqual("passed", c.state["takes"]["A"]["status"])
+        self.assertNotIn("B", c.state["takes"])
+        self.assertEqual(["cut", "--draft"], m.cmds[-1])
+
+    def test_game_at_night_end_stops_without_cut(self):
+        c, m = self.conveyor()
+        c.limits["night_hours"] = 0.1
+        m.game_until = m.t + 10 ** 6     # утро: Артём играет до конца ночи
+        self.assertEqual(P.STOPPED_EXIT, c.run())
+        self.assertIn("ночь кончилась на паузе", self.status()[3])
+        self.assertFalse(m.cmds)
+
+    def test_wrong_commit_or_unknown_take_stops_before_copying(self):
+        self.cfg["commit"] = "abc123"
+        c, m = self.conveyor()
+        m.head = "fff000"
+        self.assertEqual(P.STOPPED_EXIT, c.run(["A"]))
+        self.assertIn("коммит fff000", self.status()[3])
+        self.assertEqual([], m.copies)
+        c, m = self.conveyor()
+        self.assertEqual(P.STOPPED_EXIT, c.run(["A", "Z9"]))
+        self.assertIn("Z9", self.status()[3])
+
+    def test_crash_twice_stops(self):
+        crash = {"seconds": 300, "result": ok_result("A", ["a1"]), "log": "Exception in server tick loop"}
+        c, m = self.conveyor({("A", "record"): crash})
+        self.assertEqual(P.STOPPED_EXIT, c.run(["A"]))
+        self.assertEqual(2, len(c.state["takes"]["A"]["attempts"]))
+        self.assertIn("падает второй раз", self.status()[3])
+
+    def test_killed_render_resumes_from_best(self):
+        def render(env):
+            first = len([k for k, _ in m.starts if k[1] == "render"]) == 1
+            return {"hang": True, "silent": True} if first else {"seconds": 60, "render": {}}
+        c, m = self.conveyor()
+        m.script[("A", "render")] = render
+        self.assertEqual(0, c.run(["A"]))
+        renders = [e for k, e in m.starts if k[1] == "render"]
+        self.assertEqual(2, len(renders))
+        self.assertEqual(1, len(c.state["takes"]["A"]["attempts"]), "дубль не переснимается — вывод продолжен")
+        self.assertTrue(any(e[0] == "render-resume" for e in c.events))
+
+    def test_final_cut_when_every_plan_passed(self):
+        c, m = self.conveyor()
+        c.missing_plans = lambda: []
+        self.assertEqual(0, c.run())
+        self.assertEqual(["cut", "--final"], m.cmds[-1])
+        self.assertIn("чистовой готов", self.status()[4])
+
+    def test_eta_from_measured_rate(self):
+        c, m = self.conveyor()
+        c.plan_order = ["A", "B", "C", "D"]
+        c.state["spent"] = {"A": 900}         # 15 мин на дубль в 5 мин оценки — темп 3
+        self.assertAlmostEqual(3 * 4 * 300, c.eta(["A", "B", "C", "D"]))
+
+    def test_blind_run_checks_data_without_render_or_cut(self):
+        self.cfg["render"] = None
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run())
+        self.assertFalse(any(k[1] == "render" for k, _ in m.starts))
+        self.assertFalse(any(cmd[0] == "cut" for cmd in m.cmds))
+        self.assertEqual("passed", c.state["takes"]["D"]["status"])
+
+    def test_game_is_a_java_process_not_the_shell_that_names_it(self):
+        import subprocess
+        pattern = "instances/Airstrike Pack"
+        java = os.path.join(self.tmp.name, "java")
+        os.symlink(sys.executable, java)
+        nap = "import time; time.sleep(30)"
+        shell = subprocess.Popen([sys.executable, "-c", nap, pattern])
+        try:
+            self.assertIsNone(P.Machine().running([pattern]), "оболочка с подстрокой — не игра")
+            game = subprocess.Popen([java, "-c", nap, pattern])
+            try:
+                found = P.Machine().running([pattern])
+                self.assertIsNotNone(found)
+                self.assertEqual(str(game.pid), found[0])
+            finally:
+                game.kill()
+                game.wait()
+        finally:
+            shell.kill()
+            shell.wait()
+
+    def night(self, script=None, faults=None):
+        m = FakeMachine(script or {})
+        code = P.night(self.cfg, ["A", "D"], faults or {"A": "kill", "D": "disk"}, machine=m, takes_file=self.takes,
+                       log=lambda *_: None)
+        return code, m
+
+    def test_night_probe_then_whole_chain(self):
+        code, m = self.night()
+        self.assertEqual(0, code)
+        smoke = P.load_json(os.path.join(self.cfg["work"], "smoke.json"))
+        self.assertTrue(smoke["pass"], smoke)
+        state = P.load_json(os.path.join(self.cfg["work"], "state.json"))
+        self.assertEqual(["A", "B", "C", "D"], [t for t in state["takes"]], "после пробы — вся цепочка в папке работы")
+        first_full = [e for k, e in m.starts if k[1] == "record"][3]   # проба: A дважды (убит), D; дальше — цепочка
+        self.assertEqual("nw-A-a0", first_full["INCOMING_WORLD"])
+        self.assertEqual(os.path.join(self.cfg["work"], "takes", "A", "a0"), first_full["INCOMING_TRAILER_DIR"])
+        self.assertFalse(any("smoke" in w for w in os.listdir(self.cfg["saves"])))
+        self.assertEqual(["nw-A-a0", "nw-B-a0", "nw-C-a0", "nw-D-a0"], sorted(os.listdir(self.cfg["saves"])),
+                         "от пробы миров не осталось")
+        # перезапуск ночи: проба прошла — не повторяется, снятое не переснимается
+        code, m2 = self.night()
+        self.assertEqual(0, code)
+        self.assertFalse(any(k[1] == "record" and k[0] != "cut" for k, _ in m2.starts))
+
+    def test_night_failed_probe_stops_before_chain(self):
+        bad = {"seconds": 300, "result": ok_result("A", ["a1"]), "log": "WARN SCENARIO film camera a1: камера в блоках"}
+        code, m = self.night({("A", "record"): bad}, faults={"A": "camera"})
+        self.assertEqual(P.STOPPED_EXIT, code)
+        self.assertTrue(self.status()[0].startswith("stage: stopped, waiting"))
+        self.assertIn("проба не прошла: A=camera", self.status()[3])
+        self.assertFalse(os.path.exists(os.path.join(self.cfg["work"], "state.json")), "цепочка не начиналась")
+        self.assertEqual([], os.listdir(self.cfg["saves"]))
+
+    def test_status_heartbeat_during_long_record(self):
+        c, m = self.conveyor({("A", "record"): {"seconds": 1200, "result": ok_result("A", ["a1"])}})
+        stamps = []
+        orig = c.status
+
+        def status(state, note=""):
+            stamps.append(m.t)
+            orig(state, note)
+        c.status = status
+        self.assertEqual(0, c.run(["A"]))
+        gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+        self.assertLessEqual(max(gaps), 305, "статус свежее 5 минут и посреди 20-минутной записи")
+        self.assertTrue(os.path.getsize(os.path.join(self.cfg["work"], "produce.log")) > 0)
+
+    def test_guard_refuses_protected_and_foreign_paths(self):
+        c, m = self.conveyor()
+        with self.assertRaises(P.Stopped):
+            c.remove(self.master)
+        with self.assertRaises(P.Stopped):
+            c.copy_world(self.master, os.path.join("..", "golden", "x"))
+        with self.assertRaises(P.Stopped):
+            c.guard.check("/etc", "запись в")
+        # мастер под папкой работы — всё равно защищён
+        cfg = dict(self.cfg, master=os.path.join(self.cfg["saves"], "master"))
+        c3 = P.Conveyor(cfg, machine=m, takes_file=self.takes, log=lambda *_: None)
+        with self.assertRaises(P.Stopped):
+            c3.remove(cfg["master"])
+
+    def test_low_disk_prunes_released_worlds_before_pausing(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B"]))                 # A — в очереди на удаление
+        self.assertEqual(["nw-A-a0"], c.state["released"])
+        m.free = 10.0                                          # порог 4 + копия 1 — хватает
+        frees = iter([4.5, 30.0])                              # до D: мало, после удаления A — хватает
+        m.disk_free_gb = lambda path: next(frees, 30.0)
+        self.assertEqual(0, c.run(["A", "B", "D"]))
+        self.assertTrue(any(e[0] == "prune" and e[2] == "nw-A-a0" for e in c.events))
+        self.assertFalse(any(e[0] == "pause" for e in c.events), "место нашлось без паузы")
+        self.assertFalse(os.path.exists(os.path.join(self.cfg["saves"], "nw-A-a0")))
+
+    def test_low_memory_pauses(self):
+        c, m = self.conveyor()
+        m.mem = 5.0
+        orig = m.sleep
+
+        def sleep(s):
+            orig(s)
+            m.mem = 30.0
+        m.sleep = sleep
+        self.assertEqual(0, c.run(["A"]))
+        self.assertTrue(any(e[0] == "pause" and "памяти" in e[2] for e in c.events))
+
+    def test_check_take_reads_eta_and_crash(self):
+        r = ok_result("A", ["a1"])
+        r["shots"][0]["strikes"] = [{"weapon": "missile", "eta": 3.0, "bound": True, "actual": 4.6},
+                                    {"weapon": "drone", "eta": 2.0, "bound": False}]
+        problems = P.check_take(r, "Exception in server tick loop", {})
+        self.assertTrue(any("tick loop" in p for p in problems))
+        self.assertTrue(any("4.6" in p for p in problems))
+        self.assertTrue(any("не найден" in p for p in problems))
+
+    def test_searches_pick(self):
+        s = {"terrace": {"place": "hit", "probes": ["g", "h"], "glass_broken_min": 0.5, "house_kept_min": 0.97},
+             "grad": {"plan": "n41", "mspt_max": 50}}
+        results = {
+            "terrace": [{"trial": {"distance": 40, "hit": [1, 2, 3]}, "probes": {"g": {"before": 10, "after": 0}, "h": {"before": 100, "after": 80}}},
+                        {"trial": {"distance": 60, "hit": [4, 5, 6]}, "probes": {"g": {"before": 10, "after": 2}, "h": {"before": 100, "after": 99}}},
+                        {"trial": {"distance": 85, "hit": [7, 8, 9]}, "probes": {"g": {"before": 10, "after": 9}, "h": {"before": 100, "after": 100}}}],
+            "grad": [{"trial": {"size": 8, "mspt_peak": 20}}, {"trial": {"size": 16, "mspt_peak": 44}}, {"trial": {"size": 24, "mspt_peak": 70}}],
+        }
+        found = {"places": {}}
+        P.pick(s, results, found)
+        self.assertEqual([4, 5, 6], found["places"]["hit"], "ближайший удар, где стекло выбито, а дом стоит")
+        self.assertEqual({"plan": "n41", "size": 16}, found["grad"])
+
+
+if __name__ == "__main__":
+    unittest.main()

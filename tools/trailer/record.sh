@@ -29,6 +29,13 @@ drivers = wave
 [wave]
 file = /dev/null
 CONF
+# INCOMING_LIVE_WINDOW=1 — живой дубль Артёма (produce.py live, по его согласию на вечер): окно игры на его рабочем
+# столе и звук в его колонки, без вложенного KWin и xvfb; кадры живого дубля не пишутся (планы — выводом из повторов),
+# поэтому окно меньше экрана — 1280×720 (INCOMING_LIVE_SIZE): окно больше экрана съёмка не ставит (Film.exactFrame)
+if [ -n "${INCOMING_LIVE_WINDOW:-}" ]; then
+  printf '[general]\n' > "$RUN/alsoft.conf"
+  export INCOMING_SIZE="${INCOMING_LIVE_SIZE:-1280x720}"
+fi
 cat > "$RUN/options.txt" <<OPT
 onboardAccessibility:false
 pauseOnLostFocus:false
@@ -76,8 +83,9 @@ if [ -n "${INCOMING_FILM:-}" ] && [ -n "${INCOMING_DH:-}" ]; then
 fi
 export INCOMING_SIZE="${INCOMING_SIZE:-1920x1080}"
 W="${INCOMING_SIZE%x*}"; H="${INCOMING_SIZE#*x}"
-# кадры PNG: ~1.2 байта на пиксель, ~12 000 кадров (720p — 11 ГБ, 1080p — ~30 ГБ)
-NEED_GB=$(( W * H * 12 / 10 * 12000 / 1000000000 + 1 ))
+# кадры PNG: ~1.2 байта на пиксель, ~12 000 кадров (720p — 11 ГБ, 1080p — ~30 ГБ); INCOMING_NEED_FRAMES — свой счёт
+# (дубль конвейера Newisle снимает вживую секунды, а не весь трейлер)
+NEED_GB=$(( W * H * 12 / 10 * ${INCOMING_NEED_FRAMES:-12000} / 1000000000 + 1 ))
 FREE_GB=$(( $(df -Pk "$RUN" | awk 'NR==2 {print $4}') / 1000000 ))
 if [ "$FREE_GB" -lt "$NEED_GB" ]; then
   echo "record.sh: для кадров ${W}x${H} нужно ~${NEED_GB} ГБ, свободно ${FREE_GB} ГБ в $RUN" >&2
@@ -118,6 +126,9 @@ fi
 JDK="$(python3 "$ROOT/tools/paths.py" JAVA)"
 if [ -z "${JAVA_HOME:-}" ] && [ -d "$JDK" ]; then export JAVA_HOME="$JDK"; fi
 cd "$ROOT/mod"
+if [ -n "${INCOMING_LIVE_WINDOW:-}" ]; then
+  exec ./gradlew "${GRADLE_ARGS[@]}"
+fi
 if command -v kwin_wayland >/dev/null; then
   # экран KWin с запасом: окно клиента с заголовком в размер экрана не влезает и ужимается (до 1920×1052);
   # сценарий снимает с окна рамку и ставит его ровно ${W}x${H} (Trailer.exactFrame)

@@ -125,7 +125,7 @@ class NewisleDataTest {
         assertEquals(4.5, l.launchAt()[0], 1e-9);
         // путь залпа: через точки, цель — из пути; место пуска и точки — по x и z, без мира
         Strike route = d.strikes(json("{\"plans\": [\"p1\"], \"offsets\": {}}").getAsJsonObject(), HEIGHTS).get(0);
-        assertEquals(new Vec3(-1000, 0, 0), route.from());
+        assertEquals(new Vec3(-1000, 70, 0), route.from(), "место пуска — на высоте цели, без мира");
         assertEquals(2, route.via().size());
         assertEquals(new Vec3(7, 70, 8), route.to());
     }

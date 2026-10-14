@@ -115,10 +115,18 @@ final class NewisleData {
     /** Кадры камеры плана по разведке; нет плана — нет его позы (конвейер останавливается до съёмки). */
     final Map<String, List<Frame>> poses;
 
+    /** Что нашли поиски P1 ({@code newisle-found.json}, пишет {@code produce.py search}): места, размер залпа «Града». */
+    final JsonObject found;
+
     NewisleData(JsonObject scenario, JsonObject takes, Map<String, List<Frame>> poses) {
+        this(scenario, takes, poses, new JsonObject());
+    }
+
+    NewisleData(JsonObject scenario, JsonObject takes, Map<String, List<Frame>> poses, JsonObject found) {
         this.scenario = scenario;
         this.takes = takes;
         this.poses = poses;
+        this.found = found;
     }
 
     /** Папка сцен: от каталога игры вверх до {@code tools/trailer/scenes} репозитория; {@code INCOMING_NEWISLE_SCENES} — своя. */
@@ -150,7 +158,9 @@ final class NewisleData {
                 if (!frames.isEmpty()) poses.put(o.get("id").getAsString(), frames);
             }
         }
-        return new NewisleData(scenario, takes, poses);
+        Path foundFile = dir.resolve("newisle-found.json");
+        JsonObject found = Files.isRegularFile(foundFile) ? read(foundFile).getAsJsonObject() : new JsonObject();
+        return new NewisleData(scenario, takes, poses, found);
     }
 
     private static JsonElement read(Path p) throws IOException {
@@ -218,9 +228,10 @@ final class NewisleData {
 
     // ================================================================ точки
 
-    /** Место по имени: сперва места дублей, потом сценария. */
+    /** Место по имени: сперва найденное поисками, потом места дублей, потом сценария. */
     @Nullable
     JsonElement place(String name) {
+        if (found.has("places") && found.getAsJsonObject("places").has(name)) return found.getAsJsonObject("places").get(name);
         JsonObject tp = takes.getAsJsonObject("places");
         if (tp.has(name)) return tp.get(name);
         JsonObject sp = scenario.getAsJsonObject("places");
@@ -338,7 +349,13 @@ final class NewisleData {
             if (plan == null || !plan.has("strikes")) continue;
             double off = offset(shot, p.getAsString());
             // удар плана без цели — в цель плана
-            for (JsonElement e : plan.getAsJsonArray("strikes")) out.add(strike(e.getAsJsonObject(), off, plan.get("target"), h));
+            JsonArray list = plan.getAsJsonArray("strikes");
+            // залп «Града», который сервер держит на 20 TPS (поиск grad): первые столько ударов плана
+            int n = list.size();
+            if (found.has("grad") && found.getAsJsonObject("grad").get("plan").getAsString().equals(p.getAsString())) {
+                n = Math.min(n, found.getAsJsonObject("grad").get("size").getAsInt());
+            }
+            for (int i = 0; i < n; i++) out.add(strike(list.get(i).getAsJsonObject(), off, plan.get("target"), h));
         }
         return out;
     }
@@ -349,23 +366,24 @@ final class NewisleData {
         Vec3 from;
         List<Vec3> via = new ArrayList<>();
         JsonElement to = s.get("to");
-        // высота места пуска нужна только баллистике «Града»: команде залпа место пуска — по x и z
-        Heights launch = w == WeaponType.ROCKET ? h : FLAT;
         if (s.has("route")) {
             JsonObject r = scenario.getAsJsonObject("routes").getAsJsonObject(s.get("route").getAsString());
             if (r == null) throw new IllegalArgumentException("нет пути " + s.get("route"));
-            from = point(r.get("from"), 0, launch);
+            from = point(r.get("from"), 0, FLAT);
             for (JsonElement v : r.getAsJsonArray("via")) {
                 JsonArray a = v.getAsJsonArray();
                 via.add(new Vec3(a.get(0).getAsDouble(), 0, a.get(1).getAsDouble()));
             }
             if (to == null) to = r.get("to");
         } else {
-            from = point(s.get("from"), 0, launch);
+            from = point(s.get("from"), 0, FLAT);
         }
         if (to == null) to = planTarget;
         if (to == null) throw new IllegalArgumentException("у удара нет цели: " + s);
         Vec3 target = point(to, 0, h);
+        // место пуска — только по x и z (команде залпа так и надо, а высота у сервера грузила бы чанк в 600 блоках: там
+        // встала бы пусковая, и пуски пошли бы её очередью); баллистике «Града» — на высоте цели
+        if (from.y == 0) from = new Vec3(from.x, target.y, from.z);
         Vec3 pass = s.has("pass") ? point(s.get("pass"), 0, h) : null;
         return new Strike(w, from, via, target, pass, s.get("eta").getAsDouble() + offset);
     }

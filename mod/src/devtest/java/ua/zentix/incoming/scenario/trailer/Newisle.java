@@ -660,12 +660,29 @@ final class Newisle {
     }
 
     private void tick(ClientTickEvent.Post e) {
+        if (++ticks % 1200 == 0) heap();
         if (mc.level == null) return;
         for (Launched l : launched) l.tick();
         if (!enterSeen && !hints.isEmpty() && mc.screen == null
                 && InputConstants.isKeyDown(mc.getWindow().getWindow(), InputConstants.KEY_RETURN)) {
             enterSeen = true;
         }
+    }
+
+    private long ticks;
+
+    /**
+     * Живая куча после последней сборки (пулы кучи, {@code getCollectionUsage}) — строкой раз в минуту: сторож конвейера
+     * снимает клиент, у которого она выше доли {@code limits.heap_share} (утечка в других модах).
+     */
+    private static void heap() {
+        long live = 0;
+        for (var p : java.lang.management.ManagementFactory.getMemoryPoolMXBeans()) {
+            var u = p.getType() == java.lang.management.MemoryType.HEAP ? p.getCollectionUsage() : null;
+            if (u != null) live += u.getUsed();
+        }
+        long max = Runtime.getRuntime().maxMemory();
+        Incoming.LOG.info("NEWISLE heap {}% ({} МБ из {})", Math.round(live * 100.0 / max), live >> 20, max >> 20);
     }
 
     /** Подсказки Артёму в живом дубле — поверх игры (в повтор не пишутся). */
