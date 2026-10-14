@@ -685,7 +685,7 @@ def print_edit(edit, shots):
 
 def write_cuts(path, edit, shots):
     """Таблица склеек рядом с роликом: время в трейлере → план, откуда дубль и какое окно плана. По ней замечание
-    «на 1:02 …» сразу находит план и его кандидата; другой кандидат плана — его папка последним --rec."""
+    «на 1:02 …» сразу находит план и его кандидата; другой кандидат плана — --take план=его папка."""
     rows = ["| Время | План | Склейка | Окно плана, с | Откуда |", "|---|---|---|---|---|"]
     for c in edit:
         span = f"{fmt_time(c.start)}–{fmt_time(c.start + c.dur)}"
@@ -1194,6 +1194,8 @@ def main():
     ap.add_argument("--out", help="файл (по умолчанию dist/incoming-trailer.mp4, для ru — …-ru.mp4)")
     ap.add_argument("--rec", action="append", help="папка записи (по умолчанию mod/run/scenario/trailer); можно несколько — "
                     "планы из следующих (пересъёмка) заменяют одноимённые")
+    ap.add_argument("--take", action="append", default=[], metavar="ПЛАН=ПАПКА",
+                    help="дубль плана из этой папки записи или вывода, что бы ни дали --rec (правка одного плана)")
     ap.add_argument("--music", help="Juggernaut.mp3 (Scott Buckley): один раз, копируется в tools/.trailer-cache")
     ap.add_argument("--slowmo", action="store_true", help="планы, снятые замедленно (speed < 1), — как сняты, а не со скоростью игры")
     ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
@@ -1204,6 +1206,12 @@ def main():
         args.out = os.path.join(DIST, "incoming-trailer.mp4" if args.lang == "en" else f"incoming-trailer-{args.lang}.mp4")
     music = music_file(args.music)
     shots = pick_takes([load_recording(rec) for rec in args.rec or [REC]], GAME_LANG[args.lang])
+    for t in args.take:
+        name, _, rec = t.partition("=")
+        took = load_recording(rec).get(name)
+        if took is None:
+            sys.exit(f"--take {t}: в {rec} нет плана {name}")
+        shots[name] = took
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
     edit, texts, cuts, total, p14 = build_edit(args.lang)

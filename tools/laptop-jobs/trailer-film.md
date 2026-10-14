@@ -85,23 +85,47 @@ W4=mod/run/scenario/film-war4
 for S in $(awk '$3 != "PASS" {print $1}' $W4/render/best.txt); do
   echo "== $S"; uv run tools/trailer/journal.py $W4/replays/$S.events.jsonl --region mod/run/scenario/saves/war4-retake/region
 done > $W4/journal.txt 2>&1
+python3 tools/trailer/drift.py $W4 > $W4/drift.txt
 ```
+`drift.txt` — у каких планов снаряд в журнале записи ушёл с пути (очередь мест до `22b2cfd` при отставании сервера:
+в записи 86 строк `Can't keep up`); камеры таких планов ставились по ушедшему месту, вывод показывает настоящее.
+
+## 3в. p34 заново (запись одной сцены)
+p34 (с борта ракеты, 1:07) не снимался ни разу: камера снаряда включалась до пуска, полёта ещё не было, план ждал
+момент и шёл заглушкой. Исправлено, сцена `scene:p34` — одна p34 у поста бинокля p33; рабочее дерево — на коммит из сообщения координатора и сборка,
+после вывода `render-human2`, до монтажа. Свободного места — как в п. 2.
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war5-p34 && chmod -R u+w mod/run/scenario/saves/war5-p34
+INCOMING_TRAILER_DIR=film-war5 INCOMING_WAR_PART=scene:p34 INCOMING_WORLD=war5-p34 \
+  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+```
+В логе: нет `TRAILER p34: момент не наступил`; есть отметки `video` и `gone` у p34 в `film-war5/timeline.jsonl`
+(`grep '"shot":"p34"' mod/run/scenario/film-war5/timeline.jsonl | grep -c '"type":"frame"'` — кадры). Прислать строки
+`TRAILER p34` и `SCENARIO film` из лога.
 
 ## 4. Монтаж
-Поверх всего `film-war2` (прежний вывод — запасной для плана, который теперь не прошёл): p03 с туманом c2 (новый
-вывод, если есть), `render-human`, `render-human2` (p01a и p42 — если в его отчёте PASS и дрожь объекта меньше, чем в
-`render-human`; иначе строку `$(rec $W2/render-human2/best.txt)` убрать), затем живые планы и вывод `film-war4`. Строки `best.txt` с «-» вместо папки — план
-не снят (причина в той же строке), в `--rec` их нет.
+Дубль плана — новейший прошедший проверку (PASS), а если у плана таких нет — новейший какой есть. Порядок дублей:
+`film-war2` (`render`, p03 с туманом c2, `render-human`, `render-human2`), затем живые планы и вывод `film-war4`.
+`render-human2` (p01a и p42) — если в его отчёте PASS и дрожь объекта меньше, чем в `render-human`; иначе оба
+`$(rec $W2/render-human2/best.txt …)` убрать. Строки `best.txt` с «-» вместо папки — план не снят (причина в той же
+строке), в `--rec` их нет.
 ```sh
 W2=mod/run/scenario/film-war2 W4=mod/run/scenario/film-war4
-rec() { [ -f "$1" ] && awk -v s="${2:-}" '$2 != "-" && (s == "" || $1 == s) {printf "--rec %s ", $2}' "$1"; }
-ARGS="--lang en --rec $W2 $(rec $W2/render/best.txt) \
-  $(rec $W2/render-fog-c2-alt110-d3.05-dist200/best.txt p03) $(rec $W2/render-fog-c2-human/best.txt p03) \
-  $(rec $W2/render-human/best.txt) $(rec $W2/render-human2/best.txt) --rec $W4 $(rec $W4/render/best.txt) --music <Juggernaut.mp3>"
+# rec <best.txt> [план] [итог]: папки дублей; второй проход — только PASS, он поверх первого
+rec() { [ -f "$1" ] && awk -v s="${2:-}" -v v="${3:-}" '$2 != "-" && (s == "" || $1 == s) && (v == "" || $3 == v) {printf "--rec %s ", $2}' "$1"; }
+FOG1=$W2/render-fog-c2-alt110-d3.05-dist200/best.txt FOG2=$W2/render-fog-c2-human/best.txt
+ARGS="--lang en --rec $W2 $(rec $W2/render/best.txt) $(rec $FOG1 p03) $(rec $FOG2 p03) \
+  $(rec $W2/render-human/best.txt) $(rec $W2/render-human2/best.txt) --rec $W4 $(rec $W4/render/best.txt) \
+  $(rec $W2/render/best.txt '' PASS) $(rec $FOG1 p03 PASS) $(rec $FOG2 p03 PASS) \
+  $(rec $W2/render-human/best.txt '' PASS) $(rec $W2/render-human2/best.txt '' PASS) $(rec $W4/render/best.txt '' PASS) \
+  $([ -f mod/run/scenario/film-war5/timeline.jsonl ] && echo --take p34=mod/run/scenario/film-war5) --music <Juggernaut.mp3>"
 mkdir -p dist && echo "uv run tools/trailer/edit.py $ARGS" > dist/incoming-trailer-edit.sh
 uv run tools/trailer/edit.py $ARGS 2>&1 | tee dist/incoming-trailer-edit.log
 ```
-`dist/incoming-trailer-edit.sh` — монтаж как есть: правка по замечанию утром — эта строка с `--rec` нового дубля в конце.
+Живой план (кадры в `timeline.jsonl` папки записи, итог — таблицы hud/grid/fight отчёта) берётся из `film-war4`; если
+там он хуже, чем в `film-war2` (p34: «момент не наступил»), — `--take p34=$W2` в конце строки: дубль плана из этой
+папки, что бы ни дали `--rec`.
+`dist/incoming-trailer-edit.sh` — монтаж как есть: правка по замечанию утром — эта строка с `--take <план>=<папка дубля>` в конце.
 Звук пуска p01c (монтаж прежде писал «p01c: no sound:rocket.launch»): какие звуки есть в журнале выведенного p01c —
 ```sh
 grep -o '"event":"[^"]*"' "$(awk '$1 == "p01c" {print $2}' $W4/render/best.txt)/timeline.jsonl" | sort | uniq -c | sort -rn | head -20
@@ -109,5 +133,35 @@ grep -o '"event":"[^"]*"' "$(awk '$1 == "p01c" {print $2}' $W4/render/best.txt)/
 
 Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `dist/incoming-trailer-cuts.md` (время в трейлере → план,
 окно плана, откуда дубль), `dist/incoming-trailer-edit.sh`, `film-war4/render/report.md`, `film-war4/render/best.txt`,
-`film-war4/journal.txt`, `dist/incoming-trailer-edit.log`, счёт звуков p01c, строки из п. 2 и п. 3,
+`film-war4/journal.txt`, `film-war4/drift.txt`, `dist/incoming-trailer-edit.log`, счёт звуков p01c, строки из п. 2 и п. 3,
 ошибки из логов записи и вывода (`Exception`, `ERROR` мода).
+
+## 5. Спасение планов (видеокарта; можно сразу, пока п. 4 считает монтаж на процессоре)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка. Что выводится:
+- `film-war2/render-human3` — планы, которые в монтаж идут из `film-war2/render` (в `film-war4` нет PASS или нет
+  объекта): p11, p26, p31, p39a, p39d. Тот вывод — до `181d3ab`: камера без «человека» и тряска мода 5° ~10 Гц у
+  взрывов («эпилептика» у p26 по замечанию Артёма). Без `INCOMING_FILM_SHOWN`: с ней p01a в `render-human2` не прошёл.
+- `film-war4/render-metro` — метро p15, p18: у всех кандидатов «камера в блоках» — проверка требовала полблока воздуха
+  вокруг камеры, а лестница метро шириной в блок; теперь 0,2 блока (ближняя плоскость кадра — 0,05).
+```sh
+INCOMING_TRAILER_DIR=film-war2 INCOMING_FILM_OUT=render-human3 INCOMING_FILM_TRIES=2 \
+INCOMING_FILM_SHOTS=p11,p26,p31,p39a,p39d tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war4 INCOMING_FILM_OUT=render-metro INCOMING_FILM_TRIES=2 \
+INCOMING_FILM_SHOTS=p15,p18 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+for R in film-war2/render-human3 film-war4/render-metro; do
+  python3 tools/trailer/report.py mod/run/scenario/$R --md mod/run/scenario/$R/report.md
+done
+```
+Кандидат дольше 15 минут при оценке ниже 0,1 (как p31 в п. 3) — снять этот план и идти дальше без него, сказать.
+Прислать оба `report.md` и `best.txt`, строки `SCENARIO film heap`/`restart`, ошибки — как в п. 3.
+
+## 6. Монтаж из всего снятого
+После п. 5 и, если оно было этой ночью, вывода камер по сцене (`render-planned`, задание `shot-trailer.md`).
+`tools/trailer/cut.sh` собирает строку п. 4 сам: у плана — PASS из самого сильного вывода (`CUT_RENDERS` в скрипте:
+`render-planned` — слабее всех, `render-human3` и `render-metro` — сильнее всех), нет PASS — не прошедший, живые планы —
+из `film-war2`, `film-war4`, `film-war5`. Прежний монтаж п. 4 не трогается — новый в свои файлы:
+```sh
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v2.mp4
+```
+Прислать: `dist/incoming-trailer-v2-lite.mp4`, `dist/incoming-trailer-v2-cuts.md`, `dist/incoming-trailer-edit.sh`,
+`dist/incoming-trailer-edit.log`.

@@ -167,7 +167,7 @@ final class War {
     private Crowd crowd, roof;
     private Fight street, avenue;
     private final List<BlockPos> missileRack = new ArrayList<>(), rocketRack = new ArrayList<>(), droneRack = new ArrayList<>();
-    private static Field bannerField;
+    private static Field bannerField, followingField;
     private int lastBanner;
     /** Узлы сети, которые поставила съёмка ({@link #gridNode}). */
     private final List<Integer> gridNodes = new ArrayList<>();
@@ -288,6 +288,11 @@ final class War {
                 case "airship" -> airship();
                 case "p25" -> p25();
                 case "p01d" -> p01d();
+                case "p34" -> {
+                    // игрок у поста бинокля p33, как в сцене throughFire: до него ракета ближе 600 блоков ещё на карте
+                    actor(SKYLINE_POST, T4, null);
+                    p34();
+                }
                 case "streets" -> streets();
                 case "throughFire" -> throughFire();
                 case "nuke" -> {
@@ -297,7 +302,7 @@ final class War {
                     nuke();
                 }
                 default -> throw new IllegalArgumentException("INCOMING_WAR_PART=" + part
-                        + ": сцены — dawnSquare, firstStrike, battery, sky, airship, p25, p01d, streets, throughFire, nuke");
+                        + ": сцены — dawnSquare, firstStrike, battery, sky, airship, p25, p01d, p34, streets, throughFire, nuke");
             }
         }
         if (part.equals("p16")) {
@@ -1004,6 +1009,32 @@ final class War {
             best = Math.min(best, a.d.arrivalTicks(p.distanceTo(a.d.burst())) - a.ticks(0));
         }
         return best;
+    }
+
+    /**
+     * Камера снаряда ведёт полёт оружия {@code weapon} с целью у {@code target} (по горизонтали, 8 блоков: у p34 башня T4 — в 24): включает её и
+     * перебирает полёты клавишей камеры, пока не дойдёт до него. Ложь — такого полёта у клиента ещё нет.
+     */
+    static boolean followFlight(WeaponType weapon, Vec3 target) {
+        var flights = ua.zentix.incoming.client.hud.ClientFlights.all();
+        java.util.UUID want = null;
+        for (var f : flights) {
+            if (f.weapon() == weapon && Math.hypot(f.target().x - target.x, f.target().z - target.z) < 8) want = f.id;
+        }
+        if (want == null) return false;
+        try {
+            if (followingField == null) {
+                followingField = ProjectileCamera.class.getDeclaredField("following");
+                followingField.setAccessible(true);
+            }
+            // от любого полёта до нужного — не больше круга: до конца списка, выход к себе, с начала до него
+            for (int i = 0; i < 2 * flights.size() + 2 && !(ProjectileCamera.isActive() && want.equals(followingField.get(null))); i++) {
+                ProjectileCamera.cycle();
+            }
+            return ProjectileCamera.isActive() && want.equals(followingField.get(null));
+        } catch (ReflectiveOperationException e) {
+            return false;
+        }
     }
 
     /** Тиков осталось у надписи тревоги над хотбаром ({@link Alerts}): больше, чем в прошлом тике, — тревога. */
@@ -2155,15 +2186,7 @@ final class War {
 
         skyline();
 
-        // p34: с борта ракеты — пике, цель растёт, SIGNAL LOST (монтаж режет по отметке gone)
-        Vec3 dive = new Vec3(3130.5, 0, 560.5);
-        film.shot("p34").length(260).hud().projectileCamera().readyChunks(12)
-                .onReady(() -> salvo("missile", 1, 0, dive, new Vec3(2200, 0, 560)))
-                .prepare(() -> {
-                    if (!ProjectileCamera.isActive()) ProjectileCamera.cycle();
-                })
-                .when(() -> Film.onMap() && film.missileRange() < 600, 3000)
-                .cueEnd(ProjectileCamera::exit);
+        p34();
 
         // p37: B-2 на закате — створки, бомба уходит вниз, земля вспучивается (монтаж — от отметки release)
         film.run(() -> Film.cmd("time set 12400"));
@@ -2180,6 +2203,17 @@ final class War {
         summit();
 
         night();
+    }
+
+    /** p34: с борта ракеты — пике, цель растёт, SIGNAL LOST (монтаж режет по отметке gone). Игрок — у поста p33. */
+    private void p34() {
+        Vec3 dive = new Vec3(3130.5, 0, 560.5);
+        film.shot("p34").length(260).hud().projectileCamera().readyChunks(12)
+                .onReady(() -> salvo("missile", 1, 0, dive, new Vec3(2200, 0, 560)))
+                // камера снаряда — на ракету плана, как только сервер прислал её полёт: до пуска полётов нет, и включение
+                // в prepare не находило ни одного («момент не наступил» в записях 13.10, план шёл заглушкой)
+                .when(() -> followFlight(WeaponType.MISSILE, dive) && Film.onMap() && film.missileRange() < 600, 3000)
+                .cueEnd(ProjectileCamera::exit);
     }
 
     /**

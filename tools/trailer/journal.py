@@ -7,7 +7,7 @@
 [--tail N] [--weapon W]. Печатает отметки, людей в начале плана, камеру сценария через N тиков (место, курс, наклон, угол кадра),
 снаряды (появление, конец, удар) и каждый снаряд в окне плана относительно камеры: расстояние, высоту над камерой,
 угол от оси кадра и в кадре ли он (поля 0.85, как у Rig.inFrame). --region — папка region мира части: тики, где
-камера в блоках (как Rig.World.free: куб ±0,5 блока вокруг глаза), и блоки в углах куба, а у снаряда и удара — первый
+камера в блоках (как Rig.World.free: куб ±0,2 блока вокруг глаза), и блоки в углах куба, а у снаряда и удара — первый
 блок на луче из камеры (за блоками ли он). Почему план не прошёл проверку вывода — по данным записи, без игры."""
 import argparse, json, math, os, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -18,6 +18,10 @@ PASSABLE = ('air', 'light', 'short_grass', 'tall_grass', 'grass', 'fern', 'large
             'dandelion', 'orchid', 'allium', 'bluet', 'daisy', 'cornflower', 'lily_of_the_valley', 'rose_bush', 'peony',
             'lilac', 'sunflower', 'seagrass', 'kelp', 'sugar_cane', 'wheat', 'carrots', 'potatoes', 'beetroots', 'cobweb',
             'redstone_wire', 'rail', 'fire', 'tripwire', 'lever', 'glow_lichen', 'hanging_roots', 'moss_carpet_none')
+
+
+# воздух вокруг глаза, как Rig.World.CLEAR
+CLEAR = 0.2
 
 
 def passable(name):
@@ -141,16 +145,16 @@ def main():
                       + (f', {seen or "луч чист"}' if a.region else ''))
     if a.region:
         from ray import block
-        print('камера в блоках (куб ±0,5 у глаза):')
+        print(f'камера в блоках (куб ±{CLEAR} у глаза):')
         bad = 0
         for t in sorted(cams):
             if not start - 60 <= t <= end + a.tail:
                 continue
             c = cams[t]
             hit = []
-            for dx in (-0.5, 0.5):
-                for dy in (-0.5, 0.5):
-                    for dz in (-0.5, 0.5):
+            for dx in (-CLEAR, CLEAR):
+                for dy in (-CLEAR, CLEAR):
+                    for dz in (-CLEAR, CLEAR):
                         x, y, z = math.floor(c[0] + dx), math.floor(c[1] + dy), math.floor(c[2] + dz)
                         b = block(a.region, x, y, z)
                         if b == '?' or not passable(b):
