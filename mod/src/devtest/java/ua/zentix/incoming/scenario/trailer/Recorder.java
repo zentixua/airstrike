@@ -18,6 +18,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Запись плана трейлера: 60 кадров в секунду видео, кадр k — ровно момент {@code k·step()} тиков от начала плана
  * (часы игры ведёт {@link FrameClock}), поэтому видео плавное при любой скорости отрисовки. Звук не пишется с устройства (игра идёт
  * замедленно), а журналируется: какой файл, где, громкость, тон, дальность — {@code tools/trailer/edit.py}
- * собирает из этого дорожку заново. Всё — в {@code timeline.jsonl} рядом с кадрами.
+ * собирает из этого дорожку заново. Всё — в {@code timeline.jsonl} рядом с кадрами (дописывается, см. конструктор).
  */
 final class Recorder implements SoundEventListener {
     static final double VIDEO_FPS = 60, TPS = 20;
@@ -37,6 +38,8 @@ final class Recorder implements SoundEventListener {
     private static final int MAX_PENDING = 12;
 
     private final Path root;
+    /** Снимать кадры самому (живая запись) или только вести журнал (кадры выводит Flashback из повтора). */
+    private final boolean grabFrames;
     private final Writer log;
     private final AtomicInteger pending = new AtomicInteger();
     /** Звуки, которые ещё звучат: громкость и тон у них меняются (моторы, Доплер) — пишем каждый кадр. */
@@ -49,10 +52,19 @@ final class Recorder implements SoundEventListener {
     private double time;
 
     Recorder(Path root) {
+        this(root, true);
+    }
+
+    Recorder(Path root, boolean grab) {
         this.root = root;
+        this.grabFrames = grab;
         try {
             Files.createDirectories(root);
-            log = Files.newBufferedWriter(root.resolve("timeline.jsonl"), StandardCharsets.UTF_8);
+            // запись папки дописывается: части войны (и перезапись планов) пишут в одну папку, и с нуля каждая стирала бы
+            // журнал прежних (13.10: из живых планов в монтаже остался только p33 последней части). Монтаж берёт
+            // последний дубль плана в журнале; кадры дубля — поверх прежних в той же папке плана
+            log = Files.newBufferedWriter(root.resolve("timeline.jsonl"), StandardCharsets.UTF_8, StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -76,10 +88,12 @@ final class Recorder implements SoundEventListener {
         this.nextFrame = 0;
         this.time = 0;
         playing.clear(); // звуки прошлого плана в этот не тянем
-        try {
-            Files.createDirectories(root.resolve("frames").resolve(name));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+        if (grabFrames) {
+            try {
+                Files.createDirectories(root.resolve("frames").resolve(name));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
         write(String.format(Locale.ROOT, "{\"type\":\"shot\",\"shot\":\"%s\",\"speed\":%.4f,\"hud\":%b,\"lang\":\"%s\"}", name, speed, hud,
                 Minecraft.getInstance().options.languageCode));
@@ -123,7 +137,7 @@ final class Recorder implements SoundEventListener {
         write(String.format(Locale.ROOT, "{\"type\":\"frame\",\"shot\":\"%s\",\"k\":%d,\"t\":%.3f,\"cam\":[%.2f,%.2f,%.2f,%.2f,%.2f]}",
                 shot, k, t, cam.x, cam.y, cam.z, camera.getYRot(), camera.getXRot()));
         soundUpdates(t);
-        grab(root.resolve("frames").resolve(shot).resolve(String.format(Locale.ROOT, "%05d.png", k)));
+        if (grabFrames) grab(root.resolve("frames").resolve(shot).resolve(String.format(Locale.ROOT, "%05d.png", k)));
     }
 
     private void grab(Path file) {

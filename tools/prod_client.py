@@ -193,6 +193,8 @@ def main():
         props["incoming.scenario"] = a.scenario
         if a.world and not a.quickplay:
             props["incoming.world"] = world_name(a.world)
+        # размер кадра, как у запуска из Gradle (build.gradle, INCOMING_SIZE): трейлер снимает только кадр ровно --size
+        props.setdefault("incoming.frame", f"{width}x{height}")
     # окно игры — во весь экран вложенного KWin сразу: размер по умолчанию 854×480, а переход на полный экран
     # во вложенном KWin не срабатывает (весь дубль остаётся 854×480)
     game_extra = ["--width", width, "--height", height]

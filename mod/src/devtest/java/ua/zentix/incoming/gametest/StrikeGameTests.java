@@ -3641,6 +3641,40 @@ public final class StrikeGameTests {
         h.succeed();
     }
 
+    /**
+     * Волна ракеты в воздухе толкает того, до кого дошла по воздуху, а под землёй — нет ({@code Warheads.reaches}): обе
+     * коровы — в первом поясе фронта; на поверхности в 12 блоках от удара — отлетает, в пещере под семью блоками земли
+     * и камня в 15 блоках — стоит.
+     */
+    @GameTest(template = "range", timeoutTicks = 100, batch = "blast_push_cover", skyAccess = true)
+    public static void blastPushStopsAtEarth(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos cave = RANGE_CENTER.offset(0, -8, 12);
+        for (BlockPos p : BlockPos.betweenClosed(cave.offset(-1, 0, -1), cave.offset(1, 1, 1))) h.setBlock(p, Blocks.AIR);
+        Cow open = h.spawn(EntityType.COW, RANGE_CENTER.offset(12, 1, 0)), buried = h.spawn(EntityType.COW, cave);
+        for (Cow cow : List.of(open, buried)) {
+            cow.setNoAi(true);
+            cow.setInvulnerable(true);
+        }
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(RANGE_CENTER.above()));
+        h.assertTrue(buried.position().distanceTo(at) < Warheads.FRONT_SPEED && open.position().distanceTo(at) < Warheads.FRONT_SPEED,
+                "обе коровы — в первом поясе фронта");
+        double[] max = {0, 0};
+        h.onEachTick(() -> {
+            max[0] = Math.max(max[0], open.getDeltaMovement().horizontalDistance());
+            max[1] = Math.max(max[1], buried.getDeltaMovement().horizontalDistance());
+        });
+        Warheads.detonate(level, WeaponType.MISSILE, at, null, null);
+        // вторичные подрывы — до 22 блоков от точки: район догружается сразу (фоновая загрузка не успевает к тикам GameTest)
+        double area = 32;
+        for (int cx = Mth.floor(at.x - area) >> 4; cx <= Mth.floor(at.x + area) >> 4; cx++)
+            for (int cz = Mth.floor(at.z - area) >> 4; cz <= Mth.floor(at.z + area) >> 4; cz++) level.getChunk(cx, cz);
+        h.succeedWhen(() -> {
+            h.assertTrue(max[0] > 0.5, "корову на поверхности не отбросило: " + max[0]);
+            h.assertTrue(max[1] < 0.05, "корову под землёй отбросило: " + max[1]);
+        });
+    }
+
     @GameTest(template = "range", timeoutTicks = 20)
     public static void pickerSeesBlockAndEntity(GameTestHelper h) {
         ServerLevel level = h.getLevel();

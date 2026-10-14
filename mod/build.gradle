@@ -51,8 +51,12 @@ def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 
 def shaderModPatterns = System.getenv('INCOMING_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 // ... и с Distant Horizons, как у хоста: рельеф карты наведения вдали (tools/client_scenario.sh target-map dh)
 def dhModPatterns = System.getenv('INCOMING_DH') ? ['DistantHorizons-*.jar'] : []
+// ... и с модами, которые снимает трейлер: Almighty (боты-статисты), Point Blank (оружие пехоты), Immersive Aircraft (бипланы)
+def filmModPatterns = System.getenv('INCOMING_FILM') ? ['almighty-*.jar', 'pointblank-neoforge-*.jar', 'geckolib-neoforge-*.jar',
+        'immersive_aircraft-neoforge-*.jar'] : []
 // GameTest с Lithium, как у хоста (-PwithLithium): проверка совместимости руками, в CI её нет
 def lithiumModPatterns = project.hasProperty('withLithium') ? ['lithium-neoforge-*.jar'] : []
+def flashbackModPatterns = System.getenv('INCOMING_FLASHBACK') ? ['Flashback-*.jar', 'flashback_neoforge_fixed-*.jar', 'connector-*.jar', 'forgified-fabric-api-*.jar'] : []
 
 // каталог клиента сценария; в мультиплеере у каждого клиента свой (tools/mp_scenario.sh)
 def scenarioDir = project.findProperty('scenarioDir') ?: 'run/scenario'
@@ -82,18 +86,26 @@ neoForge {
             if (System.getenv('INCOMING_PROFILE_GAP')) systemProperty 'incoming.profile.gap', System.getenv('INCOMING_PROFILE_GAP')
             // сценарий commands в облаке без prod_client.py: шаги через «;», как --prop incoming.commands
             if (System.getenv('INCOMING_COMMANDS')) systemProperty 'incoming.commands', System.getenv('INCOMING_COMMANDS')
+            // открыть готовый мир из run/scenario/saves вместо нового (трейлер на копии карты): INCOMING_WORLD=<каталог>
+            if (System.getenv('INCOMING_WORLD')) systemProperty 'incoming.world', System.getenv('INCOMING_WORLD')
             // сценарий guide: только эти разделы (INCOMING_GUIDE=recipes,map — список в GuideShots)
             if (System.getenv('INCOMING_GUIDE')) systemProperty 'incoming.guide', System.getenv('INCOMING_GUIDE')
-            // размер окна: INCOMING_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
+            // размер кадра: INCOMING_SIZE=1920x1080 (трейлер), по умолчанию 1280x720; окно — INCOMING_WINDOW, иначе он же
+            // (вывод из повторов — с окном другого размера: tools/trailer/film.sh)
             def size = (System.getenv('INCOMING_SIZE') ?: '1280x720').split('x')
-            programArguments.addAll '--width', size[0], '--height', size[1]
+            def window = (System.getenv('INCOMING_WINDOW') ?: size.join('x')).split('x')
+            programArguments.addAll '--width', window[0], '--height', window[1]
             // трейлер проверяет, что кадр ровно такой (окно в KWin иначе уменьшается на заголовок)
             systemProperty 'incoming.frame', size.join('x')
+            if (System.getenv('INCOMING_CONNECTOR_CLEAN')) systemProperty 'connector.clean.path', System.getenv('INCOMING_CONNECTOR_CLEAN')
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
             // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)
             jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"
             // профиль JFR по желанию: INCOMING_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
             if (System.getenv('INCOMING_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
+            // вывод трейлера с выборкой JFR старых объектов (INCOMING_FILM_LEAK=1, ReplayFilm): пути до корней GC ищет поток VM,
+            // на стеке по умолчанию (1 МБ) он переполняется, и JVM падает (HeapProbe.PATH_STACK_KB)
+            if (System.getenv('INCOMING_FILM_LEAK')) jvmArgument '-XX:VMThreadStackSize=8192'
         }
         server {
             server()
@@ -146,6 +158,8 @@ neoForge {
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
             // своя часть партий на машине CI: -PgametestShard=i/n (devtest GameTestShards); без свойства — все тесты
             systemProperty 'incoming.gametest.shard', (project.findProperty('gametestShard') ?: '').toString()
+            // -PgametestOnly=<регулярное выражение> — только партии и тесты с подходящим именем (прогон своей правки)
+            systemProperty 'incoming.gametest.only', (project.findProperty('gametestOnly') ?: '').toString()
         }
         // Сценарии полёта (gametest/scenario): все зёрна (-PscenarioSeeds, по умолчанию 16) без остальных GameTest —
         // шаблон сценариев в своём пространстве имён incoming_sweep. -PscenarioOnly=<регулярное выражение> — только
@@ -279,7 +293,7 @@ tasks.register('rigLaunch') {
 // Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
-        def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns
+        def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns + filmModPatterns + flashbackModPatterns
                 : runDir in ['gametest', 'scenario-sweep', 'scenario-record'] ? runtimeModPatterns + lithiumModPatterns : runtimeModPatterns
         from(mcModsDir) { patterns.each { include it } }
         into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })

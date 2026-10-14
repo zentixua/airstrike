@@ -64,6 +64,8 @@ class WeaponSpecTest {
     void chargeBreaksGlassAsDescribed() {
         for (WeaponSpec w : List.of(WeaponSpec.DRONE, WeaponSpec.MISSILE, WeaponSpec.ROCKET, WeaponSpec.LOITER, WeaponSpec.BUNKER, WeaponSpec.NUKE)) {
             assertEquals(w.blast() == WeaponSpec.Blast.NONE, w.charge() == 0, () -> w.blast() + ": заряд " + w.charge());
+            // под землёй рвётся только то, что бьёт на глубине (бомба)
+            assertEquals(w.penetrates(), w.buried() > 0, () -> w.blast() + ": подземный заряд " + w.buried());
         }
         assertEquals(70, glassRange(WeaponSpec.DRONE), 7);
         assertEquals(150, glassRange(WeaponSpec.MISSILE), 15);

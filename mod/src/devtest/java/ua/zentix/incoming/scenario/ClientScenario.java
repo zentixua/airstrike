@@ -128,6 +128,10 @@ public final class ClientScenario {
             new LeakCheck(); // заходы в мир и замеры памяти в меню — свои (LeakCheck), мир открывает он сам на каждый заход
             return;
         }
+        if ("film".equals(scenario)) {
+            new ua.zentix.incoming.scenario.trailer.ReplayFilm(modBus); // планы трейлера из повторов Flashback (tools/trailer/film.sh)
+            return;
+        }
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         if ("trailer".equals(scenario)) {
             new ua.zentix.incoming.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
@@ -139,6 +143,10 @@ public final class ClientScenario {
         }
         if ("guide".equals(scenario)) {
             new GuideShots(); // кадры руководства игрока (docs/guide, tools/guide_images.sh)
+            return;
+        }
+        if ("dust".equals(scenario)) {
+            new CeilingDustShots(); // пыль с потолка комнаты под землёй от ударов над ней
             return;
         }
         if (scenario.startsWith("flyby-")) {
@@ -1596,7 +1604,7 @@ public final class ClientScenario {
     }
 
     /** DH не стоит или уже загрузил свои LOD вокруг: очередь загрузки пуста. */
-    private static boolean dhIdle() {
+    public static boolean dhIdle() {
         if (!net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) return true;
         try {
             Object ex = Class.forName("com.seibel.distanthorizons.core.util.threading.ThreadPoolUtil").getMethod("getRenderLoadingExecutor").invoke(null);

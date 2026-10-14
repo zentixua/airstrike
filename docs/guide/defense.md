@@ -21,6 +21,9 @@ shows up before you hear the explosion.
 A blast hits everyone within its radius, you included, and debris flies far.
 
 - **Get underground.** Earth and thick walls stop a blast; underground and under water even glass stays intact.
+  A strike close above or level with you still shakes dust and grit from the ceiling when the blast reaches you: a
+  cruise missile on the street over a metro station brings it down in streams, a Grad rocket or a farther hit only a
+  trickle.
 - **The bunker buster** goes through about 30 blocks of stone and explodes inside. Only depth protects against it, or
   a SAM that shoots down the B-2.
 - **Nuclear strike**: see [how to survive](nuke.md#how-to-survive).

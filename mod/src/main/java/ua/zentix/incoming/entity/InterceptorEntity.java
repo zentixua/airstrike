@@ -2,6 +2,7 @@ package ua.zentix.incoming.entity;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
@@ -28,9 +29,8 @@ public class InterceptorEntity extends Entity implements IEntityWithComplexSpawn
     private Interceptor flight;
     /** Тиков с пуска (клиенту — с пакетом появления: факел и звук пуска только у молодой ракеты). */
     private int age;
-    private int lerpSteps;
-    private double lerpX, lerpY, lerpZ;
-    private float lerpYRot, lerpXRot;
+    /** Клиент: места от сервера — по одному на тик ({@link ArrivalQueue}): пакеты тика сервера приходят неровно. */
+    private final ArrivalQueue arrivals = new ArrivalQueue();
 
     public InterceptorEntity(EntityType<? extends InterceptorEntity> type, Level level) {
         super(type, level);
@@ -70,10 +70,8 @@ public class InterceptorEntity extends Entity implements IEntityWithComplexSpawn
     public void tick() {
         super.tick();
         if (level().isClientSide) {
-            if (lerpSteps > 0) {
-                lerpPositionAndRotationStep(lerpSteps, lerpX, lerpY, lerpZ, lerpYRot, lerpXRot);
-                lerpSteps--;
-            }
+            ArrivalQueue.Sample s = arrivals.next(getX(), getY(), getZ(), getYRot(), getXRot());
+            if (s != null) lerpPositionAndRotationStep(1, s.x(), s.y(), s.z(), s.yRot(), s.xRot());
             age++;
             return;
         }
@@ -109,33 +107,40 @@ public class InterceptorEntity extends Entity implements IEntityWithComplexSpawn
 
     @Override
     public void lerpTo(double x, double y, double z, float yRot, float xRot, int steps) {
-        // позиция приходит каждый тик: до неё — за один тик, а не за три ванильных (ракета отставала бы от полёта)
-        this.lerpX = x;
-        this.lerpY = y;
-        this.lerpZ = z;
-        this.lerpYRot = yRot;
-        this.lerpXRot = xRot;
-        this.lerpSteps = 1;
+        // позиция приходит каждый тик сервера: по месту на тик клиента, а не за три ванильных (ракета отставала бы от полёта)
+        arrivals.add(new ArrivalQueue.Sample(x, y, z, yRot, xRot));
     }
 
     @Override
     public double lerpTargetX() {
-        return lerpSteps > 0 ? lerpX : getX();
+        ArrivalQueue.Sample s = arrivals.latest();
+        return s != null ? s.x() : getX();
     }
 
     @Override
     public double lerpTargetY() {
-        return lerpSteps > 0 ? lerpY : getY();
+        ArrivalQueue.Sample s = arrivals.latest();
+        return s != null ? s.y() : getY();
     }
 
     @Override
     public double lerpTargetZ() {
-        return lerpSteps > 0 ? lerpZ : getZ();
+        ArrivalQueue.Sample s = arrivals.latest();
+        return s != null ? s.z() : getZ();
     }
 
     @Override
     public void writeSpawnData(RegistryFriendlyByteBuf buf) {
         buf.writeVarInt(age);
+    }
+
+    @Override
+    public void recreateFromPacket(ClientboundAddEntityPacket packet) {
+        super.recreateFromPacket(packet);
+        // ваниль ставит место с прежним (нулевым) поворотом в «прошлый» и потом поворот пакета: первые кадры модель
+        // доворачивалась бы с юга
+        yRotO = getYRot();
+        xRotO = getXRot();
     }
 
     @Override
