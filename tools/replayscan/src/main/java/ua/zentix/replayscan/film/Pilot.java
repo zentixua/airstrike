@@ -64,11 +64,11 @@ final class Pilot {
     /** Высота над землёй, где дрон летит «низко»: ниже — земля рядом, выше — уже не низко. */
     static final double LOW = 5, HIGH = 14;
     /**
-     * Запас от дыма, блоков; взгляд вперёд — столько блоков от камеры не должно быть дыма (иначе он во весь кадр: так
-     * закрыты кадры проходов 13.10, {@link Plume}); удары дальше этого от удара прохода в дым пилота не берутся.
+     * Запас от дыма, блоков; удары дальше этого от удара прохода в дым пилота не берутся. Дым у камеры пилот меряет
+     * сеткой лучей вывода ({@link #smother}): закрыто больше {@link #SMOTHER_FROM} кадра — уже в счёт, от порога вывода
+     * ({@link FrameLog#SMOTHERED}) — кадр в дыму.
      */
-    static final double SMOKE = 3;
-    static final double[] AHEAD_SMOKE = {8, 16, 24};
+    static final double SMOKE = 3, SMOTHER_FROM = 0.3;
     static final double SMOKE_REACH = 260;
     /** Наибольший крен, °; вверх и вниз взгляд — не больше, °; после удара — вперёд по курсу на столько вниз, °. */
     static final double ROLL = 35, UP = 35, DOWN = 60, AHEAD = 12;
@@ -307,33 +307,65 @@ final class Pilot {
 
     /** Дым образца {@code k} на линии взгляда (свой дым удара прохода — нет: на него и смотрят). */
     boolean smokeOnLine(int k, Vec3 from, Vec3 to) {
-        double[] bd = bound[k];
-        double dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, len2 = dx * dx + dy * dy + dz * dz;
         int lo = 0;
         for (int g = 0; g < groupEnd[k].length; g++) {
             int hi = groupEnd[k][g];
-            if (!own[k][g]) {
-                double cx = bd[4 * g], cy = bd[4 * g + 1], cz = bd[4 * g + 2], r = bd[4 * g + 3];
-                double u = len2 < 1e-9 ? 0 : Mth.clamp(((cx - from.x) * dx + (cy - from.y) * dy + (cz - from.z) * dz) / len2, 0, 1);
-                double ex = from.x + dx * u - cx, ey = from.y + dy * u - cy, ez = from.z + dz * u - cz;
-                if (ex * ex + ey * ey + ez * ez < r * r) {
-                    for (int i = lo; i < hi; i++) {
-                        Plume.Shape s = smoke[k][i];
-                        if (s.alpha() >= 0.5 && s.crosses(from, to)) return true;
-                    }
-                }
-            }
+            if (!own[k][g] && crossesGroup(k, g, lo, hi, from, to, 0.5)) return true;
             lo = hi;
         }
         return false;
     }
 
-    /** Взгляд из {@code p} вдоль {@code fwd} упирается в дым ближе {@link #AHEAD_SMOKE} блоков (кадр во весь экран в дыму). */
-    boolean smokeAhead(int k, Vec3 p, Vec3 fwd) {
-        for (double d : AHEAD_SMOKE) {
-            if (smokeClearance(k, p.x + fwd.x * d, p.y + fwd.y * d, p.z + fwd.z * d, 0) < 0) return true;
+    /**
+     * Отрезок проходит сквозь фигуру удара {@code g} (фигуры {@code lo}…{@code hi}) непрозрачнее {@code alpha}; сперва —
+     * сквозь шар вокруг них.
+     */
+    private boolean crossesGroup(int k, int g, int lo, int hi, Vec3 from, Vec3 to, double alpha) {
+        double[] bd = bound[k];
+        double dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, len2 = dx * dx + dy * dy + dz * dz;
+        double cx = bd[4 * g], cy = bd[4 * g + 1], cz = bd[4 * g + 2], r = bd[4 * g + 3];
+        double u = len2 < 1e-9 ? 0 : Mth.clamp(((cx - from.x) * dx + (cy - from.y) * dy + (cz - from.z) * dz) / len2, 0, 1);
+        double ex = from.x + dx * u - cx, ey = from.y + dy * u - cy, ez = from.z + dz * u - cz;
+        if (ex * ex + ey * ey + ez * ez >= r * r) return false;
+        for (int i = lo; i < hi; i++) {
+            Plume.Shape s = smoke[k][i];
+            if (s.alpha() >= alpha && s.crosses(from, to)) return true;
         }
         return false;
+    }
+
+    /**
+     * Доля кадра в дыму у камеры, как её меряет вывод ({@link Smoke#smothered}): лучи той же сетки до той же дальности,
+     * луч закрыт, если входит в фигуру дыма образца {@code k}. Свой дым удара — тоже: облако шара во весь кадр закрывает
+     * его так же. Прежняя проверка — середина кадра на 8–24 блока — не видела дыма у края кадра и дальше 24 блоков: на
+     * кадрах clips9 (14.10) она узнала 310 из 862 кадров в дыму, сетка — 535 (остальные — дым, которого модель не знает,
+     * README), а из 7238 чистых сетка отмечает 309.
+     */
+    double smother(int k, Cameras.View v) {
+        Vec3 e = v.eye();
+        double reach = Smoke.SMOTHER_REACH;
+        int[] near = new int[groupEnd[k].length];
+        int m = 0;
+        double[] bd = bound[k];
+        for (int g = 0; g < near.length; g++) {
+            double dx = e.x - bd[4 * g], dy = e.y - bd[4 * g + 1], dz = e.z - bd[4 * g + 2];
+            if (Math.sqrt(dx * dx + dy * dy + dz * dz) - bd[4 * g + 3] < reach) near[m++] = g;
+        }
+        if (m == 0) return 0;
+        int closed = 0;
+        for (double sx : Smoke.GRID_X) {
+            for (double sy : Smoke.GRID_Y) {
+                Vec3 to = e.add(v.fwd().add(v.right().scale(sx * v.tanX())).add(v.up().scale(sy * v.tanY())).normalize().scale(reach));
+                for (int i = 0; i < m; i++) {
+                    int g = near[i];
+                    if (crossesGroup(k, g, g == 0 ? 0 : groupEnd[k][g - 1], groupEnd[k][g], e, to, Plume.SEEN)) {
+                        closed++;
+                        break;
+                    }
+                }
+            }
+        }
+        return (double) closed / (Smoke.GRID_X.length * Smoke.GRID_Y.length);
     }
 
     /**
@@ -498,7 +530,7 @@ final class Pilot {
         public String toString() {
             int n = Math.max(1, samples);
             return String.format(Locale.ROOT, "speed %.2f b/t, height %.1f, closest to the hit %.0f; of %d samples: near ground %d, "
-                            + "off chunks %d, in smoke %d, smoke ahead %d, hit hidden by terrain %d, by smoke %d, frame bottom off chunks %d, "
+                            + "off chunks %d, in smoke %d, smoke fills the frame %d, hit hidden by terrain %d, by smoke %d, frame bottom off chunks %d, "
                             + "too fast %d, sideways %d, fast turn %d; hit unseen %d",
                     speed / n, height / n, near, samples, low, out, smoke, ahead, hidden, smoky, lowOut, fast, crab, turn, missed);
         }
@@ -535,7 +567,7 @@ final class Pilot {
                 }
                 if (tally != null) tally.height += c;
             }
-            // дым: камера в нём, перед объективом (весь кадр в дыму), на линии взгляда к удару
+            // дым: камера в нём, кадр в дыму (как его меряет вывод), дым на линии взгляда к удару
             int k = (t - a) / 2;
             double sc = smokeClearance(k, p.x, p.y, p.z, SMOKE);
             if (sc < SMOKE) {
@@ -543,7 +575,9 @@ final class Pilot {
                 if (tally != null) tally.smoke++;
             }
             Cameras.View view = view(tr, i);
-            if (smokeAhead(k, p, view.fwd())) {
+            double sm = smother(k, view);
+            if (sm > SMOTHER_FROM) j += 30 * (sm - SMOTHER_FROM);
+            if (sm >= FrameLog.SMOTHERED) {
                 j += 15;
                 if (tally != null) tally.ahead++;
             }

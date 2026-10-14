@@ -45,11 +45,23 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
      * @param warm тиков живого повтора перед началом (дым и огонь прежних ударов — в кадре, как в игре)
      * @param hold тиков стоять у камеры после постройки мира (Distant Horizons строит дальний рельеф после перемотки)
      * @param far  объект дальше прорисовки: туман у её края и секции объекта не проверяются, луч — по готовым чанкам
-     * @param smoke удары {@code [t, x, y, z, поперечник шара?]} — столбы дыма ({@link Plume}) для оценки камер и пилота
+     * @param smoke удары {@code [t, x, y, z, поперечник шара?, вид?]} — дым ({@link Plume}) для оценки камер и пилота; в кадре из
+     *              них — {@link Shot#live}
      * @param time  время суток в выводе (тики дня, как у {@code /time set}: 18000 — полночь), меньше 0 — как в записи
      */
     record Shot(String name, int a, int b, String dim, int warm, int hold, boolean far, List<Camera> cameras, Subject subject,
-                List<double[]> smoke, Need need, long time) {}
+                List<double[]> smoke, Need need, long time) {
+        /**
+         * Удары, чей дым будет в кадре: вывод перематывает повтор к {@code a − warm} и идёт оттуда вживую, а взрыв из
+         * перемотки Incoming считает прошлым и не рисует ({@code Replay.event}: ни частиц, ни столба). Дым ударов раньше
+         * есть только в игре: по нему пилот и оценка камер обходили бы то, чего в кадре нет. На кадрах clips9 (14.10)
+         * модель по всем ударам закрывала снаряд дымом до 170 кадров подлёта из 240 там, где настоящий дым был чист; по
+         * ударам с {@code a − warm} — ни одного.
+         */
+        List<double[]> live() {
+            return smoke.stream().filter(r -> r[0] >= a - warm).toList();
+        }
+    }
 
     /**
      * Камера: {@code pov} — глазами игрока ({@code player}: {@code recorder}, ник или UUID); {@code fixed} — неподвижная

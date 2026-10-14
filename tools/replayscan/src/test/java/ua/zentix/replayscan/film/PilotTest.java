@@ -62,7 +62,7 @@ class PilotTest {
             for (Plume pl : p.plumes) assertTrue(pl.clearance(pos, t) > 0, f.name() + ": in smoke of " + pl + " at tick " + t);
         }
         int ahead = 0, n = 0;
-        for (int t = A; t <= B; t += 2, n++) if (p.smokeAhead((t - A) / 2, tr.pos()[t - tr.from()], p.view(tr, t - tr.from()).fwd())) ahead++;
+        for (int t = A; t <= B; t += 2, n++) if (p.smother((t - A) / 2, p.view(tr, t - tr.from())) >= FrameLog.SMOTHERED) ahead++;
         assertTrue(ahead <= n / 20, f.name() + ": smoke fills the frame in " + ahead + " of " + n + " samples");
         int seen = 0;
         for (int t = HIT; t <= HIT + FrameLog.KEY_CHECK; t++) {
@@ -129,6 +129,20 @@ class PilotTest {
                 new Plume(HIT + 24, new Vec3(-9.5, 64, -0.5), 8, Plume.Look.ROCKET));
         Pilot p = pilot((x, z) -> 64, salvo);
         for (Pilot.Flight f : p.plan(2)) check(p, f);
+    }
+
+    @Test
+    void smokeAtTheFrameEdgeAndPast24BlocksFillsTheFrame() {
+        // облако ракеты через 2 с после удара в 55 блоках перед камерой: середина кадра на 24 блока до него не достаёт,
+        // сетка вывода (до 40 блоков, по всему кадру) — закрыта; отвернулась — чисто
+        Pilot p = pilot((x, z) -> 64, List.of(new Plume(A, new Vec3(55.5, 64, 0.5), 18, Plume.Look.MISSILE)));
+        int k = 20;
+        Vec3 eye = new Vec3(0.5, 74, 0.5);
+        Cameras.View at = Cameras.View.of(Cameras.Pose.look(eye, new Vec3(55.5, 74, 0.5), FOV), ASPECT);
+        Cameras.View away = Cameras.View.of(Cameras.Pose.look(eye, new Vec3(-55.5, 74, 0.5), FOV), ASPECT);
+        assertTrue(p.smokeClearance(k, eye.x + 24, eye.y, eye.z, 99) > 0, "24 blocks ahead is still clear");
+        assertTrue(p.smother(k, at) >= FrameLog.SMOTHERED, "frame at the smoke: " + p.smother(k, at));
+        assertEquals(0, p.smother(k, away));
     }
 
     @Test

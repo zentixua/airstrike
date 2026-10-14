@@ -64,6 +64,16 @@ class PlanTest {
     }
 
     @Test
+    void onlySmokeOfTheLiveReplayIsInFrame() throws Exception {
+        // вывод идёт вживую с a − warm = −100: удар раньше — из перемотки, Incoming его не рисует
+        Plan.Shot s = plan().shots().get(0);
+        Plan.Shot t = new Plan.Shot(s.name(), s.a(), s.b(), s.dim(), s.warm(), s.hold(), s.far(), s.cameras(), s.subject(),
+                List.of(new double[]{-150, 0, 64, 0}, new double[]{-100, 0, 64, 0}, new double[]{120, 0, 64, 0}), s.need(), s.time());
+        assertEquals(List.of(-100.0, 120.0), t.live().stream().map(r -> r[0]).toList());
+        assertEquals(3, t.smoke().size());
+    }
+
+    @Test
     void subjectFollowsPathThenEvent() throws Exception {
         Subject s = plan().shots().get(0).subject();
         assertEquals(170, s.firstKey());
