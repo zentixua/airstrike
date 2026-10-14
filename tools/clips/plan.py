@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "replayscan"))
 import replaydb  # noqa: E402
-from moments import BLAST, flights, incoming_version  # noqa: E402
+from moments import BLAST, BLAST_LOOK, flights, incoming_version  # noqa: E402
 
 # Пороги проверки кадров по роду плана (README replayscan, «Съёмка»): доля кадров до события, где снят объект; то же
 # за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен; громких
@@ -42,7 +43,7 @@ NEED = {
     "fly": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1},
     # проход пилота мимо удара: удар виден в первые тики; снаряд влетает в кадр, когда долетит (пилот его ждёт, но сзади
     # камеры его до пролёта мимо не видно); громкое за кадром — налёт вокруг
-    "fpv": {"subject": 0, "near": 0, "keys": 1, "share": 0, "loud": -1},
+    "fpv": {"subject": 0, "near": 0, "keys": 1, "share": 0, "loud": -1, "smother": 0.03},
 }
 
 
@@ -120,7 +121,24 @@ def cameras(shot: dict) -> list[dict]:
                     "follow": kind != "nuke", "size": size}]
 
 
+SMOKE_LIFE = 4800
+# бомба: глубже этого под верхом (BunkerCover.BREACH_DEPTH) взрыв не прорывается наружу — без шара, столб из провала
+BREACH_DEPTH = 10
+# вид взрыва в пакете взрыва (S2C.Blast: шахед 0, ракета 1, бомба 2, РСЗО 3; так и в 2.10) → вид дыма Plume
+PACKET_LOOK = {0: 2, 1: 3, 2: 4, 3: 1}
 _HIT_WEAPONS: dict[int, tuple] = {}
+
+
+def smoke_row(t: int, x: float, y: float, z: float, surface: float | None, weapon: str | None, kind: int | None = None) -> list:
+    """Строка дыма удара для Plume replayscan: место, поперечник шара, вид взрыва — по пакету взрыва, как у мода, без пакета
+    — по оружию снаряда. Дым бомбы — над верхом (surfaceY пакета, как у FarBlasts.add), не у заряда в толще; заряд глубже
+    BREACH_DEPTH — вид 5 (столб без шара)."""
+    look = PACKET_LOOK.get(kind, BLAST_LOOK.get(weapon, 2))
+    if look == 4 and surface is not None:
+        if math.floor(int(surface) - y) > BREACH_DEPTH:
+            look = 5
+        y = surface
+    return [t, x, y, z, BLAST.get(weapon, 16), look]
 
 
 def hit_weapons(con) -> dict:
@@ -141,14 +159,24 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     if s.get("centre"):
         subject["area"] = {"pos": s["centre"], "size": 2 * s.get("spread", 60)}
     dim = dim_of(con, shot)
-    smoke = con.execute("SELECT id, t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
-                        [dim, a - 1200, b]).fetchall()
-    # поперечник огненного шара удара — по оружию снаряда (дым удара: модель Plume replayscan)
+    # столб дыма у Incoming стоит до 4 минут (FarBlasts.Look.life ракеты — 4800 тиков): удары с тех пор
+    # ядерный подрыв — без строки: у него своя картинка, не столб взрыва (снаряда в пакете подрыва нет — по пакету)
+    smoke = con.execute("""
+        WITH k AS (SELECT id, t, x, y, z, events FROM impact_kinds
+                   WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? AND srcs NOT LIKE '%nuke_detonation%'),
+        s AS (SELECT k.id, max(TRY_CAST(json_extract(ev.data, '$.surfaceY') AS DOUBLE)) AS surface,
+                     min(TRY_CAST(json_extract(ev.data, '$.kind') AS INTEGER)) AS kind
+              FROM k, unnest(k.events) AS u(e) JOIN events ev ON ev.e = u.e WHERE regexp_matches(ev.src, ':blast$') GROUP BY k.id)
+        SELECT k.id, k.t, k.x, k.y, k.z, s.surface, s.kind FROM k LEFT JOIN s ON s.id = k.id ORDER BY k.t""",
+                        [dim, a - SMOKE_LIFE, b]).fetchall()
+    # поперечник огненного шара и вид взрыва — по оружию снаряда (дым удара: модель Plume replayscan); МБР — без строки:
+    # у ядерного подрыва своя картинка, не столб взрыва
     weapons = hit_weapons(con) if smoke else {}
     far = kind in ("far", "nuke", "fly")
     return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far or kind == "fpv" else 20,
             "far": far, "cameras": cameras(shot), "subject": subject,
-            "smoke": [[t, x, y, z, BLAST.get(weapons.get(i), 16)] for i, t, x, y, z in smoke],
+            "smoke": [smoke_row(t, x, y, z, surface, weapons.get(i), blast) for i, t, x, y, z, surface, blast in smoke
+                      if weapons.get(i) != "icbm"],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", ""),
             **({"time": shot["camera"]["time"]} if "time" in shot["camera"] else {})}
 

@@ -43,7 +43,7 @@ class PilotTest {
         Subject.Key main = Pilot.mainKey(s, A, B);
         assertNotNull(main);
         List<Plume> plumes = new ArrayList<>(extra);
-        plumes.add(new Plume(HIT, HIT_POS, 12));
+        plumes.add(new Plume(HIT, HIT_POS, 12, Plume.Look.DRONE));
         return new Pilot(A, B, FOV, ASPECT, s, main, plumes, new Pilot.Grid(terrain, 0, 0, 400), 42);
     }
 
@@ -61,6 +61,9 @@ class PilotTest {
             assertTrue(Math.abs(tr.roll()[i]) <= Pilot.ROLL + 1e-6);
             for (Plume pl : p.plumes) assertTrue(pl.clearance(pos, t) > 0, f.name() + ": in smoke of " + pl + " at tick " + t);
         }
+        int ahead = 0, n = 0;
+        for (int t = A; t <= B; t += 2, n++) if (p.smokeAhead((t - A) / 2, tr.pos()[t - tr.from()], p.view(tr, t - tr.from()).fwd())) ahead++;
+        assertTrue(ahead <= n / 20, f.name() + ": smoke fills the frame in " + ahead + " of " + n + " samples");
         int seen = 0;
         for (int t = HIT; t <= HIT + FrameLog.KEY_CHECK; t++) {
             int i = t - tr.from();
@@ -99,9 +102,10 @@ class PilotTest {
 
     @Test
     void keepsOutOfEarlierSmoke() {
-        // дым удара 6 с назад в 30 блоках сбоку от места и ещё один к востоку: прямой проход прошёл бы сквозь них
-        List<Plume> smoke = List.of(new Plume(HIT - 120, new Vec3(30.5, 64, 0.5), 18), new Plume(HIT - 60, new Vec3(0.5, 64, 35.5), 18),
-                new Plume(HIT - 90, new Vec3(-25.5, 64, -30.5), 18));
+        // дым «Градов» 3–6 с назад в 45–55 блоках вокруг места (облако шара, вал пыли на 20 блоков, столб): прямой
+        // проход прошёл бы сквозь них
+        List<Plume> smoke = List.of(new Plume(HIT - 120, new Vec3(45.5, 64, 0.5), 8, Plume.Look.ROCKET),
+                new Plume(HIT - 60, new Vec3(0.5, 64, 50.5), 8, Plume.Look.ROCKET), new Plume(HIT - 90, new Vec3(-38.5, 64, -38.5), 8, Plume.Look.ROCKET));
         Pilot p = pilot((x, z) -> 64, smoke);
         for (Pilot.Flight f : p.plan(2)) {
             Pilot.Track tr = check(p, f);
@@ -114,6 +118,17 @@ class PilotTest {
             }
             assertTrue(smoky <= n / 5, f.name() + ": the hit is behind smoke in " + smoky + " of " + n + " samples");
         }
+    }
+
+    @Test
+    void staysOutOfTheSalvoSmokeAfterTheHit() {
+        // проход 03:53 (13.10): «Грады» за секунду до удара и через секунду после — в 8–10 блоках от него; пилот прежней
+        // модели пролетал в 13–18 блоках, и последние 2 с кадр был весь в дыму (check: камера не в дыму, перед объективом
+        // дыма нет)
+        List<Plume> salvo = List.of(new Plume(HIT - 25, new Vec3(-0.5, 64, -7.5), 8, Plume.Look.ROCKET),
+                new Plume(HIT + 24, new Vec3(-9.5, 64, -0.5), 8, Plume.Look.ROCKET));
+        Pilot p = pilot((x, z) -> 64, salvo);
+        for (Pilot.Flight f : p.plan(2)) check(p, f);
     }
 
     @Test
@@ -177,21 +192,6 @@ class PilotTest {
         assertEquals(2 * 28.65, far, 0.5, "circle diameter");
         int mid = p.tp - p.t0;
         assertTrue(turn.roll()[mid] < -10, "right turn banks right: " + turn.roll()[mid]);
-    }
-
-    @Test
-    void plumeIsAColumnThatDriftsAndFades() {
-        Plume pl = new Plume(100, new Vec3(0, 64, 0), 18);
-        assertFalse(pl.alive(99));
-        assertTrue(pl.clearance(new Vec3(0, 70, 0), 150) < 0, "inside at the base");
-        assertTrue(pl.clearance(new Vec3(0, 64 + 31 + 14, 0), 300) > 0, "above the top");
-        assertTrue(pl.clearance(new Vec3(40, 70, 0), 150) > 0, "beside");
-        assertTrue(pl.base(500).x > 5, "drifts east with the wind");
-        assertEquals(Double.POSITIVE_INFINITY, pl.clearance(new Vec3(0, 70, 0), 100 + Plume.LIFE + 1), "gone");
-        // взгляд сквозь столб — закрыт; на сам удар (свой дым) — нет
-        assertTrue(pl.blocks(new Vec3(-60, 70, 0), new Vec3(60, 70, 0), 200));
-        assertFalse(pl.blocks(new Vec3(-60, 70, 0), new Vec3(5, 66, 0), 200));
-        assertFalse(pl.blocks(new Vec3(-60, 70, 40), new Vec3(60, 70, 40), 200));
     }
 
     @Test

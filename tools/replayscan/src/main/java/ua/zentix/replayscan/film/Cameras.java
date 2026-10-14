@@ -292,11 +292,11 @@ final class Cameras {
         for (double[] row : shot.smoke()) {
             Plume p = Plume.of(row);
             // удар плана — со своим огненным шаром
-            Subject.Key k = s.keys.stream().filter(o -> Math.abs(o.t() - p.t()) <= 2 && o.pos().distanceTo(p.pos()) <= 4).findFirst().orElse(null);
-            plumes.add(k == null ? p : new Plume(p.t(), p.pos(), k.size()));
+            Subject.Key k = s.keys.stream().filter(o -> Math.abs(o.t() - p.t()) <= 2 && Plume.beside(o.pos(), p.pos(), 4)).findFirst().orElse(null);
+            plumes.add(k == null ? p : new Plume(p.t(), p.pos(), k.size(), p.look()));
         }
-        if (plumes.stream().noneMatch(p -> Math.abs(p.t() - main.t()) <= 2 && p.pos().distanceTo(main.pos()) <= 4))
-            plumes.add(new Plume(main.t(), main.pos(), main.size()));
+        if (plumes.stream().noneMatch(p -> Math.abs(p.t() - main.t()) <= 2 && Plume.beside(p.pos(), main.pos(), 4)))
+            plumes.add(new Plume(main.t(), main.pos(), main.size(), Plume.Look.bySize(main.size())));
         Pilot.Grid grid = new Pilot.Grid((x, z) -> w.ground(x, z), Mth.floor(main.pos().x), Mth.floor(main.pos().z), PILOT_REACH);
         Pilot pilot = new Pilot(shot.a(), shot.b(), c.fov(), aspect, s, main, plumes, grid, shot.name().hashCode());
         List<Hands.Blast> blasts = plumes.stream().filter(p -> p.t() >= shot.a() - 80 && p.t() <= shot.b())
