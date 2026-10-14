@@ -376,14 +376,14 @@ class Checker:
 
     def lit(self, v, c, good):
         """Главный объект различим глазом: освещён (свет на нём, 0–1: блоки и небо с учётом времени суток) и не
-        утонул в своём дыме (свет сквозь дым его же следа, без огня у сопла). Рамка в кадре и лучи по блокам этого не
+        утонул в своём дыме (veil у FrameQa: свет сквозь весь дым до него, и его следа тоже). Рамка в кадре и лучи по блокам этого не
         видят: МБР v5 ночью (p41, p42) была в кадре и крупной, а на экране — тёмный силуэт в дыму и огонь сопла."""
         rows = [q for q in good if "share" in q]
-        if not all("light" in q and "own" in q for q in rows):
+        if not all("light" in q and "veil" in q for q in rows):
             v.fail("data", "у главного объекта нет меры света и своего дыма (проверка кадров до 14.10)")
             return
         dark = sum(1 for q in rows if q["light"] < c.rule("hero_light")) / len(rows)
-        smoked = sum(1 for q in rows if q["own"] < 0.5) / len(rows)
+        smoked = sum(1 for q in rows if q["veil"] < 0.5) / len(rows)
         v.data.update(dark=dark, own_smoke=smoked)
         if dark > c.rule("hero_dark"):
             v.fail("light", f"главный объект в темноте в {100 * dark:.0f} % кадров (свет ниже {c.rule('hero_light'):.2f})")

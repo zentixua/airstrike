@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -37,10 +38,12 @@ final class FrameQa {
     /**
      * Кадр: время (тик повтора с долей), всё построено, объект в кадре (с полями), где он (−1…1), доля высоты, видимая доля,
      * свет сквозь дым, облака, туман у края прорисовки, секция объекта построена, громкость мотора, доля кадра за дымом,
-     * глубина LOD DH ({@link DhFrameDepth#take}: 1 — своя, −1 — мира, 0 — LOD нет).
+     * глубина LOD DH ({@link DhFrameDepth#take}: 1 — своя, −1 — мира, 0 — LOD нет), свет на объекте ({@link #lightAt}) и
+     * свет сквозь весь дым до него, его же след тоже ({@code veil}: у {@code clear} дым у объекта не в счёт — у удара
+     * это его огонь, а МБР v5 на старте тонула в своём облаке, p41).
      */
     record Frame(double t, boolean ready, boolean in, double x, double y, double share, double seen, double clear, boolean cloud,
-                 boolean far, boolean drawn, double engine, boolean subjectFromEntity, double smoke, int dh) {
+                 boolean far, boolean drawn, double engine, boolean subjectFromEntity, double smoke, int dh, double light, double veil) {
         /** Объект снят: в кадре, виден, не в облаках и не в тумане, его секция построена (если мир проверяется). */
         boolean visible() {
             return in && seen >= 0.4 && !cloud && !far && (READY <= 0 || drawn);
@@ -153,7 +156,7 @@ final class FrameQa {
             }
         }
         boolean in = false, cloud = false, far = false, drawn = false;
-        double x = 9, y = 9, share = 0, seen = 0, clear = 1;
+        double x = 9, y = 9, share = 0, seen = 0, clear = 1, light = -1, veil = 1;
         if (aim != null) {
             Vector3f f = cam.getLookVector(), u = cam.getUpVector(), l = cam.getLeftVector();
             Vec3 d = aim.subtract(eye);
@@ -191,6 +194,8 @@ final class FrameQa {
                 // дым на луче к объекту; частицы ближе size·2+4 к нему не в счёт: у удара это его же огонь и дым
                 // (поперечник — шар удара), а дым прежних ударов между камерой и ударом закрывает и сам удар
                 clear = FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, size * 2 + 4);
+                veil = FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, 1.5);
+                light = lightAt(mc, bp, partial);
             }
         }
         double engine = 0;
@@ -201,7 +206,7 @@ final class FrameQa {
         }
         boolean ready = mc.levelRenderer.hasRenderedAllSections();
         double smoke = smokeShare(mc, cam, eye, tanX, tanY);
-        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh);
+        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, light, veil);
         frames.add(fr);
         sound.frame(t - start, cam);
         while (!marks.isEmpty() && marks.peekFirst().t() <= t) sound.mark(marks.pollFirst().what());
@@ -214,12 +219,24 @@ final class FrameQa {
         try {
             out.write(String.format(Locale.ROOT,
                     "{\"t\":%.3f,\"ready\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,\"far\":%b,"
-                            + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"smoke\":%.2f,\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
-                    t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, eye.x, eye.y, eye.z, cam.getYRot(),
-                    cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
+                            + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"smoke\":%.2f,\"dh\":%d,\"light\":%.2f,\"veil\":%.2f,"
+                            + "\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
+                    t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, light, veil, eye.x, eye.y, eye.z,
+                    cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
+    }
+
+    /**
+     * Свет на объекте, 0–1, как у игры для сущности в этом месте: свет блоков (огонь у стола, лампы) или неба с поправкой
+     * на время суток ({@code getSkyDarken}: днём 1, ночью 0,2). Ночью без огня рядом — 0,2: тело МБР v5 над столом было
+     * тёмным силуэтом на тёмном небе, и на экране оставался только огонь сопла (p42).
+     */
+    static double lightAt(Minecraft mc, BlockPos bp, float partial) {
+        if (mc.level.isOutsideBuildHeight(bp)) return mc.level.getSkyDarken(partial);
+        double block = mc.level.getBrightness(LightLayer.BLOCK, bp) / 15.0, sky = mc.level.getBrightness(LightLayer.SKY, bp) / 15.0;
+        return Math.max(block, sky * mc.level.getSkyDarken(partial));
     }
 
     /**

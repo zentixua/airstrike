@@ -231,8 +231,8 @@ class VerdictTest(unittest.TestCase):
     def test_hero_needs_light(self):
         """МБР v5 ночью: в кадре и крупная, но тёмная и в своём дыму — FAIL; без меры света — FAIL по данным."""
         cut = lambda t: [V.Cut(0, 1.5, "flight", t.name, 0.0, need={"hero": True})]
-        for extra, rule in ((None, "data"), ({"light": 0.1, "own": 1.0}, "light"), ({"light": 0.8, "own": 0.2}, "smoke"),
-                            ({"light": 0.8, "own": 1.0}, None)):
+        for extra, rule in ((None, "data"), ({"light": 0.1, "veil": 1.0}, "light"), ({"light": 0.8, "veil": 0.2}, "smoke"),
+                            ({"light": 0.8, "veil": 1.0}, None)):
             with tempfile.TemporaryDirectory() as root:
                 t = render_take(root, share=0.2, qa_extra=extra)
                 v = self.check(cut(t), [t])[0]
