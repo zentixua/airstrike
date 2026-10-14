@@ -55,7 +55,7 @@
              "hints": ["Терраса Города 1, ночь. Встань у стеклянной двери лицом к городу.", "Нажми Enter — начнём.", "Стой и смотри на город, пока экран не станет чёрным."]},
    "shots": [
     {"plans": ["n49", "n50a", "n50"], "offsets": {"n50a": 4.0, "n50": 4.7}, "seconds": 9,
-     "probes": [{"name": "terrace_glass", "around": "camera:n49", "r": 6, "h": 4, "count": "glass"}, {"name": "terrace_house", "around": "camera:n49", "r": 6, "h": 4, "count": "solid"}],
+     "probes": [{"name": "terrace_glass", "around": "c1_terrace", "r": 3, "h": 3, "count": "glass"}, {"name": "terrace_house", "around": "camera:n49", "r": 6, "h": 4, "count": "solid"}],
      "cover": {"n49": {"subject": "scene"}, "n50a": {"subject": "scene"}, "n50": {"subject": "impact", "weapon": "missile", "need": "SCENE"}}}
    ]
   },
