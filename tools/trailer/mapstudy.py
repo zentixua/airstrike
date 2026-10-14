@@ -27,7 +27,7 @@
 Пишет `map.png` (цвет сверху с тенью, сетка 256, точки), `heights.png` (строения по высоте), `infra.png` (дороги, вода,
 мосты, рельсы, метро, станции, полосы), `crop-NN.jpg` и `crop-NN-infra.jpg`, `mapstudy.json` (всё числами),
 `mapstudy.md` (сводка, в конце — проверка разбора: постройки генерации и что не попало в природное) и высоты `top.npy`,
-`ground.npy` для разведки мест. Картинки — 2 блока на пиксель, подписи — шрифтом с кириллицей, если он есть.
+`ground.npy`, `water.npy` (вода сверху) для разведки мест (`scout.py`). Картинки — 2 блока на пиксель, подписи — шрифтом с кириллицей, если он есть.
 """
 import argparse
 import glob
@@ -850,6 +850,7 @@ def main():
     outside_census = [(str(names[i]), int(cnt[i])) for i in np.argsort(-cnt)[:25] if cnt[i]]
     np.save(os.path.join(a.out, "top.npy"), top)
     np.save(os.path.join(a.out, "ground.npy"), ground.astype(np.int16))
+    np.save(os.path.join(a.out, "water.npy"), wet)
 
     study = {"box": [x0, z0, x1, z1], "scale": s, "loaded_share": round(float(have.mean()), 3),
              "ground": {"min": int(ground[have].min()), "median": float(np.median(ground[have])), "max": int(ground[have].max())},

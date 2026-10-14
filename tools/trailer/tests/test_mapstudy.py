@@ -194,6 +194,10 @@ class MapStudyTest(unittest.TestCase):
                 st = json.load(f)
             for img in ("map.png", "heights.png", "infra.png", "crop-01.jpg", "crop-01-infra.jpg"):
                 self.assertTrue(os.path.getsize(os.path.join(out, img)) > 0)
+            wet, top = np.load(os.path.join(out, "water.npy")), np.load(os.path.join(out, "top.npy"))
+            self.assertEqual(wet.shape, top.shape)
+            self.assertTrue(wet[110 - st["box"][1], 130 - st["box"][0]] and not wet[42 - st["box"][1], 50 - st["box"][0]],
+                            "вода для разведки мест: озеро — да, улица — нет")
         tower = [t for t in st["tall"] if 100 <= t["x"] < 108 and 72 <= t["z"] < 80]
         self.assertTrue(tower, st["tall"])
         self.assertAlmostEqual(tower[0]["height"], 50, delta=2)
