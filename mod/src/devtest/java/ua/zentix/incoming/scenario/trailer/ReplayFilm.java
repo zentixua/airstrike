@@ -120,6 +120,15 @@ public final class ReplayFilm {
     private Scored current, bestTry;
     private FrameQa.Verdict bestVerdict;
     private FrameQa qa;
+    /**
+     * Журнал этого вывода — тем же {@link EventLog}, что у записи, но клиентом повтора, который рисует кадры
+     * ({@code <кандидат>/<план>.events.jsonl}): где снаряды у него, где они взорвались. Журнал записи пишет записывающий
+     * клиент, и если тот показывал снаряд иначе (film-war4: очередь мест 52d661a при отстающем сервере шла прошлым
+     * шагом), камера по нему смотрит мимо; этот журнал с кадрами совпадает по построению — по нему сверка меры
+     * ({@code tools/shot check}) и камера следующего вывода.
+     */
+    @Nullable
+    private EventLog shown;
     private Path candDir;
     private final ArrayDeque<Pose> walk = new ArrayDeque<>();
     private Pose standing;
@@ -261,6 +270,17 @@ public final class ReplayFilm {
 
     private void onStage(RenderLevelStageEvent e) {
         if (qa != null) qa.onStage(e);
+        if (shown != null && e.getStage() == RenderLevelStageEvent.Stage.AFTER_LEVEL && FlashbackApi.exporting()) {
+            double t = FlashbackApi.exportTick();
+            if (!Double.isNaN(t)) shown.tick((int) Math.floor(t));
+        }
+    }
+
+    private void closeShown() {
+        if (shown != null) {
+            shown.close();
+            shown = null;
+        }
     }
 
     private void go(State s) {
@@ -324,6 +344,7 @@ public final class ReplayFilm {
             qa.close();
             qa = null;
         }
+        closeShown();
         flawless(false);
         if (spec != null) report(null, null, why);
         next();
@@ -644,6 +665,8 @@ public final class ReplayFilm {
                 Runtime.getRuntime().halt(3);
             }
             qa = new FrameQa(subject, candDir, spec.shot(), a, marks);
+            shown = new EventLog(candDir.resolve(spec.shot() + ".events.jsonl"));
+            for (EventLog.Mark m : data.marks) shown.mark(m.t(), m.what());
             // тряска мода от взрывов (5° с частотой ~10 Гц) — не в вывод: толчки камеры даёт Operator; у ядерных планов
             // волна трясёт камеру моделью мода (давление у камеры), её Operator не повторяет
             IncomingConfig.CLIENT.cameraShake.set(data.nukes.isEmpty() ? 0.0 : 1.0);
@@ -665,6 +688,7 @@ public final class ReplayFilm {
     /** Вывод кончился: кадры по порядку с нуля (как у живой записи), итог проверки. */
     private void done() {
         flawless(false);
+        closeShown();
         qa.close();
         FrameQa q = qa;
         qa = null;

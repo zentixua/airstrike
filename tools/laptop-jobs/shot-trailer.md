@@ -66,7 +66,12 @@ INCOMING_FILM_CAMERA='.*-planned(-raw)?' INCOMING_FILM_SHOTS=<планы war4 ч
   tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
 python3 tools/trailer/report.py $W2/render-planned --md $W2/render-planned/report.md   # и для $W4
 ```
-Прислать: `render-planned/report.md` и `best.txt` обеих папок, строки `SCENARIO film solve <план>` и
+Вывод с этого коммита пишет и свой журнал (`<кандидат>/<план>.events.jsonl` рядом с `qa.jsonl`) — сверка меры по нему:
+```sh
+uv run tools/shot/shot.py check $W2/render-planned/*/*/qa.jsonl $W4/render-planned/*/*/qa.jsonl --regions "$R" \
+    --out $OUT/check-planned --clouds 320 2>&1 | tee $OUT/check-planned.log
+```
+Прислать: `render-planned/report.md` и `best.txt` обеих папок, `check-planned.log`, строки `SCENARIO film solve <план>` и
 `SCENARIO film verdict`, по кадру из середины каждого вывода.
 
 ## После

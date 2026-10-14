@@ -266,7 +266,11 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     cand = os.path.basename(os.path.dirname(qa_path))
     name = os.path.basename(os.path.dirname(os.path.dirname(qa_path)))
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(qa_path))))
-    events = os.path.join(args.replays or os.path.join(root, "replays"), f"{name}.events.jsonl")
+    # журнал этого вывода (клиент повтора, который рисовал кадры, — ReplayFilm с b4f5d0ac+) совпадает с кадрами по
+    # построению; без него — журнал записи
+    own = os.path.join(os.path.dirname(qa_path), f"{name}.events.jsonl")
+    events = own if os.path.exists(own) and not args.replays else \
+        os.path.join(args.replays or os.path.join(root, "replays"), f"{name}.events.jsonl")
     if not os.path.exists(events):
         log(f"{name}/{cand}: нет журнала {events}")
         return None
@@ -284,7 +288,7 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     w = load_world(events, p, sc, args.regions, args.radius, cache)
     sc = S.from_eventlog(events, w)
     sc.fog, sc.clouds = args.fog, args.clouds
-    if args.shown:
+    if args.shown and events != own:
         S.smooth_tracks(sc, args.shown)
     p.track = sc.tracks.get(p.track.id) if p.track is not None else None
     rows = []
@@ -335,7 +339,7 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     zq = size / (2 * th * np.maximum(qs, 1e-6))
     shown = eye + fw * zq[:, None] + rt * (qx * th * 16 / 9 * zq)[:, None] + upv * (qy * th * zq)[:, None]
     off = np.linalg.norm(shown - tgt_, axis=1)[back]
-    res = {"shot": name, "cand": cand, "frames": len(rows),
+    res = {"shot": name, "cand": cand, "frames": len(rows), "journal": "вывода" if events == own else "записи",
            "off_n": int(back.sum()),
            "off_med": round(float(np.median(off)), 2) if len(off) else math.nan,
            "off_p90": round(float(np.percentile(off, 90)), 2) if len(off) else math.nan,
@@ -365,7 +369,8 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
         f"{res['blocked_qa_only']}  дым: только мера {res['smoke_mine_only']}, только вывод {res['smoke_qa_only']}"
         f"  итог (до удара/секунда/удар): мера {'/'.join(f'{x:.2f}' for x in res['verdict_mine'])}, вывод "
         f"{'/'.join(f'{x:.2f}' for x in res['verdict_qa'])}  объект от журнала: медиана {res['off_med']:.1f}, 90 % "
-        f"{res['off_p90']:.1f} блока ({res['off_n']} кадров)" + ("  ЖУРНАЛ СБИТ" if journal_off(res) else ""))
+        f"{res['off_p90']:.1f} блока ({res['off_n']} кадров, журнал {res['journal']})"
+        + ("  ЖУРНАЛ СБИТ" if journal_off(res) else ""))
     return res
 
 

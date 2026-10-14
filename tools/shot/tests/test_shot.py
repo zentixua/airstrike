@@ -345,6 +345,14 @@ class SubjectTest(unittest.TestCase):
             self.assertFalse(shot.journal_off(res))
             self.assertGreater(off["off_p90"], 15)
             self.assertTrue(shot.journal_off(off))
+            self.assertEqual(res["journal"], "записи")
+            # журнал самого вывода рядом с qa.jsonl (клиент, который рисовал кадры) — сверка по нему
+            os.replace(ev, os.path.join(os.path.dirname(qas[0]), "p99.events.jsonl"))
+            shot.main(["check", qas[0], "--regions", region, "--out", os.path.join(d, "chk2"), "--radius", "60"])
+            with open(os.path.join(d, "chk2", "check.json"), encoding="utf-8") as f:
+                own = json.load(f)[0]
+            self.assertEqual(own["journal"], "вывода")
+            self.assertLess(own["off_p90"], 0.5)
 
 
 class PickTest(unittest.TestCase):
