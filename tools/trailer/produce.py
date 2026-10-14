@@ -24,8 +24,9 @@ status — файл статуса (пять строк).
 Ограждения (limits в newisle-takes.json): пауза вместо падения, пока свободно меньше `disk_floor_gb` (+ размер копии
 мира), памяти меньше `ram_floor_gb` + `client_gb` или идёт игра Артёма (`pause_if_running` машины); срок дубля —
 `take_factor` × замер (до замера — `minutes` дубля), срок ночи — `night_hours`; сторож снимает клиент без движения
-(папка дубля не растёт, в логе нет строк, кроме пульса кучи) дольше `stall_seconds`, с живой кучей выше `heap_share` и замечает упавший; запись и
-удаление — только в папках работы, путь под защищёнными корнями (`protected`, мастер) — отказ. Неожиданное (дубль
+(папка дубля не растёт, в логе нет строк, кроме пульса кучи) дольше `stall_seconds`, с живой кучей выше `heap_share` и замечает упавший;
+вышедший или снятый клиент считается ушедшим после его градл-демона (одиночный демон Gradle 8, и при daemon=false,
+дописывает мир ещё секунды); запись и удаление — только в папках работы, путь под защищёнными корнями (`protected`, мастер) — отказ. Неожиданное (дубль
 сказал «stopped», ошибка конвейера) — «остановлен, жду» в статусе и выход с кодом 3: дальше решает человек.
 
 Проверка ограждений (дымовой прогон P2): `--fault ДУБЛЬ=kill` — клиент убивается через `fault_kill_s` (сторож, повтор),
@@ -110,6 +111,11 @@ class Machine:
                     return pid, cmd[:200]
         return None
 
+    def client_running(self):
+        """Клиент съёмки с градл-обвязкой (java с org.gradle в командной строке) — pid и строка; нет — None.
+        Gradle 8 и при daemon=false держит сборку в одиночном демоне — он вне группы сессии запускателя."""
+        return self.running(["org.gradle"])
+
     def copy_tree(self, src, dst):
         shutil.copytree(src, dst, symlinks=True)
 
@@ -165,7 +171,8 @@ class Machine:
 
 
 class Proc:
-    """Клиент в своей сессии: снять — всю группу (обёртки xvfb, KWin и JVM — внуки), TERM, через 20 с KILL."""
+    """Запускатель клиента в своей сессии: снять — всю группу (обёртки xvfb, KWin, запускатель градла), TERM, через
+    20 с KILL. Сам JVM-клиент идёт под одиночным градл-демоном вне группы — его уход ждёт Conveyor.wait_client_gone."""
 
     def __init__(self, popen, out):
         self.popen, self.out = popen, out
@@ -451,6 +458,16 @@ class Conveyor:
         except (OSError, KeyError, IndexError, ValueError) as e:
             self.say(f"разбор {take} не запущен: {e!r}")
 
+    def wait_client_gone(self):
+        """Клиент ушёл целиком, а не только его запускатель: JVM-клиент — под одиночным градл-демоном (Gradle 8 заводит
+        его и при daemon=false) вне группы сессии, после снятия тот догоняет воркер ещё секунды и дописывает мир —
+        раньше копию мира не удалять (налетало на «Directory not empty»)."""
+        end = self.m.now() + float(self.limits.get("client_gone_s", 90))
+        while self.m.client_running() is not None and self.m.now() < end:
+            self.m.sleep(1)
+        if self.m.client_running() is not None:
+            self.events.append(("client-lingers", self.current_take, "клиент не ушёл после снятия"))
+
     def watch(self, kind, take, cmd, env, rec, limit):
         log = os.path.join(rec, f"{kind}.log")
         proc = self.m.start(cmd, self.repo, env, log)
@@ -466,6 +483,7 @@ class Conveyor:
         while True:
             code = proc.poll()
             if code is not None:
+                self.wait_client_gone()
                 return code, None
             now = self.m.now()
             if kill_at is not None and now >= kill_at:
@@ -494,6 +512,7 @@ class Conveyor:
             if why:
                 self.events.append(("watchdog", take, why))
                 proc.kill()
+                self.wait_client_gone()
                 return None, why
             if now - self.beat >= 300:      # пульс: статус свежий и посреди долгой записи (сторож ночи ждёт его)
                 state, note = self.last_status
