@@ -389,8 +389,8 @@ public final class LifecycleGameTests {
     @GameTest(template = "range", timeoutTicks = 200, batch = "virtual_return_refused", skyAccess = true)
     public static void refusedReturnFromVirtualFlightLeavesNoTickets(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        // середина площадки, путь на 16 блоков вперёд — тоже на ней; сущности в чанке тикают, когда готовы и соседи в
-        // два чанка: в тесте — сразу, без ожидания фоновой генерации
+        // на площадке, в полосе x, z 16–47, и путь на 16 блоков вперёд — тоже; сущности в чанке тикают, когда готовы и
+        // соседи в два чанка: в тесте — сразу, без ожидания фоновой генерации
         Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(20, 11, 30))).add(0, 20, 0);
         ChunkPos from = new ChunkPos(BlockPos.containing(start)), to = new ChunkPos(BlockPos.containing(start.add(40, 0, 4)));
         for (int x = Math.min(from.x, to.x) - 2; x <= Math.max(from.x, to.x) + 2; x++) {
@@ -405,10 +405,12 @@ public final class LifecycleGameTests {
             p.setRoute(Route.direct());
         }
         Map<UUID, Long> tried = new HashMap<>();
+        Map<UUID, Boolean> heldOnEntry = new HashMap<>();
         Consumer<EntityJoinLevelEvent> refuse = e -> {
             UUID id = e.getEntity().getUUID();
             if (id.equals(crashing.getUUID()) || id.equals(vetoed.getUUID())) {
                 tried.put(id, h.getTick());
+                heldOnEntry.put(id, chunkTickets(level, id) > 0 && flightTickets(level, id) > 0);
                 if (id.equals(crashing.getUUID())) throw new IllegalStateException("проверка: вход в мир падает с ошибкой");
                 e.setCanceled(true);
             }
@@ -429,6 +431,7 @@ public final class LifecycleGameTests {
         h.succeedWhen(() -> {
             h.assertTrue(tried.size() == 2, "в мир пробовали войти не оба: " + tried.size() + ", " + state(level, crashing) + "; " + state(level, vetoed));
             h.assertValueEqual(tried.get(vetoed.getUUID()), tried.get(crashing.getUUID()), "тик входа отменённого после упавшего");
+            h.assertTrue(heldOnEntry.values().stream().allMatch(b -> b), "при входе в мир снаряд не держал тикетов чанков и района цели — проверять нечего");
             for (StrikeProjectile p : List.of(crashing, vetoed)) {
                 UUID id = p.getUUID();
                 h.assertTrue(p.isRemoved() && level.getEntity(id) == null && VirtualFlights.get(level).flights().stream().noneMatch(v -> v == p),
