@@ -135,6 +135,25 @@ class ScoutTest(unittest.TestCase):
         self.assertLess(near, wide)
         self.assertLessEqual((hi[0] - lo[0]) * (hi[2] - lo[2]), 300 * 300)
 
+    def test_street_over_a_hall_counts_as_ground(self):
+        top, ground, streets = _map()
+        ground[100 + 200 - 20:100 + 200 + 20, 100 - 20:100 + 20] = 59   # зал под улицей у (0, 200): верх на 4 выше
+        h = self.S.Heights(top, ground, -100, -100, streets)
+        pose = {"kind": "ground", "near": [0, 200], "radius": 10, "dist": [5, 30]}
+        plan = {"id": "m", "target": {"at": [0, 190], "ground": 0}, "need_sight": False, "pose": pose}
+        self.assertFalse(self.S.resolve(h, plan, {})["ok"], "без max_height улица над залом — не земля")
+        r = self.S.resolve(h, dict(plan, pose=dict(pose, max_height=5)), {})
+        self.assertTrue(r["ok"], r["notes"])
+        self.assertAlmostEqual(r["frames"][0]["eye"][1], 63 + 1 + 1.7, places=1)
+
+    def test_no_sight_needed_takes_the_best_spot(self):
+        plan = {"id": "w", "target": {"at": [70, 100], "above": -30},
+                "pose": {"kind": "ground", "near": [20, 100], "radius": 8, "dist": [40, 60]}}
+        self.assertFalse(self.S.resolve(self.h, plan, {})["ok"], "за стеной цели не видно")
+        r = self.S.resolve(self.h, dict(plan, need_sight=False), {})
+        self.assertTrue(r["ok"], r["notes"])
+        self.assertIn("взято лучшее", r["notes"])
+
     def test_fixed_closed_target_is_reported(self):
         plan = {"id": "f", "target": [80, 100], "pose": {"kind": "fixed", "eye": [0, 70, 100]}}
         r = self.S.resolve(self.h, plan, {})
@@ -201,6 +220,29 @@ class ScoutTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(out, "sheet-1.jpg")))
             md = open(os.path.join(out, "scout.md"), encoding="utf-8").read()
             self.assertIn("| a1 roof | night |", md)
+
+
+    def test_found_places_override_the_scenario(self):
+        top, ground, streets = _map()
+        with tempfile.TemporaryDirectory() as d:
+            study = os.path.join(d, "study")
+            os.makedirs(study)
+            np.save(os.path.join(study, "top.npy"), top)
+            np.save(os.path.join(study, "ground.npy"), ground)
+            with open(os.path.join(study, "mapstudy.json"), "w") as f:
+                json.dump({"box": [-100, -100, 300, 300], "streets": streets, "tall": []}, f)
+            scen, found = os.path.join(d, "scen.json"), os.path.join(d, "found.json")
+            with open(scen, "w") as f:
+                json.dump({"places": {"spot": [0, 0]}, "plans": [
+                    {"id": "a", "target": "spot", "pose": {"kind": "fixed", "eye": [0, 70, 100]}}]}, f)
+            with open(found, "w") as f:
+                json.dump({"places": {"spot": [10, 66, 20]}}, f)
+            out = os.path.join(d, "out")
+            p = subprocess.run([sys.executable, TOOL, scen, study, out, "--places", os.path.join(d, "none.json"),
+                                "--places", found], capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            poses = json.load(open(os.path.join(out, "poses.json"), encoding="utf-8"))
+            self.assertEqual(poses[0]["target"], [10.0, 66.0, 20.0], "место из найденного, не из сценария")
 
 
 if __name__ == "__main__":

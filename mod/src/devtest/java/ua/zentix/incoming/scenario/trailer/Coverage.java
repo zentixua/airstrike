@@ -20,12 +20,18 @@ final class Coverage {
      * {@link #HIT_MARGIN}: сценарий кончает план по времени, а снаряд входит в цель, когда долетит. Повтор идёт вживую
      * {@code warm} тиков до начала плана: дым, огонь и столбы прежних ударов — в кадре с первого кадра. {@code span} —
      * сколько тиков окна от начала берёт монтаж, если меньше записанного (0 — всё окно): проверка кадров — по тому, что
-     * войдёт в ролик.
+     * войдёт в ролик. {@code offset} — план начинается через столько тиков после «start»: несколько планов на одном
+     * повторе (Newisle: голова снаряда над городком и толпа на одной записи), у каждого своя камера.
      */
     record Spec(String shot, String replay, Function<EventLog.Data, Rig.Subject> subject, List<Rig.Kind> kinds, double minShare, Need need,
-                int warm, int span) {
+                int warm, int span, int offset) {
+        Spec(String shot, String replay, Function<EventLog.Data, Rig.Subject> subject, List<Rig.Kind> kinds, double minShare, Need need,
+             int warm, int span) {
+            this(shot, replay, subject, kinds, minShare, need, warm, span, 0);
+        }
+
         Spec(String shot, String replay, Function<EventLog.Data, Rig.Subject> subject, List<Rig.Kind> kinds, double minShare, Need need) {
-            this(shot, replay, subject, kinds, minShare, need, 100, 0);
+            this(shot, replay, subject, kinds, minShare, need, 100, 0, 0);
         }
     }
 
@@ -66,8 +72,9 @@ final class Coverage {
         ALL.put(s.shot(), s);
     }
 
+    /** Планы монтажа этой карты: Zearth — таблица ниже, Newisle ({@code INCOMING_TRAILER_MAP=newisle}) — из её дублей. */
     static Map<String, Spec> all() {
-        return ALL;
+        return Newisle.selected() ? NewisleCoverage.all() : ALL;
     }
 
     /** Ничего не обязано быть в кадре: проверяется мир (построен) — пролёт, цех, улица. */
@@ -94,12 +101,12 @@ final class Coverage {
         add(new Spec(shot, shot, subject, kinds, 0.004, need, 100, span));
     }
 
-    private static Rig.Kind tripod() {
+    static Rig.Kind tripod() {
         return Rig.tripod(new double[]{120, 200, 300}, 20, new double[]{-5, 5, 15, 30}, 0.25);
     }
 
     /** Следящая камера пуска с земли сбоку от стола (как пуски NASA и SpaceX). */
-    private static Rig.Kind tracker() {
+    static Rig.Kind tracker() {
         return Rig.launchTracker(new double[]{140, 200, 260}, 45, 0.18);
     }
 

@@ -108,6 +108,17 @@ paths:
                                            лучами по блокам и листы; сценарий Newisle — trailer/scenes/newisle.json
     trailer/animatic.py <лист> <scout> <mp4> ← аниматик: черновые кадры планов по монтажному листу (длины в секундах или
                                            тактах) под куски трека, подписи и заставки; лист Newisle — scenes/newisle-animatic.json
+    trailer/produce.py run|live|search|night|status --config МАШИНА.json ← конвейер трейлера Newisle без человека:
+                                           дубли scenes/newisle-takes.json по порядку истории (постановщик
+                                           scenario/trailer/Newisle.java), снимок мира после каждого, проверка по данным,
+                                           вывод, пересъёмка запасной камерой (не больше двух), пропуск; ограждения
+                                           (пауза на диске, памяти и игре Артёма, сторож клиента, отказ писать вне папок
+                                           работы, «stopped, waiting» на неожиданном), статус в пять строк; `night` —
+                                           проба трёх дублей с порчей, потом вся цепочка; задания — laptop-jobs/
+                                           netcup-newisle-p1.md, newisle-p2.md; тесты — tools/trailer/tests
+    trailer/newisle_cut.py --work ПАПКА [--draft|--final] ← монтаж Newisle по листу scenes/newisle-animatic.json из
+                                           снятого конвейером (PASS из best.txt, живые записи); неснятое — заливкой
+                                           в черновике, чистовой ждёт все планы
     trailer/drift.py <запись>            ← у каких планов снаряд в журнале записи ушёл с пути (очередь мест до 22b2cfd)
     trailer/cut.sh [аргументы edit.py]   ← монтаж из всего снятого: у плана — PASS из самого сильного вывода (CUT_RENDERS),
                                            нет PASS — не прошедший, живые планы — из папок записи (CUT_RECS)

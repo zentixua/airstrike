@@ -479,7 +479,7 @@ public final class ReplayFilm {
         int total = FlashbackApi.totalTicks();
         // окно плана, как его снял сценарий (от «start» до «end»): камера сценария — в нём и в хвосте повтора после него
         EventLog.Mark start = data.mark("start"), end = data.mark("end");
-        int sa = start == null ? 0 : start.t(), sb = end == null ? data.ticks : end.t();
+        int sa = (start == null ? 0 : start.t()) + spec.offset(), sb = end == null ? data.ticks : end.t();
         a = sa;
         b = spec.span() > 0 ? Math.min(sb, sa + spec.span()) : sb;
         if (subject.key >= 0) {

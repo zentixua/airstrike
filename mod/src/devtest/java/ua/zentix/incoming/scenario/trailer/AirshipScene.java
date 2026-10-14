@@ -121,6 +121,17 @@ final class AirshipScene {
         new AirshipScene(film, at, yaw).script();
     }
 
+    /** Один дубль с земли под именем {@code ground} (Newisle n18: ракета в дирижабль над озером), без FPV. */
+    static void stage(Film film, Vec3 at, float yaw, String ground) {
+        AirshipScene scene = new AirshipScene(film, at, yaw);
+        scene.groundOnly = ground;
+        scene.script();
+    }
+
+    /** Только дубль с земли с этим именем ({@link #stage(Film, Vec3, float, String)}); null — оба дубля Zearth. */
+    @Nullable
+    private String groundOnly;
+
     /** Статисты сервера: только из шагов — при постановке сцены (в конструкторе съёмки) сервера ещё нет. */
     private Cast cast() {
         return ((Trailer) film).cast();
@@ -153,10 +164,14 @@ final class AirshipScene {
             for (double[] s : new double[][]{{-8, -45}, {8, -22}, {-6, 2}}) sam(level, p(s[0], 0, s[1]));
         });
         film.run(() -> clouds(true));
-        take("p23", 0, 1);
-        // шахеды первого дубля долетают, направляющие ЗРК заряжаются заново
-        film.waitTicks(600);
-        take("p23b", SECOND_TAKE, -1);
+        if (groundOnly != null) {
+            take(groundOnly, 0, -1);
+        } else {
+            take("p23", 0, 1);
+            // шахеды первого дубля долетают, направляющие ЗРК заряжаются заново
+            film.waitTicks(600);
+            take("p23b", SECOND_TAKE, -1);
+        }
         film.run(() -> clouds(false));
         film.onServer(level -> {
             cast().remove(GUNNER);

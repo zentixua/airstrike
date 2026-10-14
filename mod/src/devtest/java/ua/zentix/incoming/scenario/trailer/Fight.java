@@ -7,6 +7,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +50,12 @@ final class Fight {
     /** Враг дальше этого, блоков, — не цель. */
     double range = 80;
     private boolean on;
+    /**
+     * Цель в небе (шахед над мобильной группой Newisle): по глазам бойца — куда стрелять, null — неба нет, бой по врагам.
+     * Зовётся в потоке сервера на каждую программу бойца.
+     */
+    @Nullable
+    java.util.function.Function<Vec3, Vec3> sky;
 
     Fight(Cast cast, MinecraftServer server) {
         this.cast = cast;
@@ -147,14 +154,17 @@ final class Fight {
             cast.act(s.name, a, true);
             return turn + (int) (p.position().distanceTo(to) / 0.28) + 12;
         }
-        ServerPlayer target = target(s, p);
-        if (target == null) {
+        Vec3 up = sky == null ? null : sky.apply(p.getEyePosition());
+        ServerPlayer target = up == null ? target(s, p) : null;
+        if (up == null && target == null) {
             // врага не видно: осматривает свой сектор
             a.add(Cast.lookAt(p.getEyePosition().add(s.facing.scale(20)).add(random.nextGaussian() * 6, random.nextGaussian(), random.nextGaussian() * 6)));
             cast.act(s.name, a, true);
             return 20 + random.nextInt(20);
         }
-        Vec3 aim = target.position().add(0, 1.2, 0).add(random.nextGaussian() * spread, random.nextGaussian() * spread * 0.5,
+        // по небу — с упреждением на глаз: разброс меньше, шахед крупнее человека
+        Vec3 aim = up != null ? up.add(random.nextGaussian() * spread * 0.4, random.nextGaussian() * spread * 0.3, random.nextGaussian() * spread * 0.4)
+                : target.position().add(0, 1.2, 0).add(random.nextGaussian() * spread, random.nextGaussian() * spread * 0.5,
                 random.nextGaussian() * spread);
         int burst = 3 + random.nextInt(6), settle = 3 + random.nextInt(4);
         if (s.crouch) a.add(Cast.hold("sneak", burst * 2 + settle + 12));
