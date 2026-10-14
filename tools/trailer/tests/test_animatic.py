@@ -41,7 +41,8 @@ class AnimaticTest(unittest.TestCase):
                             tone], check=True)
             sheet = os.path.join(d, "sheet.json")
             with open(sheet, "w") as f:
-                json.dump({"bar": 1.0, "music": {"parts": [{"at": 0.5, "track": 1.0, "end": 2.5, "fade": 0.3}]},
+                json.dump({"bar": 1.0, "letterbox": {"aspect": 2.39, "until": "zz", "open": 0.2},
+                           "music": {"parts": [{"at": 0.5, "track": 1.0, "end": 2.5, "fade": 0.3}]},
                            "shots": [{"plan": "a1", "bars": 1.5, "note": "звук: сирена"}, {"plan": "zz", "dur": 0.5},
                                      {"card": "INCOMING", "dur": 1.0}]}, f)
             out = os.path.join(d, "a.mp4")
@@ -56,8 +57,15 @@ class AnimaticTest(unittest.TestCase):
             mid = os.path.join(d, "mid.png")
             subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", "0.75", "-i", out, "-frames:v", "1", mid],
                            check=True)
-            r, g, b = Image.open(mid).convert("RGB").getpixel((160, 40))
+            im = Image.open(mid).convert("RGB")
+            r, g, b = im.getpixel((160, 40))
             self.assertTrue(r > 80 and b > 80, (r, g, b))
+            # кадр 2.39:1 до плана zz: полосы сверху; на zz они ушли (серый кадр)
+            self.assertLess(sum(im.getpixel((160, 5))), 30)
+            late = os.path.join(d, "late.png")
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", "1.9", "-i", out, "-frames:v", "1", late],
+                           check=True)
+            self.assertGreater(sum(Image.open(late).convert("RGB").getpixel((160, 5))), 100)
 
 
 if __name__ == "__main__":

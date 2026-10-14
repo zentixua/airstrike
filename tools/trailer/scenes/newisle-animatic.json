@@ -1,6 +1,11 @@
 {
  "about": "Аниматик трейлера на Newisle: черновые кадры планов scenes/newisle.json по монтажному листу под «Juggernaut» (такт 1,92 с). Холодное начало, акт II и ожидание акта IV — без музыки, только звук игры.",
  "bar": 1.92,
+ "letterbox": {
+  "aspect": 2.39,
+  "until": "n13",
+  "open": 1.0
+ },
  "music": {
   "file": "/mnt/project-files/video/trailer-war/music/Juggernaut.mp3",
   "parts": [
