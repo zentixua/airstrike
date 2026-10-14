@@ -459,7 +459,7 @@ def report(verdicts, title="Проверка монтажа"):
         warn = "; ".join(f.text for f in v.findings if f.level == "WARN")
         if warn:
             why = (why + "; " if why else "") + "внимание: " + warn
-        rows.append(f"| {ts(c.start)}–{ts(c.end)} | {c.plan} | {c.take or c.label or '—'} | {c.kind} | "
+        rows.append(f"| {ts(c.start)}–{ts(c.end)} | {c.plan} | {c.label or c.take or '—'} | {c.kind} | "
                     f"{'PASS' if v.ok else 'FAIL'} | {why} |")
     n = sum(1 for v in verdicts if v.cut.take)
     bad = sum(1 for v in verdicts if v.cut.take and not v.ok)
