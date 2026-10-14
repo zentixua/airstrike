@@ -410,7 +410,12 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
                 d = d[~np.isnan(d)]
                 if len(d) >= 0.8 * len(off):
                     med = min(med, float(np.median(d)))
-            if med < 0.5 * float(np.median(off)) and med < other_med:
+            # снаряды залпа летят пучком в нескольких блоках друг от друга: «другой» — только путь, который заметно
+            # в стороне от объекта (13.10 p32: «ближе к пути 3» на 0,6 блока против 1,3 у объекта — соседняя ракета
+            # «Града»; план по пути 3 снял чужой удар в 60 блоках, и вывод не прошёл)
+            apart = np.linalg.norm(p.track.at(t[back]) - tr.at(t[back]), axis=1)
+            apart = float(np.nanmedian(apart)) if (~np.isnan(apart)).any() else 0.0
+            if med < 0.5 * float(np.median(off)) and med < other_med and apart > max(4.0, 3 * med):
                 other, other_med = tr.id, med
     res = {"shot": name, "cand": cand, "frames": len(rows), "journal": "вывода" if events == own else "записи",
            "off_n": int(len(off)), "off_lag": lag,

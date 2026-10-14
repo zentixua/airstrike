@@ -106,14 +106,16 @@ uv run tools/shot/shot.py check $W4/render-planned/*/*/qa.jsonl --regions "$R" -
 Прислать `check-planned-war2-2.log` и `check-planned-war4-2.log` с приставкой `filming-rethink-laptop-4-`.
 
 ## Шаг 5: p32 заново (процессор — минута, видеокарта — один план)
-Мера удара смотрела в точку на 0,35 шара над местом удара, а проверка кадров — в шар у самой земли: у p32 мера видела
-удар поверх низкой преграды (1,00), вывод — нет (0 %, за блоками). Теперь мера берёт ту же точку и запас, что `FrameQa`.
+Камера p32 из шага 2б снимала не тот удар: `--subject p32=track:3` (по «другому объекту» 13.10 — соседняя ракета
+залпа, ложный признак) вёл её к удару пути 3 в 60 блоках от удара объекта вывода (тот выбирает `Rig`, и теперь так же
+`plan` без подсказки). Ещё мера удара смотрела в точку на 0,35 шара над местом удара, а проверка кадров — в шар у самой
+земли; теперь точка и запас те же, что у `FrameQa`.
 `check` у камеры по сцене ещё сверяет камеру вывода с камерой плана («КАМЕРА НЕ ПО ПЛАНУ»).
 ```sh
 cd /mnt/data/projects/airstrike/mod/run/shot-wt && git fetch origin claude/project-thread-aealhl && git checkout <коммит>
 uv run --with numpy --with scipy --with pillow python -m unittest discover -s tools/shot/tests
 uv run tools/shot/shot.py plan $W2/replays/p32.events.jsonl --regions "$R" --out $OUT/war2 --shown 1.5 --clouds 320 \
-    --previs best --every 3 --size 640x360 --subject p32=track:3 2>&1 | tee $OUT/war2-p32-3.log
+    --previs best --every 3 --size 640x360 2>&1 | tee $OUT/war2-p32-4.log
 cp $OUT/war2/planned/p32.camera.jsonl $W2/planned/p32.camera.jsonl
 ```
 Если у лучшей камеры в «Итоге» лога PASS — вывод на видеокарте, когда она свободна (в дереве съёмки, как в шаге 3, на
@@ -126,7 +128,7 @@ python3 tools/trailer/report.py $W2/render-planned2 --md $W2/render-planned2/rep
 uv run tools/shot/shot.py check $W2/render-planned2/*/*/qa.jsonl $W2/render-planned/p32/*/qa.jsonl --regions "$R" \
     --out $OUT/check-planned --shown 1.5 --clouds 320 2>&1 | tee $OUT/check-p32-3.log
 ```
-Прислать с приставкой `filming-rethink-laptop-5-`: `war2-p32-3.log`, `previs.mp4` лучшей камеры p32, а после вывода —
+Прислать с приставкой `filming-rethink-laptop-5-`: `war2-p32-4.log`, `previs.mp4` лучшей камеры p32, а после вывода —
 `report.md`, `best.txt`, `check-p32-3.log` и кадр из середины.
 
 ## После
