@@ -86,8 +86,8 @@ final class Smoke {
             top = lookClass.getMethod("top");
             life = lookClass.getMethod("life");
             ballTicks = lookClass.getMethod("ballTicks");
-            windX = fx.getField("WIND_X").getDouble(null);
-            windZ = fx.getField("WIND_Z").getDouble(null);
+            windX = open(fx, "WIND_X").getDouble(null);
+            windZ = open(fx, "WIND_Z").getDouble(null);
             events = queue;
         } catch (ReflectiveOperationException | RuntimeException e) {
             events = null;
