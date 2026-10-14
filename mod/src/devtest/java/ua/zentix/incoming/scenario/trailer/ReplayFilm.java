@@ -120,6 +120,15 @@ public final class ReplayFilm {
     private Scored current, bestTry;
     private FrameQa.Verdict bestVerdict;
     private FrameQa qa;
+    /**
+     * Журнал этого вывода — тем же {@link EventLog}, что у записи, но клиентом повтора, который рисует кадры
+     * ({@code <кандидат>/<план>.events.jsonl}): где снаряды у него, где они взорвались. Журнал записи пишет записывающий
+     * клиент, и если тот показывал снаряд иначе (film-war4: очередь мест 52d661a при отстающем сервере шла прошлым
+     * шагом), камера по нему смотрит мимо; этот журнал с кадрами совпадает по построению — по нему сверка меры
+     * ({@code tools/shot check}) и камера следующего вывода.
+     */
+    @Nullable
+    private EventLog shown;
     private Path candDir;
     private final ArrayDeque<Pose> walk = new ArrayDeque<>();
     private Pose standing;
@@ -261,6 +270,17 @@ public final class ReplayFilm {
 
     private void onStage(RenderLevelStageEvent e) {
         if (qa != null) qa.onStage(e);
+        if (shown != null && e.getStage() == RenderLevelStageEvent.Stage.AFTER_LEVEL && FlashbackApi.exporting()) {
+            double t = FlashbackApi.exportTick();
+            if (!Double.isNaN(t)) shown.tick((int) Math.floor(t));
+        }
+    }
+
+    private void closeShown() {
+        if (shown != null) {
+            shown.close();
+            shown = null;
+        }
     }
 
     private void go(State s) {
@@ -324,6 +344,7 @@ public final class ReplayFilm {
             qa.close();
             qa = null;
         }
+        closeShown();
         flawless(false);
         if (spec != null) report(null, null, why);
         next();
@@ -496,11 +517,17 @@ public final class ReplayFilm {
     private void plan(Rig.World w) {
         List<EventLog.Flight> earlier = data.flights.stream().filter(f -> f.impact >= 0 && f.impact < (subject.key >= 0 ? subject.key : b)).toList();
         tallies.clear();
-        for (Rig.Kind k : spec.kinds()) {
+        List<Rig.Kind> kinds = new ArrayList<>(spec.kinds());
+        // камера, спланированная по сцене до вывода (tools/shot), — если для плана она есть
+        kinds.add(Rig.planned(root.resolve("planned").resolve(spec.shot() + ".camera.jsonl")));
+        for (Rig.Kind k : kinds) {
             for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) {
-                // в вывод — как снял бы человек (Operator); камера сценария как есть — запасной, если с руками объект уходит
+                // в вывод — как снял бы человек (Operator); камера сценария и спланированная как есть — запасной, если с
+                // руками объект уходит
                 tallies.add(new Rig.Tally(Operator.human(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
-                if (c.designed() && c.name().startsWith("own")) tallies.add(new Rig.Tally(Operator.raw(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
+                if (c.designed() && (c.name().startsWith("own") || c.name().endsWith("-planned"))) {
+                    tallies.add(new Rig.Tally(Operator.raw(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
+                }
             }
         }
         for (Rig.Tally t : tallies) t.evaluate(w, null, 0);
@@ -638,6 +665,8 @@ public final class ReplayFilm {
                 Runtime.getRuntime().halt(3);
             }
             qa = new FrameQa(subject, candDir, spec.shot(), a, marks);
+            shown = new EventLog(candDir.resolve(spec.shot() + ".events.jsonl"));
+            for (EventLog.Mark m : data.marks) shown.mark(m.t(), m.what());
             // тряска мода от взрывов (5° с частотой ~10 Гц) — не в вывод: толчки камеры даёт Operator; у ядерных планов
             // волна трясёт камеру моделью мода (давление у камеры), её Operator не повторяет
             IncomingConfig.CLIENT.cameraShake.set(data.nukes.isEmpty() ? 0.0 : 1.0);
@@ -659,6 +688,7 @@ public final class ReplayFilm {
     /** Вывод кончился: кадры по порядку с нуля (как у живой записи), итог проверки. */
     private void done() {
         flawless(false);
+        closeShown();
         qa.close();
         FrameQa q = qa;
         qa = null;

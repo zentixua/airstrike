@@ -26,6 +26,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
@@ -53,9 +55,12 @@ import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 
 /**
  * Жизненный цикл снарядов и чанков — то, что стенд нагрузки ({@code tools/stress.sh}) проверяет в игре с друзьями:
@@ -373,6 +378,67 @@ public final class LifecycleGameTests {
             h.assertTrue(away[0] != null, "снаряд не ушёл в полёт вне мира: " + state(level, m));
             h.assertTrue(held[0], "в мире снаряд не держал тикетов — проверять нечего");
             h.assertTrue(away[0].equals("в мире false, тикетов 0"), "после ухода из мира: " + away[0]);
+        });
+    }
+
+    /**
+     * Снаряд из полёта вне мира не вошёл в мир — обработчик входа упал или отменил вход (моды защиты территорий): он
+     * убирается и отпускает тикеты своих чанков, взятые до входа, и района цели. Ошибка не уходит из тика мира (там она
+     * роняла бы сервер): следующий полёт того же тика тоже пробует войти.
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "virtual_return_refused", skyAccess = true)
+    public static void refusedReturnFromVirtualFlightLeavesNoTickets(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // на площадке, в полосе x, z 16–47, и путь на 16 блоков вперёд — тоже; сущности в чанке тикают, когда готовы и
+        // соседи в два чанка: в тесте — сразу, без ожидания фоновой генерации
+        Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(20, 11, 30))).add(0, 20, 0);
+        ChunkPos from = new ChunkPos(BlockPos.containing(start)), to = new ChunkPos(BlockPos.containing(start.add(40, 0, 4)));
+        for (int x = Math.min(from.x, to.x) - 2; x <= Math.max(from.x, to.x) + 2; x++) {
+            for (int z = Math.min(from.z, to.z) - 2; z <= Math.max(from.z, to.z) + 2; z++) level.getChunk(x, z);
+        }
+        StrikeProjectile crashing = ModEntities.DRONE.get().create(level);
+        StrikeProjectile vetoed = ModEntities.DRONE.get().create(level);
+        for (StrikeProjectile p : List.of(crashing, vetoed)) {
+            Vec3 at = p == crashing ? start : start.add(0, 0, 4);
+            Vec3 target = at.add(300, -20, 0);
+            p.launch(at, new Target.Point(target), target, null);
+            p.setRoute(Route.direct());
+        }
+        Map<UUID, Long> tried = new HashMap<>();
+        Map<UUID, Boolean> heldOnEntry = new HashMap<>();
+        Consumer<EntityJoinLevelEvent> refuse = e -> {
+            UUID id = e.getEntity().getUUID();
+            if (id.equals(crashing.getUUID()) || id.equals(vetoed.getUUID())) {
+                tried.put(id, h.getTick());
+                heldOnEntry.put(id, chunkTickets(level, id) > 0 && flightTickets(level, id) > 0);
+                if (id.equals(crashing.getUUID())) throw new IllegalStateException("проверка: вход в мир падает с ошибкой");
+                e.setCanceled(true);
+            }
+        };
+        NeoForge.EVENT_BUS.addListener(refuse);
+        StrikeGameTests.afterTest(h, () -> {
+            NeoForge.EVENT_BUS.unregister(refuse);
+            VirtualFlights.get(level).clear(level, p -> p == crashing || p == vetoed);
+        });
+        boolean[] launched = {false};
+        h.onEachTick(() -> {
+            // в полёт вне мира — когда он сразу может вернуться: упавший вход первым в списке, отменённый за ним
+            if (launched[0] || !crashing.canMaterialize(level) || !vetoed.canMaterialize(level)) return;
+            VirtualFlights.launch(level, crashing);
+            VirtualFlights.launch(level, vetoed);
+            launched[0] = true;
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(tried.size() == 2, "в мир пробовали войти не оба: " + tried.size() + ", " + state(level, crashing) + "; " + state(level, vetoed));
+            h.assertValueEqual(tried.get(vetoed.getUUID()), tried.get(crashing.getUUID()), "тик входа отменённого после упавшего");
+            h.assertTrue(heldOnEntry.values().stream().allMatch(b -> b), "при входе в мир снаряд не держал тикетов чанков и района цели — проверять нечего");
+            for (StrikeProjectile p : List.of(crashing, vetoed)) {
+                UUID id = p.getUUID();
+                h.assertTrue(p.isRemoved() && level.getEntity(id) == null && VirtualFlights.get(level).flights().stream().noneMatch(v -> v == p),
+                        "снаряд, не вошедший в мир, остался: " + state(level, p));
+                h.assertValueEqual(chunkTickets(level, id), 0, "тикеты чанков не вошедшего в мир снаряда");
+                h.assertValueEqual(flightTickets(level, id), 0, "тикеты района цели не вошедшего в мир снаряда");
+            }
         });
     }
 
