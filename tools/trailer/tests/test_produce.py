@@ -404,6 +404,19 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(0, P.live(c, "B", standin=True))
         self.assertEqual(self.master, m.copies[-1][0])
 
+    def test_soft_check_retakes_then_passes_with_warning_on_last_try(self):
+        orig = P.take_checks.record_problems
+        P.take_checks.record_problems = lambda rec, take, result: ["сирена не слышна"] if take["id"] == "A" else []
+        try:
+            c, m = self.conveyor()
+            self.assertEqual(0, c.run(["A"]))
+        finally:
+            P.take_checks.record_problems = orig
+        tries = c.state["takes"]["A"]["attempts"]
+        self.assertEqual("passed", c.state["takes"]["A"]["status"], "мягкая проверка не выбрасывает дубль")
+        self.assertEqual(3, len(tries), "пересъёмки, пока попытки есть")
+        self.assertEqual(["сирена не слышна"], tries[-1]["warnings"])
+
     def test_search_and_live_stop_without_a_world(self):
         os.remove(os.path.join(self.master, "level.dat"))
         c, m = self.conveyor()

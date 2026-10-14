@@ -525,8 +525,10 @@ class Conveyor:
 
     # ---------------------------------------------------------------- дубль
 
-    def attempt(self, take, n, variant, src, chain_only=False, live=False, standin=False):
-        """Одна запись дубля на свежей копии входа. Итог — dict: ok, reason, world, rec, result, problems."""
+    def attempt(self, take, n, variant, src, chain_only=False, live=False, standin=False, last=False):
+        """Одна запись дубля на свежей копии входа. Итог — dict: ok, reason, world, rec, result, problems, warnings.
+        Проверки take_checks — мягкие: пересъёмка, пока попытки есть; на последней (`last`) — предупреждение, а не
+        пропуск дубля (пересъёмка их не всегда лечит: сирена или ось ракеты — от мода, не от дубля)."""
         self.current = f"{take} попытка {n + 1}/{int(self.limits['retries']) + 1} (камера {variant})"
         self.current_take = take
         self.wait_resources(self.world_gb())
@@ -563,12 +565,15 @@ class Conveyor:
         if result.get("status") == "stopped":
             raise Stopped(f"{take}: {result.get('reason')}")
         problems = check_take(result, read(os.path.join(rec, "record.log")), self.takes[take])
-        problems += take_checks.record_problems(rec, self.takes[take], result)
         problems += check_hud(os.path.join(rec, "hud.jsonl"))
-        out.update(ok=not problems, reason="; ".join(problems), problems=problems)
+        soft = take_checks.record_problems(rec, self.takes[take], result)
+        warnings = soft if last else []
+        if not last:
+            problems += soft
+        out.update(ok=not problems, reason="; ".join(problems), problems=problems, warnings=warnings)
         return out
 
-    def render(self, take, rec, plans):
+    def render(self, take, rec, plans, last=False):
         """Вывод планов из повторов записи; итог — {план: (PASS|FAIL, причина)}. Снятый сторожем вывод продолжается с
         того, что уже в best.txt (INCOMING_FILM_RESUME), один раз; снятый игрой Артёма — после паузы, не в счёт.
         PASS плана проверяется по данным вывода (take_checks): поворот камеры, ось ракеты, тряска, FPV, МБР,
@@ -600,6 +605,10 @@ class Conveyor:
                 continue
             if verdict == "PASS" and path and path != "-":
                 problems = take_checks.render_problems(path, p, **self.render_flags(take, rec, p, path))
+                if problems and last:
+                    self.say(f"{take}: вывод {p} — последняя попытка, в монтаж с предупреждением: {'; '.join(problems)}")
+                    out[p] = (verdict, "предупреждение: " + "; ".join(problems))
+                    continue
                 if problems:
                     self.say(f"{take}: вывод {p} не прошёл — {'; '.join(problems)}")
                     out[p] = ("FAIL", "; ".join(problems))
@@ -633,7 +642,7 @@ class Conveyor:
         for n in range(len(st["attempts"]), 20):
             if variant > retries:
                 break
-            a = self.attempt(take, n, variant, src, chain_only=chain_only)
+            a = self.attempt(take, n, variant, src, chain_only=chain_only, last=variant >= retries)
             if a.get("interrupted"):
                 st["attempts"].append({"variant": variant, "ok": False, "reason": a["reason"], "interrupted": True})
                 self.save()
@@ -642,12 +651,13 @@ class Conveyor:
                 continue
             plans = {}
             if a["ok"] and not chain_only and self.cfg.get("render"):
-                plans = self.render(take, a["rec"], covered(a["result"], t))
+                plans = self.render(take, a["rec"], covered(a["result"], t), last=variant >= retries)
                 failed = {p: r for p, r in plans.items() if r[0] != "PASS"}
                 if failed:
                     a["ok"] = False
                     a["reason"] = "; ".join(f"{p}: {r[1] or r[0]}" for p, r in failed.items())
-            st["attempts"].append({"variant": variant, "ok": a["ok"], "reason": a["reason"], "seconds": round(a["seconds"]),
+            st["attempts"].append({"variant": variant, "ok": a["ok"], "reason": a["reason"], "warnings": a.get("warnings") or [],
+                                   "seconds": round(a["seconds"]),
                                    "world": a["world"], "rec": a["rec"], "plans": plans})
             if a["ok"] and take not in self.state["measured"]:
                 self.state["measured"][take] = a["seconds"]

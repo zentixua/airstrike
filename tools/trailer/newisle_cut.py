@@ -3,7 +3,8 @@
 (scenes/newisle-animatic.json) — склейки на местах и длинах листа, дубль плана — прошедший проверку вывод (PASS в
 best.txt) или живая запись; плана нет — чёрная заливка с его именем (черновик показывает дыру; план живого дубля
 Артёма, ещё не снятый, — «утром с Артёмом»). Провал ворот монтажа (cut_checks: интерфейс под кинокаше, повтор
-плана, чат ключа, рост сирены) — тоже заливка, с причиной. Сам монтаж —
+плана, чат ключа, рост сирены) — правка монтажа, а не дубля: черновик показывает план и печатает причину, чистовой
+отказывается. Сам монтаж —
 montage.py (проверка verdict.py: склейка, которую проверка не пропускает, в черновике становится заливкой).
 
     python3 tools/trailer/newisle_cut.py --work ПАПКА_РАБОТЫ [--draft | --final] [--music Juggernaut.mp3] [--check]
@@ -140,7 +141,7 @@ def main(argv=None):
     scenario = load(os.path.join(SCENES, "newisle.json")) or {}
     gated = cut_checks.gates(sheet, takes, scenario, dirs, state, REPO)
     if gated:
-        print("ворота монтажа (заливкой):", "; ".join(f"{p} — {w}" for p, w in sorted(gated.items())))
+        print("ворота монтажа:", "; ".join(f"{p} — {w}" for p, w in sorted(gated.items())))
     need = [s["plan"] for s in sheet["shots"] if "plan" in s]
     missing = [p for p in need if p not in dirs]
     if a.final and (missing or gated):
@@ -154,7 +155,7 @@ def main(argv=None):
     broken = set()
     montage = os.path.join(HERE, "montage.py")
     for _ in range(8):
-        plan = plan_of(sheet, dirs, broken, music, later=live_plans(takes), gated=gated)
+        plan = plan_of(sheet, dirs, broken, music, later=live_plans(takes))
         plan["name"] = name
         path = os.path.join(out, name + ".json")
         with open(path, "w", encoding="utf-8") as f:
@@ -170,7 +171,7 @@ def main(argv=None):
         broken |= bad
     else:
         sys.exit("монтаж не сошёлся за 8 проходов")
-    print("нет в монтаже:", ", ".join(missing + sorted(broken) + sorted(gated) if missing or broken or gated else "—"))
+    print("нет в монтаже:", ", ".join(missing + sorted(broken)) if missing or broken else "—")
     if a.check:
         return 0
     args = ["uv", "run", montage, path, "--root", "/", "--out", os.path.join(out, name + ".mp4")]
