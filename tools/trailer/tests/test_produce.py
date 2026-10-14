@@ -419,6 +419,14 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(["cut", "--final"], m.cmds[-1])
         self.assertIn("чистовой готов", self.status()[4])
 
+    def test_final_waits_for_artem_when_machine_says_so(self):
+        self.cfg["final"] = False
+        c, m = self.conveyor()
+        c.missing_plans = lambda: []
+        self.assertEqual(0, c.run())
+        self.assertEqual(["cut", "--draft"], m.cmds[-1])
+        self.assertIn("чистовой — по слову Артёма", self.status()[4])
+
     def test_eta_from_measured_rate(self):
         c, m = self.conveyor()
         c.plan_order = ["A", "B", "C", "D"]

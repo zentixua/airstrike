@@ -19,7 +19,7 @@
    {"repo": "/mnt/data/projects/airstrike", "master": "/mnt/data/projects/airstrike/mod/run/newisle-master",
     "work": "/mnt/data/projects/airstrike/mod/run/newisle-night", "protected": ["<python3 tools/paths.py PRISM>"],
     "record": ["tools/trailer/film.sh", "record", "shaders"], "render": ["tools/trailer/film.sh", "render", "shaders"],
-    "commit": "<SHA>", "pause_if_running": ["instances/Airstrike Pack"],
+    "commit": "<SHA>", "final": false, "pause_if_running": ["instances/Airstrike Pack"],
     "gpu_lock": "/mnt/data/projects/airstrike/mod/run/gpu.lock",
     "triage": ["/mnt/data/projects/airstrike/mod/run/claude-work/glm/glm.sh", "ask", "-o", "{out}", "-t", "900",
                "-a", "{rec}/record.log", "-a", "{rec}/result.json", "-a", "{work}/status.txt",
@@ -59,7 +59,9 @@ systemd-run --user --on-calendar='*:0/30' --unit=newisle-watch -- \
   /mnt/data/projects/airstrike/mod/run/newisle-night/status.txt /mnt/data/projects/airstrike/mod/run/newisle-night/produce.log
 ```
 `night`: проба T02 (убитый клиент), T04 («полный диск»), T24 (плохая камера) в `newisle-night/smoke`; прошла
-(`smoke.json`: `pass`) — все дубли по порядку истории, вывод, черновик 720p30, при всех снятых планах — чистовой 1440p60;
+(`smoke.json`: `pass`) — все дубли по порядку истории, вывод, черновик 720p30; чистовой 1440p60 (`"final": false` —
+нет) — только по слову Артёма, когда он посмотрел черновик со своими сценами и правки сделаны: `final` из машины прочь
+и та же строка;
 не прошла — `stopped, waiting`, ночь не тратится. Перезапуск той же строкой продолжает с места.
 Сторож (GLM, только чтение) раз в 30 минут пишет `watch.txt`: первая строка `STATUS: OK` или `STATUS: BROKEN: …`
 (и конвейер, молчащий дольше 20 минут: статус он переписывает раз в 5 минут). После запуска — сразу конец хода: ночью

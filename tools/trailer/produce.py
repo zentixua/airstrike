@@ -37,7 +37,8 @@ status — файл статуса (пять строк).
 запись и проверка по данным, без вывода и монтажа], env {переменные}, pause_if_running [подстроки командной строки java
 игры Артёма], world_gb (размер копии мира, по умолчанию — замер мастера), fault_kill_s (90), pause_minutes, limits
 {сверх limits дублей}, commit (начало SHA: другой коммит в repo — стоп), status (файл статуса, по умолчанию
-<work>/status.txt), cut [команда монтажа без --draft/--final; false — без монтажа], gpu_lock (файл замка видеокарты:
+<work>/status.txt), cut [команда монтажа без --draft/--final; false — без монтажа], final (false — только черновик:
+чистовой — по слову Артёма, когда он посмотрел черновик), gpu_lock (файл замка видеокарты:
 запись и вывод — под ним, держит другая задача — пауза), triage [команда разбора не снятого дубля, не ждётся; в
 аргументах {take} {rec} {work} {repo} {reason} {out}].
 """
@@ -744,9 +745,12 @@ class Conveyor:
             self.cut()
             self.current = ""
             missing = self.missing_plans()
+            draft = "черновик готов: " + os.path.join(self.work, "cut", "newisle-draft.mp4")
             if missing or late:
-                self.status("done", "черновик готов: " + os.path.join(self.work, "cut", "newisle-draft.mp4")
-                            + "; чистовой ждёт " + ", ".join(missing) + tail)
+                self.status("done", draft + "; чистовой ждёт " + ", ".join(missing) + tail)
+                return 0
+            if self.cfg.get("final") is False:
+                self.status("done", draft + "; чистовой — по слову Артёма")
                 return 0
             self.cut(final=True)
             self.current = ""
