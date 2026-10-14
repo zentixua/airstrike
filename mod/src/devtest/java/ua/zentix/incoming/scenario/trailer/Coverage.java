@@ -185,7 +185,8 @@ final class Coverage {
         own("p47", Rig.scene(), false, SCENE.smokeIsSubject());
         own("p48", Rig.scene(), false, SCENE.smokeIsSubject());
         own("p49", Rig.scene(), false, SCENE.smokeIsSubject());
-        own("p50", Rig.scene(), false, SCENE.smokeIsSubject());
+        // люди на крыше: камера сценария смотрела на гриб поверх их голов — запасные с взглядом ниже
+        own("p50", Rig.scene(), false, SCENE.smokeIsSubject(), Rig.ownTilt(false, 12), Rig.ownTilt(false, 16));
     }
 
     private Coverage() {}

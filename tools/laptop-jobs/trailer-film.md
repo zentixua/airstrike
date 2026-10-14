@@ -219,3 +219,36 @@ tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trai
 В логе записи: нет `момент не наступил` и `the launcher is busy with the previous order`; прислать строки `TRAILER p40`
 и `SCENARIO film`. Из вывода — `report.md`, `best.txt`, ошибки (как в п. 3); у p40b и p40c мотор больше 0 %. Из
 монтажа — как в п. 6, с `v3` вместо `v2`.
+
+## 9. Вспышка p40c, стена p48, люди в p50 и монтаж v4 (видеокарта; сразу)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка (между шагами, не во время записи или вывода).
+Три плана v3 слабее сценария:
+- p40c — вспышка тёмная: камера стояла в 9 блоках сбоку от пакета, две пусковые из трёх были вне кадра. Новая камера —
+  в 24 блоках, все три в кадре. Сцена `scene:p40`, пишется только p40c.
+- p48 — в сценарии стена закрывает горизонт и башни исчезают, а в дубле `film-war2` стена уже прошла городок, пыль
+  расходится и башни проступают: план ждал фронт у самого холма. Теперь своя часть `p48` (свой подрыв на свежей копии
+  мира), окно — за 3,5 с до стены у городка; монтаж берёт план с начала.
+- p50 — людей на крыше нет в кадре: камера смотрела на гриб поверх голов. Тот же повтор `film-war4`, запасные камеры
+  с взглядом ниже на 12° и 16° (`own-…-down12`, `own-…-down16`).
+Свободного места — как в п. 2 (две копии мира).
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war8-p40 && chmod -R u+w mod/run/scenario/saves/war8-p40
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war9-p48 && chmod -R u+w mod/run/scenario/saves/war9-p48
+INCOMING_TRAILER_DIR=film-war8 INCOMING_WAR_PART=scene:p40 INCOMING_WORLD=war8-p40 \
+INCOMING_TRAILER_SHOTS=p40c tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war9 INCOMING_WAR_PART=p48 INCOMING_WORLD=war9-p48 \
+INCOMING_TRAILER_SHOTS=p48 tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war8 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p40c \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war9 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p48 \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war4 INCOMING_FILM_OUT=render-p50people INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p50 \
+INCOMING_FILM_CAMERA='own-.*-down.*' tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+for R in film-war8/render film-war9/render film-war4/render-p50people; do
+  python3 tools/trailer/report.py mod/run/scenario/$R --md mod/run/scenario/$R/report.md
+done
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v4.mp4
+```
+В логе записи: нет `момент не наступил` и `the launcher is busy with the previous order`; прислать строки `TRAILER p40`,
+`TRAILER p48` и `SCENARIO film`. Из вывода — три `report.md` и `best.txt`, ошибки (как в п. 3). Из монтажа — как в п. 6,
+с `v4` вместо `v2`; лёгкую версию — частями, как v3.

@@ -602,6 +602,23 @@ final class Rig {
         };
     }
 
+    /**
+     * Запасная к камере сценария: тот же путь, взгляд ниже на {@code down} градусов — люди у камеры в нижней части кадра,
+     * а не под ним (p50: камера смотрела на гриб поверх голов). Оценка и проверка — как у остальных.
+     */
+    static Kind ownTilt(boolean close, double down) {
+        return (s, a, b, w, d) -> {
+            CineCamera.Path path = recorded(d);
+            if (path == null) return List.of();
+            double mm = 12 / Math.tan(Math.toRadians(path.at(a).fov() / 2));
+            CineCamera.Path lower = t -> {
+                Pose p = path.at(t);
+                return new Pose(p.pos(), p.yaw(), (float) Mth.clamp(p.pitch() + down, -90, 90), p.roll(), p.fov());
+            };
+            return List.of(new Candidate(String.format(Locale.ROOT, "own-%.0fmm-down%.0f", mm, down), lower, mm, close));
+        };
+    }
+
     /** Камера сценария по журналу (вне журнала — ближайшая поза); null — сценарий камеру не вёл. */
     @Nullable
     static CineCamera.Path recorded(EventLog.Data d) {

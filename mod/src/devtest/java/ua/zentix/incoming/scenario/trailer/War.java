@@ -87,9 +87,9 @@ import java.util.function.BooleanSupplier;
  * начала или с отметки ({@code siren} — тревога над игроком, {@code front} — фронт ядерного взрыва у камеры, и
  * отметки {@link Film}).
  * <p>
- * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
- * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42; по умолчанию
- * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p16}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
+ * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB}, {@code nukeC} и
+ * {@code p48} — ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42;
+ * по умолчанию — всё, кроме {@code nukeB}, {@code nukeC}, {@code p48} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p16}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
  * {@code streets} — уличный бой (площадь и проспект, около сотни ботов) с планами 26–30.
  */
 final class War {
@@ -229,6 +229,7 @@ final class War {
         if (all || part.equals("nuke")) nuke();
         if (part.equals("nukeB")) nukeFar();
         if (part.equals("nukeC")) nukeNear();
+        if (part.equals("p48")) wallOverTown();
         if (part.equals("icbm")) icbm();
         // один план или одна сцена для проверки съёмки из повтора (ReplayFilm) и короткой перезаписи
         if (part.equals("p03")) dawnFlight();
@@ -2612,11 +2613,13 @@ final class War {
                     return CineCamera.track(l.add(-10, 1.6, -7), () -> l.add(10, 8, 0), 60);
                 })
                 .when(() -> lit(RocketEntity.class, rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))), 400);
+        // p40c: все три пусковые в кадре с 24 блоков сбоку, со стороны от ряда «Градов» — какая бы ни загорелась первой
+        // (у камеры в 9 блоках две из трёх были вне кадра, вспышка 14.10 — тёмная установка и след без пламени)
         film.shot("p40c").length(30).hidden()
                 .onReady(() -> fireAll(missileRack.subList(0, Math.min(3, missileRack.size()))))
                 .camera(() -> {
                     Vec3 l = new Vec3(-1519.5, BATTERY_Y, ROW_MISSILE);
-                    return CineCamera.track(l.add(4, 1.0, -9), () -> l.add(14, 10, 0), 64);
+                    return CineCamera.track(l.add(-6, 1.6, -24), () -> l.add(6, 8, 0), 60);
                 })
                 .when(() -> lit(CruiseMissileEntity.class, missileRack.subList(0, Math.min(3, missileRack.size()))), 400);
     }
@@ -2747,7 +2750,7 @@ final class War {
                 .when(() -> frontIn(at(WAVE_TOWN)) < 25, 4000);
     }
 
-    /** Часть nukeC: стена между домами на камеру (p49), волна закрывает горизонт с взгорка (p48) — по порядку прихода. */
+    /** Часть nukeC: стена между домами на камеру (p49). */
     private void nukeNear() {
         detonate(WAVE_STREET);
         film.shot("p49").length(70).hidden()
@@ -2756,9 +2759,18 @@ final class War {
                     return CineCamera.track(WAVE_STREET.add(0, 1.5, 0), () -> WAVE_STREET.add(dir.scale(80)).add(0, 12, 0), 72);
                 })
                 .when(() -> frontIn(WAVE_STREET) < 45, 4000);
+    }
+
+    /**
+     * Часть p48: с холма стена накрывает городок на горизонте, башни исчезают — своим подрывом. План начинается за 3,5 с
+     * до стены у городка (он в кадре между холмом и эпицентром). В части nukeC p48 шёл после p49 и ждал фронт у самого
+     * холма — стена уже прошла город, в кадре пыль расходилась и башни проступали (14.10).
+     */
+    private void wallOverTown() {
+        detonate(WAVE_HILL);
         film.shot("p48").length(100).hidden()
                 .camera(() -> CineCamera.track(g(WAVE_HILL).add(0, 18, 0), () -> GZ.add(-150, 150, -150), 24))
-                .when(() -> frontIn(at(WAVE_HILL)) < 70, 4000);
+                .when(() -> frontIn(at(WAVE_TOWN)) < 70, 4000);
     }
 
     /**

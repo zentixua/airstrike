@@ -16,11 +16,13 @@ CUT_RECS=${CUT_RECS:-"film-war2 film-war4 film-war5 film-war6"}
 # PASS нет; render-ends (p48, p50 из film-war2 с отметкой фронта) — только запасные: edit.py берёт их, если в сильном
 # дубле волна слишком близко к началу (prefer_fitting); render-human2 (p01a, p42 с INCOMING_FILM_SHOWN) — не в монтаже:
 # обе вышли хуже render-human (14.10); film-war6 — батарея заново (пуски от поджига); film-war7 — вспышки p40b, p40c на
-# свежих пусковых
+# свежих пусковых; film-war8 — p40c, три пусковые в кадре; film-war9 — p48 своим подрывом (стена накрывает городок);
+# film-war4/render-p50people — p50 с людьми на крыше в кадре
 CUT_RENDERS=${CUT_RENDERS:-"film-war4/render-planned film-war2/render-planned film-war2/render-planned2 \
 film-war2/render-ends film-war2/render \
 film-war2/render-fog-c2-alt110-d3.05-dist200:p03 film-war2/render-fog-c2-human:p03 film-war2/render-human \
-film-war4/render film-war2/render-human3 film-war4/render-metro film-war4/render-metro2 film-war6/render film-war7/render"}
+film-war4/render film-war2/render-human3 film-war4/render-metro film-war4/render-metro2 film-war6/render film-war7/render \
+film-war8/render film-war9/render film-war4/render-p50people"}
 
 # layer <итог или пусто>: --rec папок дублей из всех выводов по приоритету
 layer() {
