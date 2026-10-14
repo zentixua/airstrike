@@ -205,8 +205,8 @@
     {"plans": ["n39", "n40"], "offsets": {"n40": 0.5}, "seconds": 7,
      "strikes": [
       {"weapon": "missile", "from": "c1_far_west", "to": "c1_cafe_opposite", "eta": 1.2},
-      {"weapon": "missile", "from": "south_far", "to": "c1_glass_w", "eta": 3.2},
-      {"weapon": "missile", "from": "south_far", "to": "c1_tower_s", "eta": 4.4}
+      {"weapon": "missile", "from": "c1_far_west", "to": "c1_glass_w", "eta": 3.2},
+      {"weapon": "missile", "from": "c1_far_west", "to": "c1_tower_s", "eta": 4.4}
      ],
      "ready": [{"do": "crowd.flee", "group": "cafe", "to": "c1_metro_in", "stagger": [0, 2]}],
      "probes": [{"name": "cafe_glass", "around": "c1_cafe", "r": 8, "h": 5, "count": "glass"}],
@@ -246,7 +246,7 @@
   },
   {
    "id": "T15", "title": "«Ланцет» на ЗРК", "from": "chain", "clock": "day", "siren": true, "minutes": 9,
-   "stage": [{"do": "sam", "at": "c1_sam", "load": 8}, {"do": "player", "at": {"at": [-230, 330], "above": 60}, "look": "c1_sam", "mode": "spectator"}],
+   "stage": [{"do": "sam", "at": "c1_sam", "load": 0}, {"do": "player", "at": {"at": [-230, 330], "above": 60}, "look": "c1_sam", "mode": "spectator"}],
    "shots": [
     {"plans": ["n23"], "seconds": 6, "camera": "onboard", "hud": true,
      "strikes": [{"weapon": "loiter", "from": "south_far", "to": "loiter_circle", "eta": 0}],

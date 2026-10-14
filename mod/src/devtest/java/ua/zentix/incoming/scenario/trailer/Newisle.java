@@ -832,7 +832,8 @@ final class Newisle {
         if (p == null || a.get("do").getAsString().equals("player")) return;
         if (a.get("do").getAsString().startsWith("crowd.") || a.get("do").getAsString().startsWith("sam.")) return;
         film.run(() -> {
-            Vec3 q = p.isJsonObject() && p.getAsJsonObject().has("line") ? data.line(p, heights).get(0) : at(p, 0);
+            // ряд мест — по первому из них; ряд бывает и именем места (farm_missiles у T06): line сам разбирает оба
+            Vec3 q = data.line(p, heights).get(0);
             if (lastHidden != null && lastHidden.distanceTo(q) < 96) return;
             lastHidden = q;
             war.place(q.add(0, 20, 0), q);

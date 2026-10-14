@@ -752,6 +752,19 @@ class Conveyor:
         if unknown:
             raise Stopped("неизвестные дубли: " + ", ".join(unknown))
 
+    def requeue(self):
+        """Пропущенные дубли, чью постановку починили посреди ночи, — снова в очередь: <работа>/requeue.txt (по дублю на
+        строку) читается при запуске, их пропуск снимается, и цепочка снимает их со своего текущего мира."""
+        path = os.path.join(self.work, "requeue.txt")
+        if not os.path.exists(path):
+            return
+        for take in read(path).split():
+            if take in self.takes and self.state["takes"].get(take, {}).get("status") == "skipped":
+                del self.state["takes"][take]
+                self.say(f"{take}: снова в очереди (постановка починена)")
+        os.replace(path, path + ".done")
+        self.save()
+
     def release(self, world):
         """Снимок, который больше не вход ни одному дублю впереди (его планы выведены), — в очередь на удаление. Удаляет
         его проверка места (старые первыми), когда места мало; до того мир лежит: перевывод плана по замечанию берёт LOD
@@ -782,6 +795,7 @@ class Conveyor:
         self.only = only
         try:
             self.preflight()
+            self.requeue()
             self.render_live()
             late = []
             for take in self.plan_order:

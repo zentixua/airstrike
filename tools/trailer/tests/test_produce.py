@@ -417,6 +417,18 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(3, len(tries), "пересъёмки, пока попытки есть")
         self.assertEqual(["сирена не слышна"], tries[-1]["warnings"])
 
+    def test_requeue_brings_back_a_skipped_take(self):
+        c, m = self.conveyor()
+        c.state["takes"]["C"] = {"status": "skipped", "attempts": [{"ok": False, "reason": "пропущен до ночи"}]}
+        self.assertEqual(0, c.run(["A", "B", "C"]))
+        self.assertEqual("skipped", c.state["takes"]["C"]["status"], "без файла — пропуск остаётся")
+        with open(os.path.join(self.cfg["work"], "requeue.txt"), "w") as f:
+            f.write("C\nA\n")
+        self.assertEqual(0, c.run(["A", "B", "C"]))
+        self.assertEqual("passed", c.state["takes"]["C"]["status"])
+        self.assertEqual(1, len(c.state["takes"]["A"]["attempts"]), "снятый не переснимается")
+        self.assertFalse(os.path.exists(os.path.join(self.cfg["work"], "requeue.txt")))
+
     def test_search_and_live_stop_without_a_world(self):
         os.remove(os.path.join(self.master, "level.dat"))
         c, m = self.conveyor()
