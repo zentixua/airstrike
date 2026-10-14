@@ -375,6 +375,36 @@ class SubjectTest(unittest.TestCase):
                 own = json.load(f)[0]
             self.assertEqual(own["journal"], "вывода")
             self.assertLess(own["off_p90"], 0.5)
+            # журнал вывода — со своими номерами путей и камерой плана (смотрит на запад, на второй шахед), а объект
+            # вывод выбрал по журналу записи и его камере сценария: проверка берёт объект оттуда, места — по UUID
+            src = lines(os.path.join(os.path.dirname(qas[0]), "p99.events.jsonl"))
+            os.makedirs(os.path.join(d, "replays"))
+            renum = {1: 5, 2: 6}
+            with open(os.path.join(d, "replays", "p99.events.jsonl"), "w") as rf, \
+                    open(os.path.join(os.path.dirname(qas[0]), "p99.events.jsonl"), "w") as of:
+                for o in src:
+                    rf.write(json.dumps(o) + "\n")
+                    o = dict(o)
+                    if "new" in o:
+                        o["new"] = renum[o["new"]]
+                    if "impact" in o:
+                        o["impact"] = renum[o["impact"]]
+                    if "f" in o:
+                        o["f"] = [[renum[e[0]], *e[1:]] for e in o["f"]]
+                    if "cam" in o:
+                        o["cam"] = [30, 70, 40, 90, 10, 0, 70]
+                    of.write(json.dumps(o) + "\n")
+                # у вывода второй шахед тоже бьёт в окне и в кадре камеры плана: правило «удар в кадре» по журналу
+                # вывода взяло бы его
+                of.write(json.dumps({"t": 98, "impact": 6, "pos": [10, 90, 59]}) + "\n")
+            shot.main(["check", qas[0], "--regions", region, "--out", os.path.join(d, "chk3"), "--radius", "60"])
+            with open(os.path.join(d, "chk3", "check.json"), encoding="utf-8") as f:
+                mapped = json.load(f)[0]
+            self.assertEqual(mapped["journal"], "вывода")
+            self.assertIsNone(mapped["other"])
+            self.assertLess(mapped["off_p90"], 0.5)
+            self.assertGreater(mapped["in_agree"], 0.98)
+            self.assertEqual((mapped["key_shift"], mapped["key_moved"]), (0, 0.0))
 
 
 class PickTest(unittest.TestCase):

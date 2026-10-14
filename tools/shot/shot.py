@@ -296,28 +296,47 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     # журнал этого вывода (клиент повтора, который рисовал кадры, — ReplayFilm с b4f5d0ac+) совпадает с кадрами по
     # построению; без него — журнал записи
     own = os.path.join(os.path.dirname(qa_path), f"{name}.events.jsonl")
-    events = own if os.path.exists(own) and not args.replays else \
-        os.path.join(args.replays or os.path.join(root, "replays"), f"{name}.events.jsonl")
+    rec = os.path.join(args.replays or os.path.join(root, "replays"), f"{name}.events.jsonl")
+    events = own if os.path.exists(own) and not args.replays else rec
     if not os.path.exists(events):
         log(f"{name}/{cand}: нет журнала {events}")
         return None
     entry = table.get(name, {})
     blank = S.Scene(W.empty((0, 0, 0), (1, 1, 1)))
-    sc = S.from_eventlog(events, blank.world)
+    # объект выбирает вывод (`Rig`) по журналу записи и его камере сценария: и здесь — по нему, а места берутся из журнала
+    # вывода по UUID снаряда (номера путей у журналов свои, а камера в журнале вывода — уже камера плана, и правило «дольше
+    # всех в кадре» по ней выбрало бы другой снаряд: 14.10 p01d, p25, p28, p38 — «другой объект» при PASS вывода)
+    by = rec if os.path.exists(rec) else events
+    sc = S.from_eventlog(by, blank.world)
     sc.fog, sc.clouds = args.fog, args.clouds
+    if args.shown and by != own:
+        S.smooth_tracks(sc, args.shown)
     try:
         p = J.pick(sc, entry.get("subject", "auto"), entry.get("span", 0))
     except SystemExit as e:
         log(f"{name}/{cand}: {e}")
         return None
+    uuid = p.track.uuid if p.track is not None else ""
+    key_rec = None
     cache = os.path.join(args.out, name, "world.npz")
     os.makedirs(os.path.dirname(cache), exist_ok=True)
-    w = load_world(events, p, sc, args.regions, args.radius, cache)
+    w = load_world(by, p, sc, args.regions, args.radius, cache)
     sc = S.from_eventlog(events, w)
     sc.fog, sc.clouds = args.fog, args.clouds
     if args.shown and events != own:
         S.smooth_tracks(sc, args.shown)
-    p.track = sc.tracks.get(p.track.id) if p.track is not None else None
+    if p.track is not None:
+        same = [tr for tr in sc.tracks.values() if uuid and tr.uuid == uuid] if events != by else [sc.tracks.get(p.track.id)]
+        if not same or same[0] is None:
+            log(f"{name}/{cand}: снаряда {uuid or p.track.id} из журнала записи нет в журнале вывода")
+            return None
+        p.track = same[0]
+        im = next((m for m in sc.impacts if m.track == p.track.id), None)
+        if p.key >= 0 and im is not None:
+            # удар у вывода против удара записи: камера плана ставилась по удару записи (14.10 p32: мера плана видела
+            # удар, вывод — за блоками)
+            key_rec = (p.key, np.asarray(p.key_pos, dtype=np.float64))
+            p.key, p.key_pos = im.t, im.pos
     rows = []
     with open(qa_path, encoding="utf-8") as f:
         for ln in f:
@@ -409,6 +428,9 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
            "blocked_qa_only": int((q_in & mine_in & (occ < 0.5) & (q_seen < 0.6)).sum()),
            "smoke_mine_only": int((both & (smoke < 0.5) & (q_clear >= 0.5)).sum()),
            "smoke_qa_only": int((both & (smoke >= 0.5) & (q_clear < 0.5)).sum())}
+    if key_rec is not None:
+        res["key_shift"] = int(p.key - key_rec[0])
+        res["key_moved"] = round(float(np.linalg.norm(np.asarray(p.key_pos, dtype=np.float64) - key_rec[1])), 2)
     # итог плана, как `FrameQa.verdict`: доли до удара, за последнюю секунду и у удара — мерой и выводом
     for who, vis_, share_ in (("mine", mine_vis, sh), ("qa", q_vis, qs)):
         good = vis_ & (share_ >= mn)
@@ -428,7 +450,9 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
         f"{res['off_p90']:.1f} блока при сдвиге {res['off_lag']:+.1f} тика (без сдвига {res['off0_med']:.1f}; {res['off_n']} "
         f"кадров, журнал {res['journal']})"
         + (f"  ДРУГОЙ ОБЪЕКТ: вывод ближе к пути {other} (медиана {other_med:.1f})" if other is not None else "")
-        + ("  ЖУРНАЛ СБИТ" if journal_off(res) else ""))
+        + ("  ЖУРНАЛ СБИТ" if journal_off(res) else "")
+        + (f"  УДАР У ВЫВОДА ДРУГОЙ: {res['key_shift']:+d} тиков, {res['key_moved']:.1f} блока от удара записи"
+           if res.get("key_shift") or res.get("key_moved", 0) > 2 else ""))
     return res
 
 

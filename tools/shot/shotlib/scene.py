@@ -36,6 +36,7 @@ class Track:
     weapon: str
     t: np.ndarray
     pos: np.ndarray
+    uuid: str = ""  # UUID сущности (строка «new» журнала): один снаряд в журнале записи и в журнале вывода
 
     def at(self, t) -> np.ndarray:
         """Место в тики t (с долей; вне пути — NaN)."""
@@ -336,7 +337,7 @@ def from_eventlog(path: str, wld: W.World) -> Scene:
         _, keep = np.unique(a[:, 0], return_index=True)
         a = a[keep]
         info = flights.get(i, {})
-        sc.tracks[str(i)] = Track(str(i), info.get("weapon", ""), a[:, 0].astype(np.int64), a[:, 1:4])
+        sc.tracks[str(i)] = Track(str(i), info.get("weapon", ""), a[:, 0].astype(np.int64), a[:, 1:4], str(info.get("id") or ""))
     for name, rows in people.items():
         a = np.array(sorted(rows), dtype=np.float64)
         _, keep = np.unique(a[:, 0], return_index=True)
