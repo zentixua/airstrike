@@ -668,6 +668,7 @@ abstract class Film {
         if (replayShot != null) finishReplay();
         FlashbackApi.startRecording();
         events = new EventLog(replayDir().resolve(shot.name + ".events.jsonl"));
+        WorldSounds.start(replayDir().resolve(shot.name + ".sounds.jsonl"), mc.player.getUUID(), FlashbackApi.writtenTicks());
         replayShot = shot;
         frameClock = 0;
         loadSum = loadMax = 0;
@@ -681,6 +682,7 @@ abstract class Film {
         replayShot = null;
         events.close();
         events = null;
+        WorldSounds.stop();
         java.nio.file.Path zip = replayDir().resolve(shot.name + ".zip");
         FlashbackApi.finishRecording(zip, shot.name);
         // нагрузка: сколько стоит тик сервера в записи и до какого темпа запись сбавляла (ботов — сотня в уличном бою)
@@ -702,7 +704,11 @@ abstract class Film {
 
     /** Тик журнала повтора: после всего тика клиента, под номером тика, который запишет повтор. */
     void logTick(ClientTickEvent.Post e) {
-        if (events != null) events.tick(FlashbackApi.writtenTicks());
+        if (events != null) {
+            int written = FlashbackApi.writtenTicks();
+            events.tick(written);
+            WorldSounds.clientTick(written);
+        }
     }
 
     /**
