@@ -329,6 +329,30 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(P.STOPPED_EXIT, c.run(["A", "Z9"]))
         self.assertIn("Z9", self.status()[3])
 
+    def test_filming_copy_layout_copies_its_world_folder(self):
+        film = os.path.join(self.tmp.name, "film")
+        os.makedirs(os.path.join(film, "world", "region"))
+        with open(os.path.join(film, "world", "level.dat"), "w") as f:
+            f.write("film")
+        with open(os.path.join(film, "DistantHorizons.toml"), "w") as f:
+            f.write("")
+        self.cfg["master"] = film
+        c, m = self.conveyor()
+        self.assertEqual(os.path.join(film, "world"), c.master, "мир — папка с level.dat, не вся копия для съёмки")
+        self.assertEqual(0, c.run(["A"]))
+        with self.assertRaises(P.Stopped):
+            c.remove(os.path.join(film, "DistantHorizons.toml"))
+
+    def test_search_and_live_stop_without_a_world(self):
+        os.remove(os.path.join(self.master, "level.dat"))
+        c, m = self.conveyor()
+        with self.assertRaises(P.Stopped) as e:
+            P.searches(c, ["boat"])
+        self.assertIn("нет мира", str(e.exception))
+        with self.assertRaises(P.Stopped):
+            P.live(c, "B", standin=True)
+        self.assertEqual([], m.copies, "без мира — ни одной копии и ни одного клиента")
+
     def test_crash_twice_stops(self):
         crash = {"seconds": 300, "result": ok_result("A", ["a1"]), "log": "Exception in server tick loop"}
         c, m = self.conveyor({("A", "record"): crash})

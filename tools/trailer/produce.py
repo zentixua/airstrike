@@ -234,12 +234,22 @@ class Guard:
         return path
 
 
+def save_dir(master):
+    """Папка мира с level.dat: копия для съёмки держит его в world/ (рядом DistantHorizons.toml и карта MapSyncer
+    для сервера ноутбука) — копия всей папки открывалась бы клиентом как мир без level.dat («Failed to load world»)."""
+    inner = os.path.join(master, "world")
+    if not os.path.exists(os.path.join(master, "level.dat")) and os.path.exists(os.path.join(inner, "level.dat")):
+        return inner
+    return master
+
+
 class Conveyor:
     def __init__(self, cfg, machine=None, takes_file=None, faults=None, log=print):
         self.m = machine or Machine()
         self.cfg = cfg
         self.repo = cfg["repo"]
-        self.master = cfg["master"]
+        self.master = save_dir(cfg["master"])
+        self.only = None
         self.work = cfg["work"]
         self.saves = cfg.get("saves") or os.path.join(self.repo, "mod", "run", "scenario", "saves")
         self.data = load_json(takes_file or os.path.join(SCENES, "newisle-takes.json"))
@@ -247,7 +257,7 @@ class Conveyor:
         self.limits.update(cfg.get("limits", {}))
         self.takes = {t["id"]: t for t in self.data["takes"]}
         self.order = [t["id"] for t in self.data["takes"]]
-        self.guard = Guard([self.master] + cfg.get("protected", []), [self.work, self.saves])
+        self.guard = Guard([cfg["master"], self.master] + cfg.get("protected", []), [self.work, self.saves])
         self.faults = dict(faults or {})
         self.fault_used = set()
         self.echo = log
@@ -827,6 +837,7 @@ def parse_best(path):
 
 def searches(conv, only=None):
     """Пробы поисков на копиях мастера; выбор — по правилам поиска; найденное — scenes/newisle-found.json."""
+    conv.preflight()
     s = conv.data["searches"]
     found_file = os.path.join(SCENES, "newisle-found.json")
     found = load_json(found_file, {"about": "Найдено поисками P1 (produce.py search): постановщик берёт это раньше своих мест."})
@@ -917,6 +928,8 @@ Conveyor.trial = trial_method
 def live(conv, take, standin=False):
     """Живой дубль Артёма (или бот вместо него) на копии мастера: запись и вывод его планов, как у цепочки."""
     conv.plan_order = [take]
+    conv.only = [take]
+    conv.preflight()
     st = conv.state.setdefault("live", {}).setdefault(take, {"attempts": []})
     n = len(st["attempts"])
     a = conv.attempt(take, 100 + n, 0, conv.master, live=not standin, standin=standin)
