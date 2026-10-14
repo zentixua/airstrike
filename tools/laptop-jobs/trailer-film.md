@@ -135,3 +135,33 @@ grep -o '"event":"[^"]*"' "$(awk '$1 == "p01c" {print $2}' $W4/render/best.txt)/
 окно плана, откуда дубль), `dist/incoming-trailer-edit.sh`, `film-war4/render/report.md`, `film-war4/render/best.txt`,
 `film-war4/journal.txt`, `film-war4/drift.txt`, `dist/incoming-trailer-edit.log`, счёт звуков p01c, строки из п. 2 и п. 3,
 ошибки из логов записи и вывода (`Exception`, `ERROR` мода).
+
+## 5. Спасение планов (видеокарта; можно сразу, пока п. 4 считает монтаж на процессоре)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка. Что выводится:
+- `film-war2/render-human3` — планы, которые в монтаж идут из `film-war2/render` (в `film-war4` нет PASS или нет
+  объекта): p11, p26, p31, p39a, p39d. Тот вывод — до `181d3ab`: камера без «человека» и тряска мода 5° ~10 Гц у
+  взрывов («эпилептика» у p26 по замечанию Артёма). Без `INCOMING_FILM_SHOWN`: с ней p01a в `render-human2` не прошёл.
+- `film-war4/render-metro` — метро p15, p18: у всех кандидатов «камера в блоках» — проверка требовала полблока воздуха
+  вокруг камеры, а лестница метро шириной в блок; теперь 0,2 блока (ближняя плоскость кадра — 0,05).
+```sh
+INCOMING_TRAILER_DIR=film-war2 INCOMING_FILM_OUT=render-human3 INCOMING_FILM_TRIES=2 \
+INCOMING_FILM_SHOTS=p11,p26,p31,p39a,p39d tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war4 INCOMING_FILM_OUT=render-metro INCOMING_FILM_TRIES=2 \
+INCOMING_FILM_SHOTS=p15,p18 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+for R in film-war2/render-human3 film-war4/render-metro; do
+  python3 tools/trailer/report.py mod/run/scenario/$R --md mod/run/scenario/$R/report.md
+done
+```
+Кандидат дольше 15 минут при оценке ниже 0,1 (как p31 в п. 3) — снять этот план и идти дальше без него, сказать.
+Прислать оба `report.md` и `best.txt`, строки `SCENARIO film heap`/`restart`, ошибки — как в п. 3.
+
+## 6. Монтаж из всего снятого
+После п. 5 и, если оно было этой ночью, вывода камер по сцене (`render-planned`, задание `shot-trailer.md`).
+`tools/trailer/cut.sh` собирает строку п. 4 сам: у плана — PASS из самого сильного вывода (`CUT_RENDERS` в скрипте:
+`render-planned` — слабее всех, `render-human3` и `render-metro` — сильнее всех), нет PASS — не прошедший, живые планы —
+из `film-war2`, `film-war4`, `film-war5`. Прежний монтаж п. 4 не трогается — новый в свои файлы:
+```sh
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v2.mp4
+```
+Прислать: `dist/incoming-trailer-v2-lite.mp4`, `dist/incoming-trailer-v2-cuts.md`, `dist/incoming-trailer-edit.sh`,
+`dist/incoming-trailer-edit.log`.
