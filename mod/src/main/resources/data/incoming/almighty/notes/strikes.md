@@ -1,9 +1,14 @@
 Incoming (https://github.com/zentixua/incoming): strikes by drones, missiles, MLRS, a B-2, and a nuclear strike.
-- A strike is the command «incoming salvo <weapon> <count> <spread> at x y z [from x z] [via x z …]»: from is the
-  launch site (a launcher stands there until incoming clear), via is up to 5 waypoints in order (drone, missile,
-  loiter). A single projectile is count 1, spread 0.
-- Fixed launcher (block incoming:fixed_launcher): «incoming launcher x y z [mission <weapon> <count> <spread> x y z
-  [via …] | load N | fire | clear | owner <player>|none]». A redstone signal at the block does the same as fire.
+- A strike is the command «incoming salvo <weapon> <count> <spread> at x z [from x z] [via x z …]»: at x z is a place
+  on the ground, and the server finds its height itself, also where the chunks are not loaded. at x y z is exactly
+  that point: above the ground a projectile bursts in the air (a bunker bomb falls to the ground, and digs down to a
+  point underground). With spread, the salvo lands on the ground around the point, unless at launch the point is in
+  the air over a loaded place.
+  from is the launch site (a launcher stands there until incoming clear), via is up to 5 waypoints in order (drone,
+  missile, loiter). A single projectile is count 1, spread 0.
+- Fixed launcher (block incoming:fixed_launcher): «incoming launcher x y z [mission <weapon> <count> <spread> x z
+  [via …] | load N | fire | clear | owner <player>|none]»; the mission target is x z or x y z, as in salvo. A redstone
+  signal at the block does the same as fire.
 - Strikes load their own areas: there is no need to load the place in advance.
 - Routes: drone (shahed) flies 45 blocks above the launch site and the target, loiter (lancet) circles 45 blocks above
   the target, missile flies 12 blocks above the terrain; all three follow via. rocket (grad) is ballistic and bunker is

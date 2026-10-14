@@ -11,12 +11,14 @@ import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
@@ -50,6 +52,7 @@ import ua.zentix.incoming.strike.Waypoints;
 import ua.zentix.incoming.target.Target;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -364,6 +367,28 @@ public final class FixedLauncherGameTests {
                     h.assertTrue(recipes.byKey(Incoming.id("fixed_launcher_vanilla")).isPresent() == !create, "рецепт без Create: " + !create);
                 })
                 .thenSucceed();
+    }
+
+    /**
+     * Задача командой ведущего ({@code /incoming launcher … mission}): «x z» — место на земле, высоту находит сервер;
+     * «x y z» — точка как есть, и над землёй тоже.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "fixed_command", skyAccess = true)
+    public static void commandMissionTakesPlaceOrPoint(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        FixedLauncherBlockEntity be = launcher(h, RANGE_CENTER, null);
+        BlockPos at = h.absolutePos(RANGE_CENTER);
+        Vec3 east = Vec3.atBottomCenterOf(at).add(12, 0, 0);
+        String mission = String.format(Locale.ROOT, "incoming launcher %d %d %d mission drone 2 5 ", at.getX(), at.getY(), at.getZ());
+        h.assertTrue(StrikeGameTests.command(h, mission + String.format(Locale.ROOT, "%.2f %.2f", east.x, east.z)) == 1, "задача «x z» не принята");
+        double ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(east.x), Mth.floor(east.z)) - 0.5;
+        Mission m = be.mission();
+        h.assertTrue(m != null && m.target() instanceof Target.Ground && m.point().y == ground, "задача «x z» не на земле (y " + ground + "): " + m);
+        double air = ground + 30;
+        h.assertTrue(StrikeGameTests.command(h, mission + String.format(Locale.ROOT, "%.2f %.2f %.2f", east.x, air, east.z)) == 1, "задача «x y z» не принята");
+        m = be.mission();
+        h.assertTrue(m != null && m.target() instanceof Target.Point p && p.pos().y == air, "задача «x y z» — не точка на своей высоте: " + m);
+        h.succeed();
     }
 
     // ---------------------------------------------------------------- помощники
