@@ -36,8 +36,8 @@ d647ec92) — стоп только на прогоны и только по с�
 
 ## Ход
 Долгое — своей службой и без опроса: `systemd-run --user --collect --same-dir --unit=newisle-p1-<шаг> -- <команда>`
-(linger включён), ждать — одним циклом Monitor по первой строке `<work>/status.txt` (`stage: done` или
-`stage: stopped`), без запросов к Claude между проверками.
+(linger включён), ждать — Bash в фоне с циклом `until` по первой строке `<work>/status.txt` (`stage: done` или
+`stage: stopped`; срок фоновой команды — 2 ч, потом тот же цикл снова), без запросов к Claude между проверками.
 1. Остановить «Newisle View» (Crafty, d647ec92, как в team memory `netcup-host-facts`; пароль администратора никуда
    не копировать). Запуск обратно — последним шагом при любом исходе.
 2. Поиски: `python3 tools/trailer/produce.py search --config ~/claude/newisle-p1.json` — каждая проба на своей копии

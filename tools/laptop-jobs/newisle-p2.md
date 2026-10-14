@@ -49,11 +49,10 @@ systemd-run --user --on-calendar='*:0/30' --unit=newisle-watch -- \
 `night`: проба T02 (убитый клиент), T04 («полный диск»), T24 (плохая камера) в `newisle-night/smoke`; прошла
 (`smoke.json`: `pass`) — все дубли по порядку истории, вывод, черновик 720p30, при всех снятых планах — чистовой 1440p60;
 не прошла — `stopped, waiting`, ночь не тратится. Перезапуск той же строкой продолжает с места.
-Сторож (GLM, только чтение) раз в 30 минут пишет `watch.txt`: первая строка `STATUS: OK` или `STATUS: BROKEN: …`.
-Ждать — одним Monitor до `head -1 watch.txt | grep -q BROKEN` или первой строки статуса `stage: done|stage: stopped`,
-без запросов к Claude между проверками. BROKEN — пять строк статуса и `watch.txt`; известное (пауза на игре, на месте)
-— ничего не делать; иначе снять задание (`systemctl --user stop 'incoming-job-newisle-night-*'`) и сказать Артёму одной
-строкой. Утром сторож — прочь: `systemctl --user stop newisle-watch.timer`.
+Сторож (GLM, только чтение) раз в 30 минут пишет `watch.txt`: первая строка `STATUS: OK` или `STATUS: BROKEN: …`
+(и конвейер, молчащий дольше 20 минут: статус он переписывает раз в 5 минут). После запуска — сразу конец хода: ночью
+Claude не участвует, конвейер сам ставит паузы, пересъёмки и «stopped, waiting». Утром сторож — прочь
+(`systemctl --user stop newisle-watch.timer`), его `watch.txt` читается вместе со статусом.
 
 ## 4. Утро (строка Артёма «черновик»)
 Прочитать только `status.txt` и список не снятых; `mod/run/newisle-night/cut/newisle-draft.mp4` — на его телефон по
