@@ -127,6 +127,14 @@ class ScoutTest(unittest.TestCase):
         self.assertAlmostEqual(r["frames"][0]["yaw"], 0, 0)
         self.assertIsNone(r["sight"])
 
+    def test_plan_cap_limits_the_previs_box(self):
+        plan = {"id": "c", "target": [100, 100], "pose": {"kind": "peak", "at": [-60, 160], "radius": 20}}
+        r = self.S.resolve(self.h, plan, {})
+        _, _, wide = self.S.view_box(self.h, r, plan)
+        lo, hi, near = self.S.view_box(self.h, r, dict(plan, cap=300 * 300))
+        self.assertLess(near, wide)
+        self.assertLessEqual((hi[0] - lo[0]) * (hi[2] - lo[2]), 300 * 300)
+
     def test_fixed_closed_target_is_reported(self):
         plan = {"id": "f", "target": [80, 100], "pose": {"kind": "fixed", "eye": [0, 70, 100]}}
         r = self.S.resolve(self.h, plan, {})

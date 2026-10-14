@@ -508,36 +508,31 @@
    "title": "Down into the metro",
    "time": "day",
    "fov": 75,
-   "frames": 3,
-   "dur": 3,
+   "frames": 1,
    "pose": {
-    "kind": "path",
-    "points": [
-     {
-      "at": [
-       -144,
-       26
-      ],
-      "ground": 1.7
-     },
-     {
-      "at": [
-       -144,
-       16
-      ],
-      "ground": -5
-     },
-     [
-      -144,
-      57,
-      8
-     ]
+    "kind": "ground",
+    "near": [
+     -144,
+     22
+    ],
+    "radius": 20,
+    "dist": [
+     6,
+     30
     ]
    },
    "features": [
     "metro",
     "siren"
-   ]
+   ],
+   "target": {
+    "at": [
+     -144,
+     8
+    ],
+    "ground": 0
+   },
+   "need_sight": false
   },
   {
    "id": "n15",
@@ -566,23 +561,25 @@
    "title": "First strike on the south tower",
    "time": "day",
    "fov": 55,
-   "frames": 3,
-   "dur": 3,
    "key": 2,
    "pose": {
-    "kind": "street",
+    "kind": "ground",
     "near": [
-     -140,
-     -94
+     -160,
+     -60
     ],
-    "above": 2
+    "radius": 50,
+    "dist": [
+     50,
+     140
+    ]
    },
    "target": {
     "at": [
      -172,
      -110
     ],
-    "above": -5
+    "above": -10
    },
    "strikes": [
     {
@@ -607,32 +604,33 @@
    "time": "day",
    "fov": 55,
    "pose": {
-    "kind": "ground",
+    "kind": "roof",
     "near": [
-     -330,
-     120
+     -200,
+     80
     ],
-    "radius": 70,
+    "radius": 60,
+    "min_height": 8,
     "dist": [
-     100,
-     260
+     120,
+     320
     ]
    },
    "target": [
-    -330,
-    110,
-    330
+    -250,
+    100,
+    260
    ],
    "strikes": [
     {
      "from": [
-      -330,
+      -250,
       700
      ],
      "to": [
-      -330,
-      110,
-      330
+      -250,
+      100,
+      260
      ],
      "weapon": "drone",
      "eta": 1,
@@ -653,19 +651,19 @@
    "pose": {
     "kind": "ground",
     "near": [
-     -560,
-     175
+     -540,
+     150
     ],
-    "radius": 60,
+    "radius": 40,
     "dist": [
-     60,
-     200
+     120,
+     220
     ]
    },
    "target": [
     -530,
-    130,
-    300
+    100,
+    330
    ],
    "features": [
     "airship"
@@ -787,13 +785,11 @@
    "key": 2,
    "pose": {
     "kind": "fixed",
-    "eye": {
-     "at": [
-      -76,
-      -449
-     ],
-     "above": 2
-    },
+    "eye": [
+     -40,
+     112,
+     -452
+    ],
     "look": {
      "at": [
       50,
@@ -1175,28 +1171,28 @@
    "time": "night",
    "fov": 50,
    "pose": {
-    "kind": "roof",
-    "near": "c1_core",
-    "radius": 30,
-    "min_height": 60,
-    "dist": [
-     0,
-     400
-    ],
+    "kind": "fixed",
+    "eye": {
+     "at": [
+      -167,
+      -4
+     ],
+     "above": 4
+    },
     "look": {
      "at": [
-      -40,
-      -80
+      -20,
+      -120
      ],
-     "above": 30
+     "above": 20
     }
    },
    "target": {
     "at": [
-     -40,
-     -80
+     -20,
+     -120
     ],
-    "above": 30
+    "above": 20
    },
    "features": [
     "blackout"
@@ -1232,15 +1228,11 @@
    "fov": 40,
    "key": 1,
    "pose": {
-    "kind": "ground",
-    "near": [
-     10,
-     -380
-    ],
-    "radius": 50,
-    "dist": [
-     60,
-     140
+    "kind": "fixed",
+    "eye": [
+     -20,
+     95,
+     -340
     ]
    },
    "target": {
@@ -1311,11 +1303,11 @@
      -172,
      -50
     ],
-    "radius": 20,
-    "min_height": 50,
+    "radius": 40,
+    "min_height": 40,
     "dist": [
-     20,
-     80
+     70,
+     160
     ]
    },
    "target": "c1_glass_e",
@@ -1465,7 +1457,9 @@
    "features": [
     "nuke",
     "ruins"
-   ]
+   ],
+   "reach": 1000,
+   "cap": 1600000
   },
   {
    "id": "n36",

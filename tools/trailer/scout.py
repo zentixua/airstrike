@@ -30,7 +30,8 @@
 
 Видна ли цель — луч по карте высот (`top`, твёрдый верх без листвы) с шагом в блок; дом самой цели и последние `spare`
 блоков не в счёт (`Heights.sees`). Черновой кадр (`--previs`; без `--regions` — пустая рамка, только снаряды) —
-`tools/shot/shotlib/previs`: блоки рамки поля зрения до `reach` блоков (не дальше цели + 150, площадь — до `CAP`),
+`tools/shot/shotlib/previs`: блоки рамки поля зрения до `reach` блоков (не дальше цели + 150, площадь — до `cap` плана,
+по умолчанию `CAP`),
 `night` — темнее; листы `sheet-N.jpg` — первые кадры планов. Мир остаётся там, где лежит; наружу — `poses.json`,
 `scout.md` и картинки.
 """
@@ -337,9 +338,10 @@ CAP = 1000 * 1000   # блоков площади рамки чернового 
 
 def view_box(h, res, plan, aspect=16 / 9):
     """Рамка блоков для кадров плана: глаз и углы поля зрения до `reach` (не дальше цели + 150), цель; по высоте — от
-    земли до верха строений рамки. Велика — дальность уменьшается, пока площадь не меньше `CAP`; камера и цель сами
-дальше — None."""
+    земли до верха строений рамки. Велика — дальность уменьшается, пока площадь больше `cap` плана (`CAP`; вид
+    наискось через полкарты — больше, память растёт с площадью); камера и цель сами дальше — None."""
     reach = float(plan.get("reach", REACH))
+    cap = float(plan.get("cap", CAP))
     if res["distance"] is not None:
         reach = min(reach, res["distance"] + 150)
     while True:
@@ -356,11 +358,11 @@ def view_box(h, res, plan, aspect=16 / 9):
         P = np.array(pts)
         lo, hi = np.floor(P.min(0)) - 16, np.ceil(P.max(0)) + 16
         area = (hi[0] - lo[0]) * (hi[2] - lo[2])
-        if area <= CAP:
+        if area <= cap:
             break
         if reach < 120:
             return None
-        reach *= 0.9 * math.sqrt(CAP / area)
+        reach *= 0.9 * math.sqrt(cap / area)
     zi0, zi1 = h.cell(0, lo[2])[0], h.cell(0, hi[2])[0]
     xi0, xi1 = h.cell(lo[0], 0)[1], h.cell(hi[0], 0)[1]
     g = h.ground[zi0:zi1 + 1, xi0:xi1 + 1]
