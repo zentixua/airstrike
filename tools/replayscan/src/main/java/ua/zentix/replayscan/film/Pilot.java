@@ -345,7 +345,7 @@ final class Pilot {
         Vec3 e = v.eye();
         double reach = Smoke.SMOTHER_REACH;
         // луч длиной reach входит только в фигуру ближе reach: их отбор — раз на образец, а не на каждый луч (шар удара
-        // столба — 100–150 блоков, отсев по нему пропускает почти всё)
+        // живого повтора — 30–130 блоков, отсев по нему пропускает почти всё)
         Plume.Shape[] near = new Plume.Shape[smoke[k].length];
         int m = 0, lo = 0;
         double[] bd = bound[k];
