@@ -1165,7 +1165,9 @@ final class Newisle {
                 for (int z = Mth.floor(centre.z - r); z <= Mth.floor(centre.z + r); z++) {
                     for (int y = Mth.floor(centre.y - h); y <= Mth.floor(centre.y + h); y++) {
                         BlockState s = level.getBlockState(p.set(x, y, z));
-                        if (count.equals("glass") ? s.is(Tags.Blocks.GLASS_BLOCKS) || s.is(Tags.Blocks.GLASS_PANES) : !s.isAir()) n++;
+                        // «solid» — стоит ли дом: без стекла, иначе выбитое волной стекло считалось бы рухнувшим домом
+                        boolean glass = s.is(Tags.Blocks.GLASS_BLOCKS) || s.is(Tags.Blocks.GLASS_PANES);
+                        if (count.equals("glass") ? glass : !s.isAir() && !glass) n++;
                     }
                 }
             }

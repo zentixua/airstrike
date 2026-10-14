@@ -174,20 +174,16 @@
    ],
    "above": 0
   },
-  "c1_terrace": {
-   "at": [
-    -150,
-    -60
-   ],
-   "above": 0
-  },
-  "c1_terrace_hit": {
-   "at": [
-    -120,
-    -90
-   ],
-   "above": -20
-  },
+  "c1_terrace": [
+   -128.5,
+   97.0,
+   -43.5
+  ],
+  "c1_terrace_hit": [
+   -90.0,
+   88.0,
+   -44.0
+  ],
   "fisher": {
    "at": [
     -505,
@@ -2214,13 +2210,11 @@
    "fov": 45,
    "pose": {
     "kind": "fixed",
-    "eye": {
-     "at": [
-      -154,
-      -56
-     ],
-     "above": -25
-    },
+    "eye": [
+     -132.5,
+     98.6,
+     -43.5
+    ],
     "look": "c1_terrace_hit"
    },
    "target": "c1_terrace_hit",
@@ -2239,20 +2233,12 @@
    "fov": 40,
    "pose": {
     "kind": "fixed",
-    "eye": {
-     "at": [
-      -148,
-      -62
-     ],
-     "above": -25
-    },
-    "look": {
-     "at": [
-      -152,
-      -58
-     ],
-     "above": -25
-    }
+    "eye": [
+     -140.5,
+     99.6,
+     -41.5
+    ],
+    "look": "c1_terrace_hit"
    },
    "target": "c1_terrace_hit",
    "need_sight": false,
@@ -2271,13 +2257,11 @@
    "key": 0.6,
    "pose": {
     "kind": "fixed",
-    "eye": {
-     "at": [
-      -154,
-      -56
-     ],
-     "above": -25
-    },
+    "eye": [
+     -132.5,
+     98.6,
+     -43.5
+    ],
     "look": "c1_terrace_hit"
    },
    "target": "c1_terrace_hit",
