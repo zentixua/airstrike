@@ -63,7 +63,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from scipy.signal import butter, resample_poly, sosfilt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from paths import DIST, MOD, ROOT  # noqa: E402
+from paths import DIST, MOD, MODS, ROOT  # noqa: E402
 import takes  # noqa: E402
 
 REC = os.path.join(MOD, "run", "scenario", "trailer")
@@ -1063,16 +1063,39 @@ class SoundBank:
         else:
             print(f"  ! нет {props} (./gradlew downloadAssets — индекс ресурсов игры; ./gradlew build его не пишет) — ванильные звуки не будут слышны")
         self.cache = {}
+        self.jars = None
+
+    def jar_sounds(self):
+        """Звуки других модов (выстрелы Point Blank у ботов съёмки): `assets/<ns>/sounds/…` из jar каталога модов
+        съёмки — INCOMING_MODS_DIR (от mod/, как у record.sh), иначе моды инстанса. «ns/sounds/…» → (jar, файл)."""
+        if self.jars is None:
+            self.jars = {}
+            d = os.environ.get("INCOMING_MODS_DIR")
+            d = os.path.join(MOD, d) if d else MODS
+            for jar in sorted(glob.glob(os.path.join(d, "*.jar"))):
+                try:
+                    with zipfile.ZipFile(jar) as z:
+                        for n in z.namelist():
+                            if n.startswith("assets/") and "/sounds/" in n and n.endswith(".ogg"):
+                                self.jars.setdefault(n[len("assets/"):], (jar, n))
+                except (OSError, zipfile.BadZipFile):
+                    continue
+        return self.jars
 
     def load(self, loc):
-        """Звук по пути файла из журнала («namespace:sounds/….ogg») → моно float32 при SR."""
+        """Звук по пути файла из журнала («namespace:sounds/….ogg») → моно float32 при SR: файлы мода, ванили, jar
+        других модов."""
         if loc in self.cache:
             return self.cache[loc]
         ns, path = loc.split(":", 1)
         f = os.path.join(MOD_ASSETS, ns, path)
         if not os.path.exists(f):
             f = self.vanilla.get(f"{ns}/{path}")
-        if f is None or not os.path.exists(f):
+        if (f is None or not os.path.exists(f)) and f"{ns}/{path}" in self.jar_sounds():
+            jar, name = self.jars[f"{ns}/{path}"]
+            with zipfile.ZipFile(jar) as z:
+                f = io.BytesIO(z.read(name))
+        if f is None or isinstance(f, str) and not os.path.exists(f):
             self.cache[loc] = None
             return None
         x, sr = sf.read(f, dtype="float32", always_2d=True)

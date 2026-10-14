@@ -196,6 +196,32 @@ class WorldSfxTest(unittest.TestCase):
         self.assertIn(0, ids)
         self.assertTrue({T.WORLD_ID + 1, T.WORLD_ID + 2, T.WORLD_ID + 5} <= ids)
 
+    @unittest.skipIf(E is None, "нет пакетов edit.py (uv run)")
+    def test_bank_reads_other_mods_from_jars(self):
+        # выстрел Point Blank: файла нет ни у мода, ни у ванили — он в jar каталога модов съёмки
+        import numpy as np
+        import soundfile as sf
+        import zipfile
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.BytesIO()
+            sf.write(buf, (0.5 * np.sin(np.arange(4800) / 48000 * 2 * math.pi * 440)).astype(np.float32), 48000,
+                     format="OGG", subtype="VORBIS")
+            with zipfile.ZipFile(os.path.join(d, "pointblank-test.jar"), "w") as z:
+                z.writestr("assets/pointblank/sounds/ak47_fire.ogg", buf.getvalue())
+            old = os.environ.get("INCOMING_MODS_DIR")
+            os.environ["INCOMING_MODS_DIR"] = d
+            try:
+                bank = E.SoundBank()
+                x = bank.load("pointblank:sounds/ak47_fire.ogg")
+                self.assertIsNotNone(x)
+                self.assertAlmostEqual(len(x) / E.SR, 0.1, delta=0.01)
+                self.assertIsNone(bank.load("pointblank:sounds/none.ogg"))
+            finally:
+                if old is None:
+                    os.environ.pop("INCOMING_MODS_DIR")
+                else:
+                    os.environ["INCOMING_MODS_DIR"] = old
+
     def test_missing_triggers(self):
         world = self.world + [
             {"t": 1010, "gt": 51010, "trigger": "siren", "pos": [100, 70, 0], "radius": 350, "heard": False},
