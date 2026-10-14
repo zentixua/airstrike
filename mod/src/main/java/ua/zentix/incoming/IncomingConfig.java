@@ -100,9 +100,9 @@ public final class IncomingConfig {
                     .translation("incoming.config.drone_power").defineInRange("drone_power", 12, 1, 60);
             missilePower = b.comment("Cruise missile blast power (TNT = 4).")
                     .translation("incoming.config.missile_power").defineInRange("missile_power", 20, 1, 60);
-            rocketPower = b.comment("Blast power of each MLRS rocket in a salvo (122 mm, like the Grad; TNT = 4).")
+            rocketPower = b.comment("Blast power of each Grad rocket in a salvo (122 mm; TNT = 4).")
                     .translation("incoming.config.rocket_power").defineInRange("rocket_power", 7, 1, 60);
-            loiterPower = b.comment("Loitering munition blast power (TNT = 4).")
+            loiterPower = b.comment("Lancet blast power (TNT = 4).")
                     .translation("incoming.config.loiter_power").defineInRange("loiter_power", 8, 1, 60);
             bunkerPower = b.comment("Underground blast power of the bunker buster (TNT = 4).")
                     .translation("incoming.config.bunker_power").defineInRange("bunker_power", 20, 1, 60);
@@ -158,7 +158,7 @@ public final class IncomingConfig {
                     .translation("incoming.config.missile_flight_time").defineInRange("missile_flight_time", 30, 5, 600);
             bomberFlightTime = b.comment("B-2 approach until bomb release, seconds.")
                     .translation("incoming.config.bomber_flight_time").defineInRange("bomber_flight_time", 40, 5, 600);
-            loiterTime = b.comment("How long a loitering munition circles over the target before diving, seconds (±20% for each one in a salvo).")
+            loiterTime = b.comment("How long a Lancet circles over the target before diving, seconds (±20% for each one in a salvo).")
                     .translation("incoming.config.loiter_time").defineInRange("loiter_time", 25, 0, 600);
             b.pop();
 
