@@ -338,11 +338,40 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     fw, rt, upv = C.basis(yaw, pitch, np.zeros_like(yaw))
     zq = size / (2 * th * np.maximum(qs, 1e-6))
     shown = eye + fw * zq[:, None] + rt * (qx * th * 16 / 9 * zq)[:, None] + upv * (qy * th * zq)[:, None]
-    off = np.linalg.norm(shown - tgt_, axis=1)[back]
+    # сущность в кадре — на доле тика между прошлым и нынешним местом (`getPosition(partial)`): место вывода может
+    # отставать от журнала на тик, и у ракеты в 8–10 блоков за тик это 10 блоков ровно. Сдвиг времени — свойство вывода,
+    # а не изъян журнала: берётся лучший, сбит журнал — если и при нём объект далеко
+    offs = {}
+    for lag in (-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0):
+        pos_l, _ = subject_at(p, t + lag)
+        d = np.linalg.norm(shown - pos_l, axis=1)[back]
+        d = d[~np.isnan(d)]
+        if len(d) >= max(1, int(0.8 * back.sum())):
+            offs[lag] = d
+    lag = min(offs, key=lambda k: float(np.median(offs[k]))) if offs else 0.0
+    off = offs.get(lag, np.zeros(0))
+    off0 = offs.get(0.0, np.zeros(0))
+    # другой снаряд того же оружия, к пути которого объект вывода ближе (рой, поток): проверка кадров ведёт не тот
+    # объект, что выбрала мера, — это выбор объекта, а не журнал
+    other, other_med = None, math.inf
+    if p.track is not None and len(off) and back.any():
+        for tr in sc.tracks.values():
+            if tr.id == p.track.id or tr.weapon != p.track.weapon:
+                continue
+            med = math.inf
+            for lg in offs:
+                d = np.linalg.norm(shown[back] - tr.at(t[back] + lg), axis=1)
+                d = d[~np.isnan(d)]
+                if len(d) >= 0.8 * len(off):
+                    med = min(med, float(np.median(d)))
+            if med < 0.5 * float(np.median(off)) and med < other_med:
+                other, other_med = tr.id, med
     res = {"shot": name, "cand": cand, "frames": len(rows), "journal": "вывода" if events == own else "записи",
-           "off_n": int(back.sum()),
+           "off_n": int(len(off)), "off_lag": lag,
            "off_med": round(float(np.median(off)), 2) if len(off) else math.nan,
            "off_p90": round(float(np.percentile(off, 90)), 2) if len(off) else math.nan,
+           "off0_med": round(float(np.median(off0)), 2) if len(off0) else math.nan,
+           "other": other, "other_med": round(other_med, 2) if other is not None else math.nan,
            "in_agree": float((mine_in == q_in).mean()),
            "vis_agree": float((mine_vis == q_vis).mean()),
            "vis_mine": float(mine_vis.mean()), "vis_qa": float(q_vis.mean()),
@@ -369,15 +398,17 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
         f"{res['blocked_qa_only']}  дым: только мера {res['smoke_mine_only']}, только вывод {res['smoke_qa_only']}"
         f"  итог (до удара/секунда/удар): мера {'/'.join(f'{x:.2f}' for x in res['verdict_mine'])}, вывод "
         f"{'/'.join(f'{x:.2f}' for x in res['verdict_qa'])}  объект от журнала: медиана {res['off_med']:.1f}, 90 % "
-        f"{res['off_p90']:.1f} блока ({res['off_n']} кадров, журнал {res['journal']})"
+        f"{res['off_p90']:.1f} блока при сдвиге {res['off_lag']:+.1f} тика (без сдвига {res['off0_med']:.1f}; {res['off_n']} "
+        f"кадров, журнал {res['journal']})"
+        + (f"  ДРУГОЙ ОБЪЕКТ: вывод ближе к пути {other} (медиана {other_med:.1f})" if other is not None else "")
         + ("  ЖУРНАЛ СБИТ" if journal_off(res) else ""))
     return res
 
 
 def journal_off(res: dict) -> bool:
-    """Журнал плана разошёлся с выводом: в десятой части кадров с сущностью объект дальше 8 блоков от места журнала
-    (полшага рывка журнала до очереди мест — 1–2 блока)."""
-    return res.get("off_n", 0) >= 10 and res.get("off_p90", 0) > 8
+    """Журнал плана разошёлся с выводом: в десятой части кадров с сущностью объект дальше 8 блоков от места журнала при
+    лучшем сдвиге времени (полшага рывка журнала до очереди мест — 1–2 блока)."""
+    return res.get("off_n", 0) >= 10 and res.get("off_p90", 0) > 8 and res.get("other") is None
 
 
 def cmd_check(args):
@@ -391,6 +422,8 @@ def cmd_check(args):
             f"{k} {np.average([r[k] for r in out], weights=[r['frames'] for r in out]):.3f}" for k in keys))
         off = sorted({r["shot"] for r in out if journal_off(r)})
         log("Журнал сбит (объект в выводе дальше 8 блоков от журнала): " + (" ".join(off) if off else "нет"))
+        other = sorted({r["shot"] for r in out if r.get("other") is not None})
+        log("Другой объект (вывод ведёт другой снаряд того же оружия): " + (" ".join(other) if other else "нет"))
     with open(os.path.join(args.out, "check.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)
 

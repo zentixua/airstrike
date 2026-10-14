@@ -319,22 +319,38 @@ class SubjectTest(unittest.TestCase):
             eye = np.array([30.0, 70.0, 40.0])
             fwd, left, up = np.array([1.0, 0, 0]), np.array([0, 0, -1.0]), np.array([0, 1.0, 0])
             qas = []
-            for cand, aside in (("own-38mm", 0.0), ("own-off", 0.4)):
+            for cand, aside, lag in (("own-38mm", 0.0, 0.0), ("own-off", 0.4, 0.0), ("own-lag", 0.0, 1.0)):
                 qa_dir = os.path.join(d, "render", "p99", cand)
                 os.makedirs(qa_dir)
                 qas.append(os.path.join(qa_dir, "qa.jsonl"))
                 with open(qas[-1], "w") as f:
                     for t in range(5, 99):
-                        k = (t - 5) / 94
+                        k = (t - lag - 5) / 94   # у own-lag вывод на тик позади журнала (место на доле тика)
                         dd = np.array([90 - 40 * k, 100 - 36 * k, 40 + aside * max(0, t - 40)]) - eye
                         z = float(dd @ fwd)
                         x, y = -float(dd @ left) / z / tx, float(dd @ up) / z / ty
                         f.write(json.dumps({"t": t, "in": abs(x) <= 0.92 and abs(y) <= 0.92, "x": x, "y": y,
                                             "share": round(3.5 / (2 * z * ty), 4), "seen": 1.0, "clear": 1.0, "cloud": False,
                                             "far": False, "entity": True, "cam": [*eye, -90.0, 0.0], "fov": 70.0}) + "\n")
+            # четвёртая — вывод ведёт другой снаряд (второй шахед; камера смотрит на запад, на него)
+            qa_dir = os.path.join(d, "render", "p99", "own-other")
+            os.makedirs(qa_dir)
+            qas.append(os.path.join(qa_dir, "qa.jsonl"))
+            fwd_w, left_w = np.array([-1.0, 0, 0]), np.array([0, 0, 1.0])
+            with open(qas[-1], "w") as f:
+                for t in range(5, 99):
+                    dd = np.array([10, 90, 10 + 0.5 * t]) - eye
+                    z = float(dd @ fwd_w)
+                    x, y = -float(dd @ left_w) / z / tx, float(dd @ up) / z / ty
+                    f.write(json.dumps({"t": t, "in": abs(x) <= 0.92 and abs(y) <= 0.92, "x": x, "y": y,
+                                        "share": round(3.5 / (2 * z * ty), 4), "seen": 1.0, "clear": 1.0, "cloud": False,
+                                        "far": False, "entity": True, "cam": [*eye, 90.0, 0.0], "fov": 70.0}) + "\n")
             shot.main(["check", *qas, "--regions", region, "--out", os.path.join(d, "chk"), "--replays", d, "--radius", "60"])
             with open(os.path.join(d, "chk", "check.json"), encoding="utf-8") as f:
-                res, off = json.load(f)
+                res, off, lagged, other = json.load(f)
+            self.assertEqual(other["other"], "2")
+            self.assertLess(other["other_med"], 0.5)
+            self.assertFalse(shot.journal_off(other))
             self.assertGreater(res["in_agree"], 0.98)
             self.assertLess(res["dx"], 0.01)
             self.assertLess(res["dy"], 0.01)
@@ -345,7 +361,13 @@ class SubjectTest(unittest.TestCase):
             self.assertFalse(shot.journal_off(res))
             self.assertGreater(off["off_p90"], 15)
             self.assertTrue(shot.journal_off(off))
+            self.assertIsNone(off["other"])
             self.assertEqual(res["journal"], "записи")
+            # вывод на тик позади: не изъян журнала — сдвиг −1 находится, расхождение при нём ~0
+            self.assertEqual(lagged["off_lag"], -1.0)
+            self.assertLess(lagged["off_p90"], 0.5)
+            self.assertGreater(lagged["off0_med"], 0.4)
+            self.assertFalse(shot.journal_off(lagged))
             # журнал самого вывода рядом с qa.jsonl (клиент, который рисовал кадры) — сверка по нему
             os.replace(ev, os.path.join(os.path.dirname(qas[0]), "p99.events.jsonl"))
             shot.main(["check", qas[0], "--regions", region, "--out", os.path.join(d, "chk2"), "--radius", "60"])
