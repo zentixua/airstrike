@@ -1,0 +1,98 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :createMinecraftArtifacts
+Loaded 131 artifacts from /mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/build/tmp/createMinecraftArtifacts/nfrt_artifact_manifest.properties
+[1m*** Started working on [4mdownloadJson[23;0m[23;0m
+ [1m[92m✓[23;0m Completed [4mdownloadJson[23;0m in 0.01s
+[1m*** Started working on [4mdownloadClient[23;0m[23;0m
+[1m*** Started working on [4mdownloadClientMappings[23;0m[23;0m
+[1m*** Started working on [4mdownloadServer[23;0m[23;0m
+ [1m[92m✓[23;0m Completed [4mdownloadClient[23;0m in 0.02s
+ [1m[92m✓[23;0m Completed [4mdownloadServer[23;0m in 0.02s
+ [1m[92m✓[23;0m Completed [4mdownloadClientMappings[23;0m in 0.02s
+[1m*** Started working on [4mmergeMappings[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mmergeMappings[23;0m in 0.00s
+[1m*** Started working on [4mstripClient[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mstripClient[23;0m in 0.00s
+[1m*** Started working on [4mextractServer[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mextractServer[23;0m in 0.00s
+[1m*** Started working on [4mstripServer[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mstripServer[23;0m in 0.00s
+[1m*** Started working on [4mmerge[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mmerge[23;0m in 0.00s
+[1m*** Started working on [4mrename[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mrename[23;0m in 0.00s
+[1m*** Started working on [4mdecompile[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mdecompile[23;0m in 0.00s
+[1m*** Started working on [4minject[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4minject[23;0m in 0.00s
+[1m*** Started working on [4mpatch[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mpatch[23;0m in 0.00s
+[1m*** Started working on [4mapplyNeoforgePatches[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mapplyNeoforgePatches[23;0m in 0.00s
+[1m*** Started working on [4mtransformSources[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mtransformSources[23;0m in 0.00s
+[1m*** Started working on [4mrecompile[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mrecompile[23;0m in 0.00s
+[1m*** Started working on [4msourcesWithNeoForge[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4msourcesWithNeoForge[23;0m in 0.00s
+[1m*** Started working on [4mcompiledWithNeoForge[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4mcompiledWithNeoForge[23;0m in 0.00s
+[1m*** Started working on [4msourcesAndCompiledWithNeoForge[23;0m[23;0m
+ [1m[92m♻[23;0m Used cache of [4msourcesAndCompiledWithNeoForge[23;0m in 0.00s
+[0;2;3m Deleted 10 outdated lock files
+Total runtime: 0.65s
+
+
+> Task :compileJava
+> Task :generateModMetadata
+> Task :processResources
+> Task :classes
+> Task :jarJar
+> Task :jar
+> Task :assemble
+
+> Task :compileDevtestJava
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/gametest/LifecycleGameTests.java:762: warning: [deprecation] getSeaLevel() in Level has been deprecated
+                    Vec3 aim = new Vec3(start.x + 300 * i, level.getSeaLevel() + 60, start.z);
+                                                                ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/gametest/StrikeGameTests.java:2744: warning: [deprecation] getSeaLevel() in Level has been deprecated
+        Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
+                                                       ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/gametest/StrikeGameTests.java:2786: warning: [deprecation] getSeaLevel() in Level has been deprecated
+        Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
+                                                       ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/gametest/StrikeGameTests.java:3020: warning: [deprecation] getSeaLevel() in Level has been deprecated
+        Vec3 aim = new Vec3(chunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 140, chunk.getMiddleBlockZ() + 0.5);
+                                                                ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/gametest/StrikeGameTests.java:3167: warning: [deprecation] getSeaLevel() in Level has been deprecated
+        Vec3 aim = new Vec3(aimChunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 60, aimChunk.getMiddleBlockZ() + 0.5);
+                                                                   ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/gametest/StrikeGameTests.java:3284: warning: [deprecation] getSeaLevel() in Level has been deprecated
+        Vec3 aim = new Vec3(aimChunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 60, aimChunk.getMiddleBlockZ() + 0.5);
+                                                                   ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/stress/StressDirector.java:782: warning: [deprecation] getSeaLevel() in Level has been deprecated
+            Vec3 from = new Vec3(x + 48 * i + 0.5, level.getSeaLevel() + 200, z + 0.5);
+                                                        ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/stress/StressDirector.java:827: warning: [deprecation] getSeaLevel() in Level has been deprecated
+        GroundProbe pr = new GroundProbe(name, "боевой пуск издалека (dispatch) по стойке", new Vec3(x + 0.5, level.getSeaLevel(), z + 0.5), RISING_SHOTS, true, false);
+                                                                                                                   ^
+/mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/src/devtest/java/ua/zentix/incoming/stress/StressDirector.java:879: warning: [deprecation] getSeaLevel() in Level has been deprecated
+                    if (w.ground == pr && w.virtual && w.pos.y < Math.min(level.getSeaLevel(), w.aim.y - 16)) pr.underFloor = true;
+                                                                               ^
+9 warnings
+
+> Task :processDevtestResources
+> Task :devtestClasses
+> Task :compileTestJava
+> Task :processTestResources NO-SOURCE
+> Task :testClasses
+> Task :test
+> Task :check
+> Task :build
+
+[Incubating] Problems report is available at: file:///mnt/data/projects/airstrike/.claude/worktrees/missile-flight/mod/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 1m 8s
+10 actionable tasks: 10 executed

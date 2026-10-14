@@ -789,6 +789,89 @@ public final class StrikeGameTests {
     }
 
     /**
+     * МБР со дна шахты (стенка из камня 25 блоков с проёмом 4×4 — как шахта Minuteman, ~24 м глубины и ~3,7 м
+     * в поперечнике): пока хвост в шахте, ракета идёт отвесно — не дальше 0,5 блока от оси, — и уходит выше шахты на 20
+     * блоков, не разбившись.
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "icbm_silo", skyAccess = true)
+    public static void icbmClimbsOutOfSilo(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = h.absolutePos(RANGE_CENTER);
+        // ось шахты — между четырьмя блоками: проём — блоки −2…1 от неё, стенка — кольцо −3 и 2
+        Vec3 pad = new Vec3(c.getX(), c.getY(), c.getZ());
+        int depth = 25, wallTop = c.getY() + depth;
+        List<BlockPos> wall = new ArrayList<>();
+        for (int y = 0; y < depth; y++) {
+            for (int x = -3; x <= 2; x++) {
+                for (int z = -3; z <= 2; z++) {
+                    if (x == -3 || x == 2 || z == -3 || z == 2) wall.add(c.offset(x, y, z));
+                }
+            }
+        }
+        wall.forEach(p -> level.setBlock(p, Blocks.STONE.defaultBlockState(), 2));
+        afterTest(h, () -> wall.forEach(p -> level.setBlock(p, Blocks.AIR.defaultBlockState(), 2)));
+        FlightLog log = StrikeWorld.get(level).flightLog();
+        int crashed = log.total(FlightLog.Event.CRASHED);
+        IcbmEntity icbm = ModEntities.ICBM.get().create(level);
+        icbm.prepare(pad, pad.add(2000, 0, 0), null);
+        level.addFreshEntity(icbm);
+        double half = WeaponSpec.NUKE.airframe().noseLength();
+        double[] top = {pad.y}, off = {0};
+        int[] out = {-1};
+        h.onEachTick(() -> {
+            if (icbm.isRemoved()) return;
+            top[0] = Math.max(top[0], icbm.getY());
+            if (icbm.getY() - half < wallTop) off[0] = Math.max(off[0], Math.hypot(icbm.getX() - pad.x, icbm.getZ() - pad.z));
+            else if (out[0] < 0) {
+                out[0] = icbm.age();
+                Incoming.LOG.info("МБР из шахты: хвост вышел на {}-м тике, отклонение от оси в шахте {} блока", out[0],
+                        String.format(Locale.ROOT, "%.3f", off[0]));
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(log.total(FlightLog.Event.CRASHED) == crashed, "МБР разбилась о шахту");
+            h.assertTrue(off[0] <= 0.5, "МБР в шахте ушла от оси на " + off[0] + " блока");
+            h.assertTrue(top[0] > wallTop + 20, "МБР не вышла выше шахты: " + top[0]);
+        });
+    }
+
+    /**
+     * МБР со стола на обычной высоте земли (y 64) видно около девяти секунд: от старта до ухода за потолок мира — 8–11 с
+     * (160–220 тиков), а не ~4 с. Стол — в воздухе над площадкой: столкновений на разгоне нет, а высота площадки GameTest
+     * не та, что у поверхности мира.
+     */
+    @GameTest(template = "range", timeoutTicks = 300, batch = "icbm_sky", skyAccess = true)
+    public static void icbmStaysInTheSkyNineSeconds(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = h.absolutePos(RANGE_CENTER);
+        BlockPos table = new BlockPos(c.getX(), Math.max(c.getY(), 64), c.getZ());
+        List<BlockPos> stone = new ArrayList<>();
+        for (int x = -3; x <= 3; x++) for (int z = -3; z <= 3; z++) stone.add(table.offset(x, -1, z));
+        stone.forEach(p -> level.setBlock(p, Blocks.STONE.defaultBlockState(), 2));
+        afterTest(h, () -> stone.forEach(p -> level.setBlock(p, Blocks.AIR.defaultBlockState(), 2)));
+        Vec3 pad = Vec3.atBottomCenterOf(table);
+        IcbmEntity icbm = ModEntities.ICBM.get().create(level);
+        icbm.prepare(pad, pad.add(2000, 0, 0), null);
+        level.addFreshEntity(icbm);
+        double[] last = {pad.y};
+        int[] age = {0};
+        StringBuilder bySecond = new StringBuilder();
+        h.onEachTick(() -> {
+            if (icbm.isRemoved()) return;
+            last[0] = icbm.getY();
+            age[0] = icbm.age();
+            if (age[0] % 20 == 0) bySecond.append(String.format(Locale.ROOT, " %d с: +%.0f (%.2f бл/тик);", age[0] / 20, icbm.getY() - 9 - pad.y, icbm.speed()));
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(icbm.isRemoved(), "МБР ещё в небе");
+            Incoming.LOG.info("МБР в небе: {} тиков, последняя высота {} (потолок {});{}", age[0], String.format(Locale.ROOT, "%.0f", last[0]),
+                    level.getMaxBuildHeight(), bySecond);
+            h.assertTrue(last[0] > level.getMaxBuildHeight(), "МБР убрана до потолка мира: на " + last[0]);
+            h.assertTrue(age[0] >= 160 && age[0] <= 220, "МБР в небе " + age[0] + " тиков");
+        });
+    }
+
+    /**
      * Пуск от имени игрока: пусковая с курсом, свободным до взведения, первая точка маршрута — на этом курсе в дальности
      * взведения (до неё снаряд идёт по проверенному сектору). Места пусковой нет (неровный навес над всей округой) — заход
      * издалека, без пусковой.

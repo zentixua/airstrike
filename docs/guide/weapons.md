@@ -56,6 +56,7 @@ underground. Use it on bunkers and underground bases. SAM radar detects the B-2 
 ![ICBM during boost](img/weapon-icbm.jpg)
 
 An intercontinental ballistic missile lifts off behind you, and 90 seconds later its warhead detonates at the target.
+It climbs like a real ICBM: slowly off the pad, faster as its fuel burns, and stays in the sky for about nine seconds.
 Everything about it is in [Nuclear strike](nuke.md).
 
 ## No room for the launcher

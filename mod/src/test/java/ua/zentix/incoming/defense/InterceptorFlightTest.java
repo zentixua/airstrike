@@ -2,6 +2,7 @@ package ua.zentix.incoming.defense;
 
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
+import ua.zentix.incoming.guidance.Ballistics;
 import ua.zentix.incoming.strike.WeaponSpec;
 import ua.zentix.incoming.strike.WeaponType;
 
@@ -125,6 +126,31 @@ class InterceptorFlightTest {
         }
     }
 
+    /**
+     * Из отвесного схода к цели далеко и низко у горизонта ракета ложится дугой: каждый тик поворот не круче бокового
+     * ускорения паспорта на скорости этого тика, в первый тик после направляющей — не больше 20°, а 10° над горизонтом
+     * курс проходит за 6–10 тиков (0,3–0,5 с) после неё.
+     */
+    @Test
+    void pitchOverIsAnArc() {
+        Vec3 target = RAIL.add(1500, 100, 0);
+        Interceptor f = new Interceptor(SPEC, UUID.randomUUID(), null, "тест", RAIL, Interceptor.railDirection(RAIL, target, SPEC));
+        for (int i = 1; i <= SPEC.railTicks(); i++) f.moveTo(f.steer(target));
+        int level = -1;
+        for (int i = 1; i <= 40 && level < 0; i++) {
+            Vec3 dir = f.direction();
+            double speed = f.speed();
+            f.moveTo(f.steer(target));
+            double turn = Math.toDegrees(Math.acos(Math.min(1, dir.dot(f.direction()))));
+            double byG = Math.toDegrees(SPEC.lateralG() * Ballistics.GRAVITY / Math.max(speed, SPEC.launchSpeed()));
+            assertTrue(turn <= SPEC.turnLimit(speed) + 1e-9, i + "-й тик после схода: поворот " + turn + "°");
+            assertTrue(turn <= byG + 1e-9, i + "-й тик после схода: поворот " + turn + "° круче " + SPEC.lateralG() + " g");
+            if (i == 1) assertTrue(turn <= 20, "первый тик после схода: поворот " + turn + "°");
+            if (Math.toDegrees(Math.asin(f.direction().y)) <= 10) level = i;
+        }
+        assertTrue(level >= 6 && level <= 10, "10° над горизонтом — на " + level + "-м тике после направляющей");
+    }
+
     /** На направляющей взрыватель не взведён: цель рядом с пусковой не рвёт ракету на старте. */
     @Test
     void fuzeIsSafeOnTheRail() {
@@ -149,7 +175,7 @@ class InterceptorFlightTest {
         Vec3 dir = Interceptor.railDirection(RAIL, target, SPEC);
         assertEquals(0, dir.subtract(0, 1, 0).length(), 1e-9, "ЗРК пускает отвесно");
         InterceptorSpec inclined = new InterceptorSpec(SPEC.railTicks(), 65, SPEC.launchSpeed(), SPEC.boostTicks(), SPEC.boostAccel(),
-                SPEC.maxSpeed(), SPEC.turnRate(), SPEC.fuelTicks(), SPEC.fuse(), SPEC.noseLength());
+                SPEC.maxSpeed(), SPEC.lateralG(), SPEC.fuelTicks(), SPEC.fuse(), SPEC.noseLength());
         Vec3 slant = Interceptor.railDirection(RAIL, target, inclined);
         assertEquals(65, Math.toDegrees(Math.asin(slant.y)), 1e-9);
         assertEquals(Math.atan2(600, -800), Math.atan2(slant.z, slant.x), 1e-9);

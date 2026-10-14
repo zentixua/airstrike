@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -212,10 +213,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Свой чанк и чанк впереди по курсу. */
     private final ChunkHold chunks = new ChunkHold();
 
-    // клиентская интерполяция: позиция приходит каждый тик, двигаемся к ней за один тик
-    private int lerpSteps;
-    private double lerpX, lerpY, lerpZ;
-    private float lerpYRot, lerpXRot;
+    /** Клиент: места от сервера — по одному на тик ({@link ArrivalQueue}): пакеты тика сервера приходят неровно. */
+    private final ArrivalQueue arrivals = new ArrivalQueue();
 
     protected StrikeProjectile(EntityType<? extends StrikeProjectile> type, Level level) {
         super(type, level);
@@ -1377,6 +1376,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     @Override
+    public void recreateFromPacket(ClientboundAddEntityPacket packet) {
+        super.recreateFromPacket(packet);
+        // ваниль ставит место с прежним (нулевым) поворотом в «прошлый» и потом поворот пакета: первые кадры модель
+        // доворачивалась бы с юга
+        yRotO = getYRot();
+        xRotO = getXRot();
+    }
+
+    @Override
     public void readSpawnData(RegistryFriendlyByteBuf buf) {
         clientPhase = buf.readByte();
         age = buf.readVarInt();
@@ -1385,34 +1393,31 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     @Override
     public void lerpTo(double x, double y, double z, float yRot, float xRot, int steps) {
-        this.lerpX = x;
-        this.lerpY = y;
-        this.lerpZ = z;
-        this.lerpYRot = yRot;
-        this.lerpXRot = xRot;
-        this.lerpSteps = 1;
+        arrivals.add(new ArrivalQueue.Sample(x, y, z, yRot, xRot));
     }
 
+    /** Место на этот тик клиента — из очереди; пуста — прогноз в долг от последнего пришедшего места ({@link ArrivalQueue}). */
     private void clientLerp() {
-        if (lerpSteps > 0) {
-            lerpPositionAndRotationStep(lerpSteps, lerpX, lerpY, lerpZ, lerpYRot, lerpXRot);
-            lerpSteps--;
-        }
+        ArrivalQueue.Sample s = arrivals.next(getX(), getY(), getZ(), getYRot(), getXRot());
+        if (s != null) lerpPositionAndRotationStep(1, s.x(), s.y(), s.z(), s.yRot(), s.xRot());
     }
 
     @Override
     public double lerpTargetX() {
-        return lerpSteps > 0 ? lerpX : getX();
+        ArrivalQueue.Sample s = arrivals.latest();
+        return s != null ? s.x() : getX();
     }
 
     @Override
     public double lerpTargetY() {
-        return lerpSteps > 0 ? lerpY : getY();
+        ArrivalQueue.Sample s = arrivals.latest();
+        return s != null ? s.y() : getY();
     }
 
     @Override
     public double lerpTargetZ() {
-        return lerpSteps > 0 ? lerpZ : getZ();
+        ArrivalQueue.Sample s = arrivals.latest();
+        return s != null ? s.z() : getZ();
     }
 
     @Override
