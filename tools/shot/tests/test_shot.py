@@ -450,6 +450,20 @@ class SubjectTest(unittest.TestCase):
             self.assertTrue(shot.plan_off(pr))   # у удара камера вывода в 3 блоках от плана
             self.assertFalse(shot.plan_off({**pr, "plan_pos_key": 0.0}))
             self.assertFalse(shot.plan_off({**pr, "cand": "tripod-planned"}))   # у оператора руки и тряска
+            self.assertFalse(pr["plan_stale"])
+            # план переписан после вывода (перепланировка) — прежний вывод с ним не сверяется
+            later = os.path.getmtime(os.path.join(raw, "qa.jsonl")) + 60
+            os.utime(os.path.join(d, "planned", "p99.camera.jsonl"), (later, later))
+            shot.main(["check", os.path.join(raw, "qa.jsonl"), "--regions", region, "--out", os.path.join(d, "chk5"),
+                       "--radius", "60"])
+            with open(os.path.join(d, "chk5", "check.json"), encoding="utf-8") as f:
+                st = json.load(f)[0]
+            self.assertTrue(st["plan_stale"])
+            self.assertFalse(shot.plan_off(st))
+            # удар у вывода на тик-другой позже записи — не «другой»
+            self.assertFalse(shot.key_off({"key_shift": 1, "key_moved": 0.0}))
+            self.assertTrue(shot.key_off({"key_shift": 4, "key_moved": 0.0}))
+            self.assertTrue(shot.key_off({"key_shift": 0, "key_moved": 3.0}))
 
 
 class PickTest(unittest.TestCase):

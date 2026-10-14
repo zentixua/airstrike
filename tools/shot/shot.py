@@ -437,6 +437,8 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     plan_cam = os.path.join(root, "planned", f"{name}.camera.jsonl")
     if "-planned" in cand and os.path.exists(plan_cam):
         pc = [r for r in (json.loads(x) for x in open(plan_cam, encoding="utf-8") if x.strip()) if "pos" in r]
+        # план переписан после вывода (перепланировка): сравнивать прежний вывод с новым планом незачем
+        res["plan_stale"] = os.path.getmtime(plan_cam) > os.path.getmtime(qa_path) + 1
         if pc:
             pt = np.array([r["t"] for r in pc], dtype=np.float64)
             pp = np.array([r["pos"] for r in pc], dtype=np.float64)
@@ -479,19 +481,26 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
         + (f"  ДРУГОЙ ОБЪЕКТ: вывод ближе к пути {other} (медиана {other_med:.1f})" if other is not None else "")
         + ("  ЖУРНАЛ СБИТ" if journal_off(res) else "")
         + (f"  УДАР У ВЫВОДА ДРУГОЙ: {res['key_shift']:+d} тиков, {res['key_moved']:.1f} блока от удара записи"
-           if res.get("key_shift") or res.get("key_moved", 0) > 2 else "")
+           if key_off(res) else "")
         + (f"  камера от плана: медиана {res['plan_pos_med']:.2f} блока, {res['plan_ang_med']:.1f}°; у удара до "
            f"{res['plan_pos_key']:.2f} блока, {res['plan_ang_key']:.1f}°" + (f"; кадров вне плана {res['plan_out']}" if res["plan_out"] else "")
            if "plan_pos_med" in res else "")
+        + ("  (план новее вывода)" if res.get("plan_stale") else "")
         + ("  КАМЕРА НЕ ПО ПЛАНУ" if plan_off(res) else ""))
     return res
 
 
 def plan_off(res: dict) -> bool:
     """Вывод `-planned-raw` ведёт не ту камеру, что в плане (у `-planned` без `-raw` — руки и тряска оператора, сдвиг ждан)."""
-    return res.get("cand", "").endswith("-raw") and "plan_pos_med" in res and (
+    return res.get("cand", "").endswith("-raw") and "plan_pos_med" in res and not res.get("plan_stale") and (
         res.get("plan_pos_med", 0) > 0.5 or res.get("plan_ang_med", 0) > 3 or res.get("plan_out", 0) > 0
         or res.get("plan_pos_key", 0) > 1 or res.get("plan_ang_key", 0) > 5)
+
+
+def key_off(res: dict) -> bool:
+    """Удар объекта у вывода не там или не тогда, что в журнале записи. Тик-другой — не сдвиг: журнал вывода пишет места
+    на тик позже записи (сдвиг `объект от журнала` — около −1 тика), камера у удара от этого не меняется."""
+    return abs(res.get("key_shift", 0)) > 2 or res.get("key_moved", 0) > 2
 
 
 def journal_off(res: dict) -> bool:
