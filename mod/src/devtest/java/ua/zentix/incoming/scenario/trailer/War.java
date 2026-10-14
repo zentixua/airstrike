@@ -87,9 +87,9 @@ import java.util.function.BooleanSupplier;
  * начала или с отметки ({@code siren} — тревога над игроком, {@code front} — фронт ядерного взрыва у камеры, и
  * отметки {@link Film}).
  * <p>
- * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB}, {@code nukeC} и
- * {@code p48} — ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42;
- * по умолчанию — всё, кроме {@code nukeB}, {@code nukeC}, {@code p48} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p16}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
+ * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB}, {@code nukeC},
+ * {@code p48} и {@code p50} — ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя
+ * МБР для p42; по умолчанию — всё, кроме {@code nukeB}, {@code nukeC}, {@code p48}, {@code p50} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p16}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
  * {@code streets} — уличный бой (площадь и проспект, около сотни ботов) с планами 26–30.
  */
 final class War {
@@ -230,6 +230,7 @@ final class War {
         if (part.equals("nukeB")) nukeFar();
         if (part.equals("nukeC")) nukeNear();
         if (part.equals("p48")) wallOverTown();
+        if (part.equals("p50")) roofWave();
         if (part.equals("icbm")) icbm();
         // один план или одна сцена для проверки съёмки из повтора (ReplayFilm) и короткой перезаписи
         if (part.equals("p03")) dawnFlight();
@@ -2709,6 +2710,20 @@ final class War {
                 .when(() -> film.warningTicks() < 300, 4000);
 
         // p45, p50: крыша в ~900 блоках: вспышка — люди отворачиваются; волна закрывает небо и накрывает их
+        roofCrowd();
+        film.shot("p45").length(80).hidden()
+                .camera(() -> CineCamera.track(FINAL_ROOF.add(-7, 3.2, -6), () -> GZ.add(0, 250, 0), 60))
+                .when(() -> film.warningTicks() < 30, 4000)
+                .cue(31, () -> film.withServer(s -> roof.cower(GZ)));
+        finalRoof(320).noPrep();
+    }
+
+    /**
+     * Люди на крыше p45 и p50 — в творческом режиме: свет подрыва, радиация и волна их не трогают. Крыша в ~1,1 км от
+     * точки подрыва (15 кт, 590 м над землёй), свет там ~35 кал/см², а с 10 мод убивает ({@code NuclearWarhead.burn}):
+     * в p45 люди ещё стоят через 1,4 с после вспышки, а к началу p50 (через 2,5 с) крыша пуста (14.10).
+     */
+    private void roofCrowd() {
         hiddenAt(FINAL_ROOF, GZ);
         film.onServer(level -> {
             roof = new Crowd(cast(), server());
@@ -2719,19 +2734,37 @@ final class War {
         });
         settle();
         film.onServer(level -> {
+            for (Crowd.Person p : roof.people()) cast().command("gamemode creative " + p.name);
             for (int i = 3; i < 6; i++) film.armSoldier("Guard" + i, 1);
             roof.watch(GZ.add(0, 300, 0), 30);
         });
-        film.shot("p45").length(80).hidden()
-                .camera(() -> CineCamera.track(FINAL_ROOF.add(-7, 3.2, -6), () -> GZ.add(0, 250, 0), 60))
-                .when(() -> film.warningTicks() < 30, 4000)
-                .cue(31, () -> film.withServer(s -> roof.cower(GZ)));
-        film.shot("p50").length(320).hidden().noPrep()
+    }
+
+    /** p50: камера над людьми на крыше отъезжает, волна закрывает небо и накрывает их. */
+    private Film.Shot finalRoof(int length) {
+        return film.shot("p50").length(length).hidden()
                 .camera(() -> {
                     Vec3 a = FINAL_ROOF.add(-9, 5.5, -8), b = FINAL_ROOF.add(-5, 2.6, -10);
                     return CineCamera.dolly(a, b, 320, () -> GZ.add(0, 330, 0), 64);
                 })
                 .cue(120, () -> film.withServer(s -> roof.watch(GZ.add(0, 600, 0), 40)));
+    }
+
+    /**
+     * Часть p50: крыша и волна своим подрывом, без МБР, отсчёта и p45. Люди отворачиваются в тике подрыва, как по
+     * вспышке в p45; план начинается через 2 с после подрыва (в части nuke — через 2,5 с, сразу за p45): волна на крыше
+     * через 2,25 с плана (в film-war4 — через 1,75 с), монтажу до неё нужно 1,74 с.
+     */
+    private void roofWave() {
+        film.run(() -> Film.cmd("time set 17000"));
+        roofCrowd();
+        film.waitTicks(100);
+        finalRoof(160)
+                .onReady(() -> {
+                    Film.cmd("incoming nuke now at " + xyz(at(GZ)) + " 15 air");
+                    film.withServer(s -> roof.cower(GZ));
+                })
+                .when(() -> film.sinceDetonation() >= 40, 600);
     }
 
     /**

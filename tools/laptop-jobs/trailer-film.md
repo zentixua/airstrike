@@ -252,3 +252,23 @@ tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trai
 В логе записи: нет `момент не наступил` и `the launcher is busy with the previous order`; прислать строки `TRAILER p40`,
 `TRAILER p48` и `SCENARIO film`. Из вывода — три `report.md` и `best.txt`, ошибки (как в п. 3). Из монтажа — как в п. 6,
 с `v4` вместо `v2`; лёгкую версию — частями, как v3.
+
+## 10. p50 — люди на крыше живы (видеокарта; сразу)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка (между шагами, не во время записи или вывода).
+В v4 p50 (камера ниже, `render-p50people`) людей в кадре по-прежнему нет: их убивает вспышка. Крыша в ~1,1 км от
+подрыва, свет там ~35 кал/см², с 10 мод убивает; в p45 люди стоят через 1,4 с после вспышки, к началу p50 их нет.
+Теперь люди на крыше — в творческом режиме (свет и волна их не трогают), а p50 — своя часть `p50` (свой подрыв на свежей
+копии мира, без МБР; план — через 2 с после подрыва, 8 с). Вывод — только камерами сценария с взглядом ниже.
+Свободного места — как в п. 2 (одна копия мира).
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war10-p50 && chmod -R u+w mod/run/scenario/saves/war10-p50
+INCOMING_TRAILER_DIR=film-war10 INCOMING_WAR_PART=p50 INCOMING_WORLD=war10-p50 \
+INCOMING_TRAILER_SHOTS=p50 tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war10 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p50 INCOMING_FILM_CAMERA='own-.*-down.*' \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+python3 tools/trailer/report.py mod/run/scenario/film-war10/render --md mod/run/scenario/film-war10/render/report.md
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v5.mp4
+```
+В логе записи: нет `момент не наступил`; прислать строки `TRAILER p50`, `SCENARIO film` и все строки с `Watch` или
+`Guard` (смерть кого-то из них — ошибка). Из вывода — `report.md`, `best.txt`, ошибки (как в п. 3). Из монтажа — как в
+п. 6, с `v5` вместо `v2`; лёгкую версию — частями, как v3.
