@@ -35,13 +35,15 @@ def _payload(out, v):
     elif isinstance(v, str):
         out += struct.pack(">H", len(v.encode())) + v.encode()
     elif isinstance(v, np.ndarray):
-        out += struct.pack(">i", len(v)) + v.astype(">i8").tobytes()
+        out += struct.pack(">i", len(v)) + v.astype(">i4" if v.dtype == np.int32 else ">i8").tobytes()
     else:
         out += struct.pack(">i", int(v))
 
 
 def _tag(v):
-    return 10 if isinstance(v, dict) else 9 if isinstance(v, list) else 8 if isinstance(v, str) else 12 if isinstance(v, np.ndarray) else 3
+    if isinstance(v, np.ndarray):
+        return 11 if v.dtype == np.int32 else 12
+    return 10 if isinstance(v, dict) else 9 if isinstance(v, list) else 8 if isinstance(v, str) else 3
 
 
 def pack(vals, bits):
@@ -56,8 +58,9 @@ def pack(vals, bits):
     return out.view(np.int64)
 
 
-def write_world(region_dir, world, cw, ch, rx=0, rz=0):
-    """world[y + 64, z, x] — номера в names; чанки 0..cw-1 × 0..ch-1 от угла региона r.rx.rz."""
+def write_world(region_dir, world, cw, ch, rx=0, rz=0, starts=None):
+    """world[y + 64, z, x] — номера в names; чанки 0..cw-1 × 0..ch-1 от угла региона r.rx.rz; starts —
+    {(cx, cz): [(id, [x0, y0, z0, x1, y1, z1]), …]} — начала построек генерации в чанке."""
     names = world.names
     os.makedirs(region_dir, exist_ok=True)
     head, body = bytearray(8192), bytearray()
@@ -76,7 +79,13 @@ def write_world(region_dir, world, cw, ch, rx=0, rz=0):
                     bs["data"] = pack(idx.astype(np.uint64), max(4, int(np.ceil(np.log2(len(pal))))))
                 secs.append({"Y": sy, "block_states": bs})
             out = bytearray(b"\x0a\x00\x00")
-            _payload(out, {"Status": "minecraft:full", "xPos": rx * 32 + cx, "zPos": rz * 32 + cz, "sections": secs})
+            chunk = {"Status": "minecraft:full", "xPos": rx * 32 + cx, "zPos": rz * 32 + cz, "sections": secs}
+            st = (starts or {}).get((cx, cz))
+            if st:
+                chunk["structures"] = {"starts": {sid: {"id": sid, "ChunkX": rx * 32 + cx, "ChunkZ": rz * 32 + cz,
+                                                        "Children": [{"id": "part", "BB": np.array(bb, np.int32)}]}
+                                                  for sid, bb in st}}
+            _payload(out, chunk)
             data = zlib.compress(bytes(out))
             rec = struct.pack(">ib", len(data) + 1, 2) + data
             rec += b"\0" * (-len(rec) % 4096)
@@ -125,7 +134,7 @@ class MapStudyTest(unittest.TestCase):
         self.assertAlmostEqual(t["height"], 45, delta=2)
 
     def test_city(self):
-        W, H = 192, 128
+        W, H = 256, 192
         w = World(W, H)
         w.box("minecraft:stone", 0, -64, 0, W, 60, H)
         w.box("minecraft:dirt", 0, 60, 0, W, 64, H)
@@ -140,22 +149,42 @@ class MapStudyTest(unittest.TestCase):
         w.box("minecraft:stone_bricks", 10, 48, 8, 150, 55, 14)
         w.box("minecraft:air", 10, 49, 9, 150, 54, 13)
         w.box("minecraft:rail", 10, 49, 11, 150, 50, 12)
+        # станция метро: зал 26 × 21 на линии
+        w.box("minecraft:stone_bricks", 60, 48, 2, 86, 57, 23)
+        w.box("minecraft:air", 61, 49, 3, 85, 56, 22)
+        w.box("minecraft:rail", 61, 49, 11, 85, 50, 12)
         # озеро и мост поперёк
-        w.box("minecraft:water", 100, 58, 90, W, 65, H)
-        w.box("minecraft:oak_planks", 150, 67, 88, 156, 68, H)
+        w.box("minecraft:water", 100, 58, 90, 192, 65, 130)
+        w.box("minecraft:oak_planks", 150, 67, 88, 156, 68, 132)
+        # взлётная полоса 180 × 14
+        w.box("minecraft:gray_concrete", 20, 64, 150, 200, 65, 164)
+        # железная дорога по земле
+        w.box("minecraft:rail", 10, 65, 182, 220, 66, 183)
+        # шахта генерации: рельсы в 30 блоках под землёй — не метро
+        w.box("minecraft:oak_planks", 20, 28, 170, 130, 35, 177)
+        w.box("minecraft:air", 20, 29, 171, 130, 34, 176)
+        w.box("minecraft:rail", 20, 29, 173, 130, 30, 174)
+        # пласт камня Create под землёй — природа, не тоннель
+        w.box("create:asurine", 200, 20, 100, 240, 40, 140)
+        # башня из стекла с каменной крышей: дом, а не гора
+        w.box("minecraft:glass", 200, 65, 20, 208, 104, 28)
+        w.box("minecraft:stone", 200, 104, 20, 208, 105, 28)
         # холм
         for r in range(0, 30):
             w.box("minecraft:stone", 10 + r // 2, 65 + r, 85 + r // 2, 50 - r // 2, 66 + r, 125 - r // 2)
             w.box("minecraft:grass_block", 10 + r // 2, 66 + r, 85 + r // 2, 50 - r // 2, 67 + r, 125 - r // 2)
+        # домик на вершине холма: высота — от вершины, а не от подножия
+        w.box("minecraft:oak_planks", 28, 96, 103, 32, 101, 107)
         with tempfile.TemporaryDirectory() as d:
             reg, out = os.path.join(d, "region"), os.path.join(d, "out")
-            write_world(reg, w, W // 16, H // 16)
+            write_world(reg, w, W // 16, H // 16, starts={(1, 10): [("minecraft:mineshaft", [20, 28, 170, 129, 34, 176])]})
             r = subprocess.run([sys.executable, TOOL, reg, out, "--box", "0", "0", str(W), str(H), "--jobs", "1",
-                                "--points", "улица:90,42;холм:30,105"], capture_output=True, text=True)
+                                "--points", "улица:90,42;холм:30,105;башня:104,76", "--crops", "центр:100,60,64"],
+                               capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr[-3000:])
             with open(os.path.join(out, "mapstudy.json"), encoding="utf-8") as f:
                 st = json.load(f)
-            for img in ("map.png", "heights.png", "infra.png"):
+            for img in ("map.png", "heights.png", "infra.png", "crop-01.jpg", "crop-01-infra.jpg"):
                 self.assertTrue(os.path.getsize(os.path.join(out, img)) > 0)
         tower = [t for t in st["tall"] if 100 <= t["x"] < 108 and 72 <= t["z"] < 80]
         self.assertTrue(tower, st["tall"])
@@ -164,9 +193,21 @@ class MapStudyTest(unittest.TestCase):
         self.assertTrue(street, st["streets"])
         self.assertGreaterEqual(street[0]["length"], 150)
         self.assertGreaterEqual(street[0]["sides"], 14)
-        self.assertTrue(st["metro"], "метро не найдено")
+        self.assertEqual(len(st["metro"]), 1, st["metro"])     # рельсы шахты — не линия метро
         self.assertGreaterEqual(st["metro"][0]["rails"], 130)
         self.assertGreater(st["metro"][0]["under"], 0.9)
+        self.assertTrue(any(55 <= x["x"] <= 90 and x["line"] == 1 for x in st["stations"]), st["stations"])
+        self.assertFalse(any(x["x"] < 50 or x["x"] > 100 for x in st["stations"]), st["stations"])
+        self.assertTrue(any(r["extent"] >= 200 and r["y"][0] == 65 for r in st["railways"]), st["railways"])
+        self.assertTrue(any(rw["length"] >= 170 and 12 <= rw["width"] <= 16 for rw in st["runways"]), st["runways"])
+        self.assertFalse(any(t["x"][0] >= 190 for t in st["tunnels"]), st["tunnels"])   # пласт Create
+        self.assertFalse(any(n.startswith("create:") for n, _ in st["deep_census"]), st["deep_census"])
+        self.assertEqual(st["generated"], [{"id": "minecraft:mineshaft", "starts": 1, "inside_map": 1}])
+        roof = [t for t in st["tall"] if 200 <= t["x"] < 208 and 20 <= t["z"] < 28]
+        self.assertTrue(roof, st["tall"])
+        self.assertAlmostEqual(roof[0]["height"], 40, delta=2)
+        self.assertFalse(any(p["x"] >= 195 and p["z"] < 40 for p in st["peaks"]), st["peaks"])
+        self.assertFalse(any(t["x"] < 50 and t["z"] > 85 for t in st["tall"]), st["tall"])
         self.assertTrue(any(b["x"][0] <= 152 <= b["x"][1] for b in st["bridges"]), st["bridges"])
         self.assertTrue(st["waters"], "озеро не найдено")
         self.assertTrue(st["districts"])
@@ -175,6 +216,7 @@ class MapStudyTest(unittest.TestCase):
         pts = {p["name"]: p for p in st["points"]}
         self.assertGreater(pts["улица"]["road_128"], 0.05)
         self.assertGreaterEqual(pts["холм"]["top"], 90)
+        self.assertIn(pts["башня"]["n"], pts["холм"]["sees"])
 
 
 if __name__ == "__main__":
