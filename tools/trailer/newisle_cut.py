@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Монтаж трейлера на Newisle из того, что снял конвейер (produce.py): план монтажа по листу аниматика
 (scenes/newisle-animatic.json) — склейки на местах и длинах листа, дубль плана — прошедший проверку вывод (PASS в
-best.txt) или живая запись; плана нет — чёрная заливка с его именем (черновик показывает дыру). Сам монтаж —
+best.txt) или живая запись; плана нет — чёрная заливка с его именем (черновик показывает дыру; план живого дубля
+Артёма, ещё не снятый, — «утром с Артёмом»). Сам монтаж —
 montage.py (проверка verdict.py: склейка, которую проверка не пропускает, в черновике становится заливкой).
 
     python3 tools/trailer/newisle_cut.py --work ПАПКА_РАБОТЫ [--draft | --final] [--music Juggernaut.mp3] [--check]
@@ -67,8 +68,14 @@ def shot_dirs(state, takes):
     return dirs
 
 
-def plan_of(sheet, dirs, broken=(), music=None):
-    """План монтажа для montage.py по листу: склейки по порядку листа, длины — его (такты — сеткой трека)."""
+def live_plans(takes):
+    """Планы живых дублей Артёма (дубль с `artem`): их снимает он сам, конвейер ночью — нет."""
+    return {p for t in takes["takes"] if "artem" in t for s in t["shots"] for p in s["plans"]}
+
+
+def plan_of(sheet, dirs, broken=(), music=None, later=()):
+    """План монтажа для montage.py по листу: склейки по порядку листа, длины — его (такты — сеткой трека); неснятый план
+    из `later` (живые дубли) — заливка «утром с Артёмом»."""
     bar = float(sheet.get("bar", 2 * BEAT))
     cuts, t, starts = [], 0.0, []
     for i, s in enumerate(sheet["shots"]):
@@ -85,8 +92,9 @@ def plan_of(sheet, dirs, broken=(), music=None):
         if plan in dirs and plan not in broken:
             c = {"take": plan, "kind": "scene", "anchor": "start", "dur": dur, "hold": False, "plan": plan}
         else:
+            why = "утром с Артёмом" if plan in later and plan not in broken else "not shot"
             c = {"kind": "fill", "level": 0, "dur": dur, "id": f"{plan}-missing",
-                 "text": {"lines": [f"{plan} — not shot"], "style": "title"}, "plan": plan}
+                 "text": {"lines": [f"{plan} — {why}"], "style": "title"}, "plan": plan}
         lb = sheet.get("letterbox") or {}
         if lb.get("until") == plan and "take" in c:
             c["open"] = f"start+{float(lb.get('open', 0)):.2f}"
@@ -136,7 +144,7 @@ def main(argv=None):
     broken = set()
     montage = os.path.join(HERE, "montage.py")
     for _ in range(8):
-        plan = plan_of(sheet, dirs, broken, music)
+        plan = plan_of(sheet, dirs, broken, music, later=live_plans(takes))
         plan["name"] = name
         path = os.path.join(out, name + ".json")
         with open(path, "w", encoding="utf-8") as f:

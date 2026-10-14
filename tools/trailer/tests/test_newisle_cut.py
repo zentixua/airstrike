@@ -59,6 +59,15 @@ class NewisleCutTest(unittest.TestCase):
             self.assertLess(piece["from"], piece["to"])
         json.dumps(plan)
 
+    def test_live_plans_wait_for_artem(self):
+        live = C.live_plans(TAKES)
+        self.assertTrue(live, "у листа есть живые дубли")
+        p = next(s["plan"] for s in SHEET["shots"] if s.get("plan") in live)
+        cuts = {c.get("plan"): c for c in C.plan_of(SHEET, {}, later=live)["cuts"] if c.get("plan")}
+        self.assertEqual(f"{p} — утром с Артёмом", cuts[p]["text"]["lines"][0])
+        other = next(s["plan"] for s in SHEET["shots"] if "plan" in s and s["plan"] not in live)
+        self.assertIn("not shot", cuts[other]["text"]["lines"][0])
+
     def test_final_refuses_missing(self):
         with tempfile.TemporaryDirectory() as work:
             with open(os.path.join(work, "state.json"), "w") as f:
