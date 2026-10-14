@@ -49,14 +49,20 @@ class PreviewTest(unittest.TestCase):
         os.makedirs(work, exist_ok=True)
         with open(os.path.join(work, "state.json"), "w", encoding="utf-8") as f:
             json.dump(state, f)
+        os.makedirs(os.path.join(work, "preview"))
+        V.p1_status(os.path.join(work, "preview"), fetch=lambda: "stage: recording — T10")
         shots = V.build(work, convert=self.convert)
         self.assertEqual([f"{plan}-0.jpg", f"{plan}-1.jpg", f"{plan}-2.jpg"], shots[plan])
-        self.assertEqual(["00002.png", "00005.png", "00008.png"], [os.path.basename(c) for c in self.calls])
+        self.assertEqual(["00002.png", "00005.png", "00008.png"], sorted(os.path.basename(c) for c in self.calls[:3]))
+        self.assertTrue(self.calls[3].endswith("00008.png"), "живая — предпоследний кадр: последний, может быть, пишется")
         page = open(os.path.join(work, "preview", "index.html"), encoding="utf-8").read()
         self.assertIn("удар не в срок", page)
         self.assertIn("утром с Артёмом", page, "живые планы Артёма — на утро")
         V.build(work, convert=self.convert)
-        self.assertEqual(3, len(self.calls), "готовые кадры не пересобираются")
+        self.assertEqual(4, len(self.calls), "готовые кадры и живая миниатюра того же кадра не пересобираются")
+        page = open(os.path.join(work, "preview", "index.html"), encoding="utf-8").read()
+        self.assertIn("live.jpg", page)
+        self.assertIn("T10", page, "статус P1 — из кэша")
 
 
 if __name__ == "__main__":
