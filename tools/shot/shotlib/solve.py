@@ -226,6 +226,11 @@ class Eval:
     parts: dict
 
 
+def spare_of(size):
+    """Сколько блоков у цели луч видимости не считает: как у проверки кадров (`FrameQa`: max(1,5, 0,4 поперечника))."""
+    return np.maximum(1.5, np.asarray(size, dtype=np.float64) * 0.4)
+
+
 def _sight(world: W.World, eye: np.ndarray, tgt: np.ndarray, spare: np.ndarray, maxit: int = 160,
            unknown_blocks: bool = True):
     """Закрытие отрезков глаз → цель (…, 3): 1 — непрозрачный блок или неизвестный чанк на пути, иначе по листве и
@@ -395,7 +400,7 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
     sh = C.share(sz[None], np.maximum(z, 0.1), fov, spec.aspect)
     mn, good, mx = spec.share
     g_size = np.clip(1 + np.log(np.maximum(sh, 1e-9) / mn) / math.log(2), 0, 1)
-    spare = (sz / 2 + 1.5)[None].repeat(s, 0)
+    spare = spare_of(sz)[None].repeat(s, 0)
     occ = _sight(w, Ps, np.broadcast_to(sub[None], Ps.shape), spare, unknown_blocks=not spec.overlay)
     T = np.ones((s, len(sel)))
     for i, t in enumerate(ts[sel]):
@@ -411,20 +416,23 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
         return (g[:, mask].mean(1) if mask.any() else None)
 
     f_pre, f_near = frac(ph["pre"]), frac(ph["near"])
-    # удар: место удара (шар) в кадре и видно в первые 12 тиков — без размера
+    # удар: место удара (шар) в кадре и видно в первые 12 тиков — без размера. Точка и запас у цели — как у проверки
+    # кадров (`Rig.Subject.aim`, `FrameQa`): шар у самой земли и поднимается за 2 с; прежняя точка на 0,35 шара выше
+    # видела удар поверх низкой преграды, которой вывод не видел за ним (14.10 p32: мера 1,00, вывод 0 % — за блоками)
     f_key = None
     if spec.keys:
         tk, pos, ksz = spec.keys[0]
         ii = np.flatnonzero((ts >= tk) & (ts <= tk + 12))
         if len(ii):
-            fire = np.asarray(pos) + np.array([0, ksz * 0.35, 0])
-            ku, kv, kz = C.project(P[:, ii], yaw[:, ii], pitch[:, ii], roll[:, ii], fov, spec.aspect, fire[None, None])
+            fire = subj[ii]
+            ku, kv, kz = C.project(P[:, ii], yaw[:, ii], pitch[:, ii], roll[:, ii], fov, spec.aspect, fire[None])
             kin = np.clip(1 - (np.maximum(np.abs(ku), np.abs(kv)) - 0.85) / 0.1, 0, 1) * (kz > 0.1)
-            kocc = _sight(w, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), np.full((s, len(ii)), 3.0),
+            kocc = _sight(w, P[:, ii], np.broadcast_to(fire[None], P[:, ii].shape), np.full((s, len(ii)), spare_of(ksz)),
                           unknown_blocks=not spec.overlay)
             pf = scene.puffs(float(tk))
-            kT = transmittance(pf, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spare=ksz) if len(pf) else 1.0
-            kvis = (1 - kocc) * kT * (1 - _haze(scene, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spec.overlay))
+            kT = (transmittance(pf, P[:, ii], np.broadcast_to(fire[None], P[:, ii].shape), spare=ksz * 2 + 4)
+                  if len(pf) else 1.0)
+            kvis = (1 - kocc) * kT * (1 - _haze(scene, P[:, ii], np.broadcast_to(fire[None], P[:, ii].shape), spec.overlay))
             f_key = (kin * np.clip((kvis - 0.3) / 0.4, 0, 1)).mean(1)
             if fine:
                 parts["_kseen"] = (np.maximum(np.abs(ku), np.abs(kv)) <= 0.92) & (kz > 0.1) & (kvis > 0.5)

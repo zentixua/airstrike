@@ -257,6 +257,29 @@ class SolveTest(unittest.TestCase):
         self.assertLess(got["strike"][1]["approach"], 0.6)
         self.assertLess(got["hit"][0] + 5, got["strike"][0])
 
+    def test_hit_behind_a_low_wall_is_hidden_like_frameqa(self):
+        # удар за стенкой в 3 блока, камера на 2 блока выше её верха: шар у земли (как `FrameQa` в первые 12 тиков)
+        # закрыт, хотя точка на 0,35 шара над ним видна — мера говорит «удар не виден», как вывод (14.10 p32)
+        w = W.empty((-40, 50, -60), (200, 100, 180), ground_y=64)
+        W.box(w, (60, 64, 0), (61, 67, 60))
+        sc = S.Scene(w)
+        key = np.array([66.0, 64.0, 30.0])
+        ts = np.arange(0, 121)
+        sc.tracks["1"] = S.Track("1", "rocket", ts, np.array([140.0, 100.0, 30.0]) * (1 - ts / 120.0)[:, None]
+                                 + key * (ts / 120.0)[:, None])
+        eye = np.array([40.0, 69.0, 30.0])
+        n = 101
+        P = np.repeat(eye[None, None], n, 1)
+        yaw, pitch = C.angles(key - eye)
+        ang = (np.full((1, n), yaw), np.full((1, n), pitch), np.zeros((1, n)))
+        spec = V.Spec("t", 40, 140, sc.tracks["1"], keys=[(120, key, 8.0)], style="tripod", size=3.0, need=(0, 0, 0.5))
+        rep = V.report(spec, V.evaluate(sc, spec, V.STYLES["tripod"], P, 20.0, fine=True, angles=ang), 20.0)
+        self.assertLess(rep["key"], 0.2)
+        self.assertFalse(rep["pass"])
+        # точка, которую видела прежняя мера, — над стенкой
+        hi = key + np.array([0, 8 * 0.35, 0])
+        self.assertLess(float(V._sight(w, eye[None], hi[None], np.array([3.0]))[0]), 0.5)
+
     def test_fpv_is_flyable(self):
         sc = wall_scene()
         spec = V.Spec("t", 40, 140, sc.tracks["1"], keys=[(120, np.array([70.0, 64.0, 30.0]), 12.0)], style="fpv", size=3.5)
@@ -405,6 +428,28 @@ class SubjectTest(unittest.TestCase):
             self.assertLess(mapped["off_p90"], 0.5)
             self.assertGreater(mapped["in_agree"], 0.98)
             self.assertEqual((mapped["key_shift"], mapped["key_moved"]), (0, 0.0))
+            # камера по сцене: вывод `-planned-raw` против камеры плана (`<трейлер>/planned/<план>.camera.jsonl`)
+            os.makedirs(os.path.join(d, "planned"))
+            with open(os.path.join(d, "planned", "p99.camera.jsonl"), "w") as f:
+                f.write(json.dumps({"body": "tripod", "shot": "p99"}) + "\n")
+                for t in range(1, 120):
+                    f.write(json.dumps({"t": t, "pos": [30, 70, 40 + (3 if t >= 80 else 0)], "yaw": -90, "pitch": 0,
+                                        "roll": 0, "fov": 70}) + "\n")
+            raw = os.path.join(d, "render", "p99", "tripod-planned-raw")
+            os.makedirs(raw)
+            import shutil
+            shutil.copy(qas[0], os.path.join(raw, "qa.jsonl"))
+            shutil.copy(os.path.join(os.path.dirname(qas[0]), "p99.events.jsonl"), os.path.join(raw, "p99.events.jsonl"))
+            shot.main(["check", os.path.join(raw, "qa.jsonl"), "--regions", region, "--out", os.path.join(d, "chk4"),
+                       "--radius", "60"])
+            with open(os.path.join(d, "chk4", "check.json"), encoding="utf-8") as f:
+                pr = json.load(f)[0]
+            self.assertEqual(pr["plan_pos_med"], 0.0)
+            self.assertEqual(pr["plan_pos_key"], 3.0)
+            self.assertEqual((pr["plan_ang_med"], pr["plan_out"]), (0.0, 0))
+            self.assertTrue(shot.plan_off(pr))   # у удара камера вывода в 3 блоках от плана
+            self.assertFalse(shot.plan_off({**pr, "plan_pos_key": 0.0}))
+            self.assertFalse(shot.plan_off({**pr, "cand": "tripod-planned"}))   # у оператора руки и тряска
 
 
 class PickTest(unittest.TestCase):

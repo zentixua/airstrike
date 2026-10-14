@@ -357,7 +357,7 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     # крен проверка кадров не учитывает (векторы камеры Minecraft — без крена): и здесь без него
     u, v, z = C.project(eye, yaw, pitch, np.zeros_like(yaw), fov, 16 / 9, tgt_)
     mine_in = have & (z > 0.1) & (np.abs(u) <= 0.92) & (np.abs(v) <= 0.92)
-    occ = V._sight(w, eye, tgt_, np.maximum(1.5, size * 0.4), unknown_blocks=not p.overlay)
+    occ = V._sight(w, eye, tgt_, V.spare_of(size), unknown_blocks=not p.overlay)
     haze = V._haze(sc, eye, tgt_, p.overlay)
     smoke = np.array([float(S.transmittance(sc.puffs(float(ti)), eye[i], tgt_[i], spare=float(size[i] * 2 + 4)))
                       for i, ti in enumerate(t)])
@@ -428,6 +428,28 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
            "blocked_qa_only": int((q_in & mine_in & (occ < 0.5) & (q_seen < 0.6)).sum()),
            "smoke_mine_only": int((both & (smoke < 0.5) & (q_clear >= 0.5)).sum()),
            "smoke_qa_only": int((both & (smoke >= 0.5) & (q_clear < 0.5)).sum())}
+    # камера по сцене (`<тело>-planned`, `-raw` — как есть): та ли камера у вывода, что в плане (`<трейлер>/planned/<план>.camera.jsonl`)
+    plan_cam = os.path.join(root, "planned", f"{name}.camera.jsonl")
+    if "-planned" in cand and os.path.exists(plan_cam):
+        pc = [r for r in (json.loads(x) for x in open(plan_cam, encoding="utf-8") if x.strip()) if "pos" in r]
+        if pc:
+            pt = np.array([r["t"] for r in pc], dtype=np.float64)
+            pp = np.array([r["pos"] for r in pc], dtype=np.float64)
+            pyaw = np.unwrap(np.radians([r["yaw"] for r in pc]))
+            ppitch = np.array([r["pitch"] for r in pc])
+            inside = (t >= pt[0]) & (t <= pt[-1])
+            at = np.stack([np.interp(t, pt, pp[:, k]) for k in range(3)], 1)
+            d_pos = np.linalg.norm(eye - at, axis=1)
+            d_yaw = np.abs((yaw - np.degrees(np.interp(t, pt, pyaw)) + 180) % 360 - 180)
+            d_pitch = np.abs(pitch - np.interp(t, pt, ppitch))
+            near_key = inside & ((t >= p.key - 20) & (t <= p.key + 12) if p.key >= 0 else True)
+            res["plan_n"] = int(inside.sum())
+            res["plan_out"] = int((~inside).sum())
+            if inside.any():
+                res["plan_pos_med"] = round(float(np.median(d_pos[inside])), 3)
+                res["plan_pos_key"] = round(float(d_pos[near_key].max()), 3) if near_key.any() else math.nan
+                res["plan_ang_med"] = round(float(np.median(np.maximum(d_yaw, d_pitch)[inside])), 2)
+                res["plan_ang_key"] = round(float(np.maximum(d_yaw, d_pitch)[near_key].max()), 2) if near_key.any() else math.nan
     if key_rec is not None:
         res["key_shift"] = int(p.key - key_rec[0])
         res["key_moved"] = round(float(np.linalg.norm(np.asarray(p.key_pos, dtype=np.float64) - key_rec[1])), 2)
@@ -452,8 +474,19 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
         + (f"  ДРУГОЙ ОБЪЕКТ: вывод ближе к пути {other} (медиана {other_med:.1f})" if other is not None else "")
         + ("  ЖУРНАЛ СБИТ" if journal_off(res) else "")
         + (f"  УДАР У ВЫВОДА ДРУГОЙ: {res['key_shift']:+d} тиков, {res['key_moved']:.1f} блока от удара записи"
-           if res.get("key_shift") or res.get("key_moved", 0) > 2 else ""))
+           if res.get("key_shift") or res.get("key_moved", 0) > 2 else "")
+        + (f"  камера от плана: медиана {res['plan_pos_med']:.2f} блока, {res['plan_ang_med']:.1f}°; у удара до "
+           f"{res['plan_pos_key']:.2f} блока, {res['plan_ang_key']:.1f}°" + (f"; кадров вне плана {res['plan_out']}" if res["plan_out"] else "")
+           if "plan_pos_med" in res else "")
+        + ("  КАМЕРА НЕ ПО ПЛАНУ" if plan_off(res) else ""))
     return res
+
+
+def plan_off(res: dict) -> bool:
+    """Вывод `-planned-raw` ведёт не ту камеру, что в плане (у `-planned` без `-raw` — руки и тряска оператора, сдвиг ждан)."""
+    return res.get("cand", "").endswith("-raw") and "plan_pos_med" in res and (
+        res.get("plan_pos_med", 0) > 0.5 or res.get("plan_ang_med", 0) > 3 or res.get("plan_out", 0) > 0
+        or res.get("plan_pos_key", 0) > 1 or res.get("plan_ang_key", 0) > 5)
 
 
 def journal_off(res: dict) -> bool:
@@ -475,6 +508,9 @@ def cmd_check(args):
         log("Журнал сбит (объект в выводе дальше 8 блоков от журнала): " + (" ".join(off) if off else "нет"))
         other = sorted({r["shot"] for r in out if r.get("other") is not None})
         log("Другой объект (вывод ведёт другой снаряд того же оружия): " + (" ".join(other) if other else "нет"))
+        if any("plan_pos_med" in r for r in out):
+            bad = sorted({r["shot"] for r in out if plan_off(r)})
+            log("Камера не по плану (вывод -planned-raw ведёт не ту камеру, что в плане): " + (" ".join(bad) if bad else "нет"))
     with open(os.path.join(args.out, "check.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)
 

@@ -105,5 +105,29 @@ uv run tools/shot/shot.py check $W4/render-planned/*/*/qa.jsonl --regions "$R" -
 ```
 Прислать `check-planned-war2-2.log` и `check-planned-war4-2.log` с приставкой `filming-rethink-laptop-4-`.
 
+## Шаг 5: p32 заново (процессор — минута, видеокарта — один план)
+Мера удара смотрела в точку на 0,35 шара над местом удара, а проверка кадров — в шар у самой земли: у p32 мера видела
+удар поверх низкой преграды (1,00), вывод — нет (0 %, за блоками). Теперь мера берёт ту же точку и запас, что `FrameQa`.
+`check` у камеры по сцене ещё сверяет камеру вывода с камерой плана («КАМЕРА НЕ ПО ПЛАНУ»).
+```sh
+cd /mnt/data/projects/airstrike/mod/run/shot-wt && git fetch origin claude/project-thread-aealhl && git checkout <коммит>
+uv run --with numpy --with scipy --with pillow python -m unittest discover -s tools/shot/tests
+uv run tools/shot/shot.py plan $W2/replays/p32.events.jsonl --regions "$R" --out $OUT/war2 --shown 1.5 --clouds 320 \
+    --previs best --every 3 --size 640x360 --subject p32=track:3 2>&1 | tee $OUT/war2-p32-3.log
+cp $OUT/war2/planned/p32.camera.jsonl $W2/planned/p32.camera.jsonl
+```
+Если у лучшей камеры в «Итоге» лога PASS — вывод на видеокарте, когда она свободна (в дереве съёмки, как в шаге 3, на
+этом коммите; `render-planned2` — чтобы не трогать прежний вывод):
+```sh
+INCOMING_TRAILER_DIR=film-war2 INCOMING_FILM_SHOWN=1 INCOMING_FILM_OUT=render-planned2 INCOMING_FILM_TRIES=2 \
+INCOMING_FILM_CAMERA='.*-planned(-raw)?' INCOMING_FILM_SHOTS=p32 \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+python3 tools/trailer/report.py $W2/render-planned2 --md $W2/render-planned2/report.md
+uv run tools/shot/shot.py check $W2/render-planned2/*/*/qa.jsonl $W2/render-planned/p32/*/qa.jsonl --regions "$R" \
+    --out $OUT/check-planned --shown 1.5 --clouds 320 2>&1 | tee $OUT/check-p32-3.log
+```
+Прислать с приставкой `filming-rethink-laptop-5-`: `war2-p32-3.log`, `previs.mp4` лучшей камеры p32, а после вывода —
+`report.md`, `best.txt`, `check-p32-3.log` и кадр из середины.
+
 ## После
 `git worktree remove mod/run/shot-wt`; `mod/run/shot-out` оставить до конца работы над трейлером (кэш карты).
