@@ -37,7 +37,8 @@ import java.util.stream.Stream;
 /**
  * Вывод планов из повторов (сценарий {@code film}): для каждого плана {@link Coverage} открывает его повтор, читает
  * журнал ({@link EventLog}), находит объект и окно, ставит камеры-кандидаты ({@link Rig}) и оценивает их по миру повтора,
- * лучшие по очереди выводит Flashback по ключевым кадрам (кадр на тик, PNG) с проверкой каждого кадра ({@link FrameQa});
+ * лучшие (кроме тех, что поворачивают быстрее {@link #TURN_MAX}) по очереди выводит Flashback по ключевым кадрам (кадр на
+ * тик, PNG) с проверкой каждого кадра ({@link FrameQa});
  * первый кандидат, прошедший проверку, — план; не прошёл ни один — в отчёте лучший с причинами. Перед выводом зритель
  * повтора проходит путь камеры (секции мира строятся там, куда камера посмотрит) и стоит в её начале, пока мир не
  * построен.
@@ -67,6 +68,11 @@ public final class ReplayFilm {
     private static final int DH_WAIT = 600;
     /** Ключи камеры — с запасом до начала (вывод ставит камеру и чуть раньше). */
     private static final int EXPORT_LEAD = 40;
+    /**
+     * Камера, что поворачивает быстрее, °/с (курс или тангаж за кадр вывода), не выводится: Артём, 14.10 — камеры
+     * дёргаются. Толчок {@link Operator} от одного удара рядом — до ~85°/с, от нескольких рядом за пару секунд — больше.
+     */
+    static final double TURN_MAX = 120;
     /**
      * Доля кучи, живого больше которой после открытия повтора клиент заменяется новым после этого повтора: вывод повтора
      * сверх замера берёт ещё до 1,5 ГБ (чанки у камер, кадры), закрытый повтор остаётся в памяти на 0,4–0,6 ГБ.
@@ -134,7 +140,13 @@ public final class ReplayFilm {
     private Pose standing;
     private int poseAt, stepped, reachedAt;
 
-    private record Scored(Rig.Candidate c, Rig.Score score) {}
+    /** Оценённый кандидат и самый быстрый поворот его камеры за окно, °/с ({@link ReplayFilm#turnRate}). */
+    private record Scored(Rig.Candidate c, Rig.Score score, double turn) {
+        /** В очередь вывода: оценка выше нуля, поворот не быстрее {@link ReplayFilm#TURN_MAX}. */
+        boolean exportable() {
+            return score.total() > 0 && turn <= TURN_MAX;
+        }
+    }
 
     public ReplayFilm(IEventBus modBus) {
         try {
@@ -550,11 +562,28 @@ public final class ReplayFilm {
         solve();
     }
 
+    /**
+     * Самый быстрый поворот камеры за окно {@code [a, b]}, °/с: путь, который вывод отдаёт Flashback ({@link #editorState},
+     * у кандидата — уже снятый человеком, {@link Operator}), по кадрам вывода (1/{@link #FPS} с) — наибольший шаг курса
+     * (кратчайшим поворотом) или тангажа за кадр.
+     */
+    static double turnRate(CineCamera.Path path, int a, int b) {
+        int perTick = (int) Math.round(FPS / 20), n = (b - a) * perTick;
+        double most = 0;
+        Pose prev = path.at(a);
+        for (int k = 1; k <= n; k++) {
+            Pose p = path.at(a + k / (double) perTick);
+            most = Math.max(most, Math.max(Math.abs(Mth.wrapDegrees(p.yaw() - prev.yaw())), Math.abs(p.pitch() - prev.pitch())));
+            prev = p;
+        }
+        return most * FPS;
+    }
+
     /** Оценки кандидатов готовы: лучшие — в очередь вывода. */
     private void solve() {
         List<Scored> all = new ArrayList<>();
         for (Rig.Tally t : tallies) {
-            if (cameraFilter == null || cameraFilter.matcher(t.c.name()).matches()) all.add(new Scored(t.c, t.score()));
+            if (cameraFilter == null || cameraFilter.matcher(t.c.name()).matches()) all.add(new Scored(t.c, t.score(), turnRate(t.c.path(), a, b)));
         }
         tallies.clear();
         target = null;
@@ -562,8 +591,9 @@ public final class ReplayFilm {
         all.sort(Comparator.comparing((Scored s) -> !(s.c.designed() && s.score.total() > 0)).thenComparingDouble(s -> -s.score.total()));
         StringBuilder sb = new StringBuilder();
         for (Scored s : all) {
-            sb.append(String.format(Locale.ROOT, "\n  %-36s %.3f (подлёт %.2f, удар %.2f, после %.2f, размер %.3f, дым %.2f) %s", s.c.name(), s.score.total(),
-                    s.score.approach(), s.score.atKey(), s.score.after(), s.score.size(), s.score.smoke(), s.score.why()));
+            sb.append(String.format(Locale.ROOT, "\n  %-36s %.3f (подлёт %.2f, удар %.2f, после %.2f, размер %.3f, дым %.2f, поворот %.0f°/с%s) %s", s.c.name(),
+                    s.score.total(), s.score.approach(), s.score.atKey(), s.score.after(), s.score.size(), s.score.smoke(), s.turn,
+                    s.turn > TURN_MAX ? " — не выводится" : "", s.score.why()));
         }
         Incoming.LOG.info("SCENARIO film solve {}: {} candidates{}", spec.shot(), all.size(), sb);
         // все оценённые камеры плана — для правки по замечанию другой камерой (INCOMING_FILM_CAMERA)
@@ -574,10 +604,13 @@ public final class ReplayFilm {
             Incoming.LOG.warn("SCENARIO film {}: candidates.txt не записан: {}", spec.shot(), e.toString());
         }
         candidates.clear();
-        all.stream().filter(s -> s.score.total() > 0).limit(tries).forEach(candidates::add);
+        all.stream().filter(Scored::exportable).limit(tries).forEach(candidates::add);
         if (candidates.isEmpty()) {
             Scored top = all.isEmpty() ? null : all.get(0);
-            String why = "нет камеры с оценкой выше нуля" + (top == null ? ": кандидатов нет"
+            // с оценкой выше нуля есть, но все поворачивают быстрее предела: лучшая из них — по тому же порядку
+            Scored fast = all.stream().filter(s -> s.score.total() > 0).findFirst().orElse(null);
+            String why = fast != null ? String.format(Locale.ROOT, "камеры поворачивают быстрее %.0f°/с: лучшая %s %.0f°/с", TURN_MAX, fast.c.name(), fast.turn)
+                    : "нет камеры с оценкой выше нуля" + (top == null ? ": кандидатов нет"
                     : String.format(Locale.ROOT, ", лучшая %s %.3f (подлёт %.2f, удар %.2f) %s", top.c.name(), top.score.total(),
                     top.score.approach(), top.score.atKey(), top.score.why()).trim());
             report(null, null, why);

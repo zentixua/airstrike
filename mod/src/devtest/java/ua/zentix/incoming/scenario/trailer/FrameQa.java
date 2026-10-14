@@ -4,6 +4,7 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
@@ -13,10 +14,17 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import ua.zentix.incoming.client.fx.particle.FxPool;
 import ua.zentix.incoming.client.nuclear.ClientNuclear;
+import ua.zentix.incoming.client.render.ProjectilePose;
 import ua.zentix.incoming.client.sound.EngineSound;
+import ua.zentix.incoming.entity.CruiseMissileEntity;
+import ua.zentix.incoming.entity.IcbmEntity;
+import ua.zentix.incoming.entity.InterceptorEntity;
+import ua.zentix.incoming.entity.RocketEntity;
+import ua.zentix.incoming.entity.StrikeProjectile;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -32,7 +40,8 @@ import java.util.Locale;
  * Проверка каждого кадра вывода по данным игры, а не на глаз: в момент отрисовки кадра (конец мира) — где объект плана
  * на экране и какой он долей высоты кадра, закрыт ли он блоками (лучи к середине и краям) и дымом слоя эффектов
  * ({@link FxPool#transmittance}), какая доля кадра за дымом, все ли секции мира у камеры построены, слышен ли мотор
- * объекта, со своей ли глубиной DH рисует LOD ({@link DhFrameDepth}). Строка JSON на кадр — {@code qa.jsonl}; итог плана ({@link #verdict}) — по порогам, без просмотра кадров.
+ * объекта, со своей ли глубиной DH рисует LOD ({@link DhFrameDepth}), насколько ось ракет в кадре расходится с их ходом
+ * ({@link #axisAngle}, только данные). Строка JSON на кадр — {@code qa.jsonl}; итог плана ({@link #verdict}) — по порогам, без просмотра кадров.
  */
 final class FrameQa {
     /**
@@ -53,10 +62,19 @@ final class FrameQa {
     /** {@code smoky} — доля кадров плана до удара (без удара — всех), где больше половины кадра за дымом. */
     record Verdict(boolean pass, String why, double ready, double approach, double nearHit, double atKey, double engine, double smoky) {}
 
-    /** Кадр за дымом: больше этой доли лучей сетки {@link #smokeShare} (5 из 9). */
+    /** Кадр за дымом: больше этой доли лучей сетки {@link #smokeShare} (8 из 15). */
     static final double SMOKY_FRAME = 0.5;
-    /** Сетка лучей дыма — в долях полукадра от середины. */
-    private static final double GRID = 0.6;
+    /**
+     * Сетка лучей дыма 3 × 5 — доли полуширины ({@code GRID_X}) и полувысоты ({@code GRID_Y}) кадра от середины, та же,
+     * что у разбора повторов ({@code tools/replayscan}, {@code film/Smoke}): по высоте кадр дымом закрывается неровно.
+     */
+    private static final double[] GRID_X = {-0.6, 0, 0.6}, GRID_Y = {-0.7, -0.35, 0, 0.35, 0.7};
+    /**
+     * Ось ракеты против её хода ({@code axis} в {@code qa.jsonl}): ракеты (крылатая, «Град», МБР, зенитная) в кадре ближе
+     * {@link #AXIS_RANGE} блоков, что идут от {@link #AXIS_SPEED} блока за тик. Замечание Артёма к v5 — ракета летит
+     * «стоя»; порог решает конвейер.
+     */
+    private static final double AXIS_RANGE = 400, AXIS_SPEED = 0.3;
 
     /**
      * Доля кадров с построенным миром, ниже которой план не годится. Облако (llvmpipe, без Sodium) строит секции
@@ -205,8 +223,8 @@ final class FrameQa {
             }
         }
         boolean ready = mc.levelRenderer.hasRenderedAllSections();
-        double smoke = smokeShare(mc, cam, eye, tanX, tanY);
-        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, light, veil);
+        double smoke = smokeShare(mc, cam, eye, tanX, tanY), axis = axisAngle(mc, e, eye);
+        Frame fr =new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, light, veil);
         frames.add(fr);
         sound.frame(t - start, cam);
         while (!marks.isEmpty() && marks.peekFirst().t() <= t) sound.mark(marks.pollFirst().what());
@@ -220,9 +238,10 @@ final class FrameQa {
             out.write(String.format(Locale.ROOT,
                     "{\"t\":%.3f,\"ready\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,\"far\":%b,"
                             + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"smoke\":%.2f,\"dh\":%d,\"light\":%.2f,\"veil\":%.2f,"
-                            + "\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
+                            + "\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f,\"axis\":%s}\n",
                     t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, light, veil, eye.x, eye.y, eye.z,
-                    cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
+                    cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY)),
+                    Double.isNaN(axis) ? "null" : String.format(Locale.ROOT, "%.1f", axis)));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
@@ -240,17 +259,18 @@ final class FrameQa {
     }
 
     /**
-     * Доля кадра за дымом слоя эффектов: девять лучей сеткой (±{@link #GRID} полукадра) до первого блока, а мимо блоков —
-     * до тумана у края прорисовки ({@link Rig#FOG}); луч за дымом, если сквозь дым проходит меньше половины света.
+     * Доля кадра за дымом слоя эффектов: 15 лучей сеткой 3 × 5 ({@link #GRID_X}, {@link #GRID_Y}) до первого блока, а
+     * мимо блоков — до тумана у края прорисовки ({@link Rig#FOG}); луч за дымом, если сквозь дым проходит меньше половины
+     * света.
      */
     private static double smokeShare(Minecraft mc, Camera cam, Vec3 eye, double tanX, double tanY) {
         Vector3f f = cam.getLookVector(), u = cam.getUpVector(), l = cam.getLeftVector();
         double reach = Rig.FOG * mc.gameRenderer.getRenderDistance();
         int behind = 0;
-        for (int i = -1; i <= 1; i++) {
-            for (int j = -1; j <= 1; j++) {
+        for (double gx : GRID_X) {
+            for (double gy : GRID_Y) {
                 // точка кадра (x вправо, y вверх): вправо — против левого вектора камеры
-                double rx = i * GRID * tanX, ry = j * GRID * tanY;
+                double rx = gx * tanX, ry = gy * tanY;
                 Vec3 dir = new Vec3(f.x() - rx * l.x() + ry * u.x(), f.y() - rx * l.y() + ry * u.y(), f.z() - rx * l.z() + ry * u.z()).normalize();
                 Vec3 end = eye.add(dir.scale(reach));
                 var hit = mc.level.clip(new ClipContext(eye, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
@@ -258,7 +278,46 @@ final class FrameQa {
                 if (FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, end.x, end.y, end.z, 0) < 0.5) behind++;
             }
         }
-        return behind / 9.0;
+        return behind / (double) (GRID_X.length * GRID_Y.length);
+    }
+
+    /**
+     * Наибольший угол между осью ракеты, как её рисует игра, и её ходом в кадре, градусы; NaN — ракет нет. Ракеты — у
+     * клиента повтора ({@link #missile}), в поле зрения (габариты в пирамиде кадра), ближе {@link #AXIS_RANGE} блоков к
+     * глазу, от {@link #AXIS_SPEED} блока за тик. Ось — нос модели (+Z) поворотом рендерера на доле тика сущности
+     * ({@code LevelRenderer}: у замороженной — 1): у снаряда мода — {@link ProjectilePose#rotation}
+     * ({@code StrikeProjectileRenderer}; детали крутятся только вокруг оси), у зенитной — курс и тангаж
+     * ({@code InterceptorRenderer}). Ход — от места на прошлом тике к нынешнему: между тиками игра ведёт сущность по
+     * этой прямой.
+     */
+    private static double axisAngle(Minecraft mc, RenderLevelStageEvent e, Vec3 eye) {
+        double most = Double.NaN;
+        ProjectilePose pose = new ProjectilePose();
+        Quaternionf q = new Quaternionf();
+        Vector3f nose = new Vector3f();
+        for (Entity ent : mc.level.entitiesForRendering()) {
+            if (!missile(ent) || ent.isRemoved() || ent instanceof StrikeProjectile sp && !sp.isActive()) continue;
+            Vec3 step = ent.position().subtract(ent.xo, ent.yo, ent.zo);
+            if (step.length() < AXIS_SPEED) continue;
+            float partial = e.getPartialTick().getGameTimeDeltaPartialTick(!mc.level.tickRateManager().isEntityFrozen(ent));
+            if (ent.getPosition(partial).distanceTo(eye) > AXIS_RANGE || !e.getFrustum().isVisible(ent.getBoundingBox())) continue;
+            if (ent instanceof StrikeProjectile sp) {
+                pose.set(sp, partial).rotation(q);
+            } else {
+                float yaw = Mth.rotLerp(partial, ent.yRotO, ent.getYRot()), pitch = Mth.lerp(partial, ent.xRotO, ent.getXRot());
+                q.rotationYXZ(-yaw * Mth.DEG_TO_RAD, pitch * Mth.DEG_TO_RAD, 0);
+            }
+            q.transform(nose.set(0, 0, 1));
+            double cos = (nose.x() * step.x + nose.y() * step.y + nose.z() * step.z) / step.length();
+            double deg = Math.toDegrees(Math.acos(Mth.clamp(cos, -1, 1)));
+            most = Double.isNaN(most) ? deg : Math.max(most, deg);
+        }
+        return most;
+    }
+
+    /** Ракеты, у которых проверяется ось: крылатая, «Град», МБР, зенитная ЗРК. */
+    private static boolean missile(Entity e) {
+        return e instanceof CruiseMissileEntity || e instanceof RocketEntity || e instanceof IcbmEntity || e instanceof InterceptorEntity;
     }
 
     void close() {
