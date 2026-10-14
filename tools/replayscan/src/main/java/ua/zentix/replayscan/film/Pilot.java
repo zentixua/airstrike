@@ -344,12 +344,18 @@ final class Pilot {
     double smother(int k, Cameras.View v) {
         Vec3 e = v.eye();
         double reach = Smoke.SMOTHER_REACH;
-        int[] near = new int[groupEnd[k].length];
-        int m = 0;
+        // луч длиной reach входит только в фигуру ближе reach: их отбор — раз на образец, а не на каждый луч (шар удара
+        // столба — 100–150 блоков, отсев по нему пропускает почти всё)
+        Plume.Shape[] near = new Plume.Shape[smoke[k].length];
+        int m = 0, lo = 0;
         double[] bd = bound[k];
-        for (int g = 0; g < near.length; g++) {
+        for (int g = 0; g < groupEnd[k].length; g++) {
+            int hi = groupEnd[k][g];
             double dx = e.x - bd[4 * g], dy = e.y - bd[4 * g + 1], dz = e.z - bd[4 * g + 2];
-            if (Math.sqrt(dx * dx + dy * dy + dz * dz) - bd[4 * g + 3] < reach) near[m++] = g;
+            if (Math.sqrt(dx * dx + dy * dy + dz * dz) - bd[4 * g + 3] < reach) {
+                for (int i = lo; i < hi; i++) if (smoke[k][i].distance(e.x, e.y, e.z) < reach) near[m++] = smoke[k][i];
+            }
+            lo = hi;
         }
         if (m == 0) return 0;
         int closed = 0;
@@ -357,8 +363,7 @@ final class Pilot {
             for (double sy : Smoke.GRID_Y) {
                 Vec3 to = e.add(v.fwd().add(v.right().scale(sx * v.tanX())).add(v.up().scale(sy * v.tanY())).normalize().scale(reach));
                 for (int i = 0; i < m; i++) {
-                    int g = near[i];
-                    if (crossesGroup(k, g, g == 0 ? 0 : groupEnd[k][g - 1], groupEnd[k][g], e, to, Plume.SEEN)) {
+                    if (near[i].crosses(e, to)) {
                         closed++;
                         break;
                     }

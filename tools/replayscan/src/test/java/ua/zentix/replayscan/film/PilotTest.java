@@ -132,7 +132,7 @@ class PilotTest {
     }
 
     @Test
-    void smokeAtTheFrameEdgeAndPast24BlocksFillsTheFrame() {
+    void smokePast24BlocksFillsTheFrame() {
         // облако ракеты через 2 с после удара в 55 блоках перед камерой: середина кадра на 24 блока до него не достаёт,
         // сетка вывода (до 40 блоков, по всему кадру) — закрыта; отвернулась — чисто
         Pilot p = pilot((x, z) -> 64, List.of(new Plume(A, new Vec3(55.5, 64, 0.5), 18, Plume.Look.MISSILE)));
