@@ -152,10 +152,16 @@ public final class StrikeService {
         if (!p.isVirtual()) {
             // на пусковой: тикеты — до входа в мир, место пуска из приказа может быть там, где сущности не тикают
             p.holdChunks(level);
-            if (!level.addFreshEntity(p)) {
-                p.discard();
-                return Result.FAILED;
+            boolean added = false;
+            try {
+                added = level.addFreshEntity(p);
+            } finally {
+                // не вошёл — вход отменён или его обработчик упал (моды защиты территорий): снаряда нет ни в мире, ни
+                // в полётах вне мира, и тикеты, взятые до входа, без discard держали бы его чанки до остановки сервера;
+                // ошибка идёт дальше — пуск неудачный, оплаченное возвращается
+                if (!added) p.discard();
             }
+            if (!added) return Result.FAILED;
         }
         return new Result(true, eta);
     }

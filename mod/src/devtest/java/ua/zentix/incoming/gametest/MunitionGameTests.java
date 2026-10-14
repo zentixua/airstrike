@@ -38,6 +38,7 @@ import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.nuclear.NuclearEvents;
 import ua.zentix.incoming.registry.ModDataComponents;
 import ua.zentix.incoming.registry.ModItems;
+import ua.zentix.incoming.strike.ChunkTickets;
 import ua.zentix.incoming.strike.Loadout;
 import ua.zentix.incoming.strike.Munitions;
 import ua.zentix.incoming.strike.SalvoData;
@@ -216,7 +217,8 @@ public final class MunitionGameTests {
     /**
      * Неудачный пуск возвращает оплаченное: снаряд у пусковой стреляющего не вошёл в мир (событие входа отменено —
      * так делают моды защиты территорий) — шахед и МБР снова в инвентаре, ядерного удара нет. Пуск, упавший с ошибкой
-     * (здесь — обработчик того же события), тоже неудачный: шахед возвращается.
+     * (здесь — обработчик того же события), тоже неудачный: шахед возвращается. Тикеты чанков, взятые снарядом до входа
+     * в мир, не вошедший отпускает в обоих случаях.
      */
     @GameTest(template = "runway", timeoutTicks = 20, batch = "munitions_failed", skyAccess = true)
     public static void failedLaunchRefunds(GameTestHelper h) {
@@ -226,9 +228,13 @@ public final class MunitionGameTests {
         p.moveTo(Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 60))), 0, 0);
         int[] vetoed = {0};
         boolean[] crash = {false};
+        List<UUID> tried = new ArrayList<>();
+        int[] heldOnEntry = {0};
         Consumer<EntityJoinLevelEvent> veto = e -> {
             if (e.getEntity() instanceof StrikeProjectile proj && p.getUUID().equals(proj.ownerId())) {
                 vetoed[0]++;
+                tried.add(proj.getUUID());
+                if (ChunkTickets.held(level, proj.getUUID()) > 0) heldOnEntry[0]++;
                 if (crash[0]) throw new IllegalStateException("проверка: пуск падает с ошибкой");
                 e.setCanceled(true);
             }
@@ -268,6 +274,9 @@ public final class MunitionGameTests {
         h.assertValueEqual(vetoed[0], 3, "шахед не пытался войти в мир");
         h.assertValueEqual(held(p, shahed), 1, "шахед после пуска с ошибкой");
         h.assertTrue(p.last("incoming.munitions.refunded") != null, "нет строки о возврате после ошибки");
+        // снаряд берёт тикеты своих чанков до входа в мир (оба шахеда; МБР — нет): не вошедший их отпускает, и упавший тоже
+        h.assertValueEqual(heldOnEntry[0], 2, "шахедов с тикетами чанков при входе в мир");
+        for (UUID id : tried) h.assertValueEqual(ChunkTickets.held(level, id), 0, "тикеты чанков не вошедшего в мир снаряда " + id);
         h.succeed();
     }
 

@@ -114,9 +114,16 @@ public final class VirtualFlights extends SavedData {
             p.virtualTick(level);
             if (p.isRemoved()) continue;
             if (p.canMaterialize(level)) {
-                p.materialize(level);
-                if (level.addFreshEntity(p)) continue;
-                Incoming.LOG.warn("Projectile {} {} could not return to the world at {}", p.getType().getDescriptionId(), p.getUUID(), p.blockPosition());
+                try {
+                    p.materialize(level);
+                    if (level.addFreshEntity(p)) continue;
+                    Incoming.LOG.warn("Projectile {} {} could not return to the world at {}", p.getType().getDescriptionId(), p.getUUID(), p.blockPosition());
+                } catch (RuntimeException e) {
+                    // возврат в мир упал (в том числе обработчик входа — мод защиты территорий): снаряд убирается, как не
+                    // вошедший, а остальные полёты этого тика летят дальше — иначе ошибка уходила бы из тика мира и роняла сервер
+                    Incoming.LOG.error("Projectile {} {} failed to return to the world at {} with an exception and was removed",
+                            p.getType().getDescriptionId(), p.getUUID(), p.blockPosition(), e);
+                }
                 p.discard(); // снять тикеты района цели и своих чанков: в мире его нет, сам он их уже не отпустит
                 continue;
             }
