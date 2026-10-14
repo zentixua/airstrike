@@ -289,7 +289,7 @@ final class Cameras {
         }
         long start = System.nanoTime();
         List<Plume> plumes = new ArrayList<>();
-        for (double[] row : shot.smoke()) {
+        for (double[] row : shot.live()) {
             Plume p = Plume.of(row);
             // удар плана — со своим огненным шаром
             Subject.Key k = s.keys.stream().filter(o -> Math.abs(o.t() - p.t()) <= 2 && Plume.beside(o.pos(), p.pos(), 4)).findFirst().orElse(null);
@@ -410,6 +410,7 @@ final class Cameras {
         double sizeSum = 0, smokeHits = 0;
         boolean free = true;
         int first = s.firstKey();
+        List<double[]> live = shot.live();
         for (int t = shot.a(); t <= shot.b(); t += 2) {
             Pose p = c.path().at(t);
             if (c.roam() ? w.loaded(p.pos()) && !w.free(p.pos()) : !w.free(p.pos())) free = false;
@@ -424,7 +425,7 @@ final class Cameras {
             View v = View.of(p, aspect).rolled(c.path().roll(t));
             boolean seen = v.in(aim, SAFE) && w.open(v, aim, size, 5) >= 0.4 && !throughClouds(w.clouds, p.pos(), aim)
                     && (shot.far() || !beyondFog(p.pos(), aim));
-            boolean smoky = smokeOnLine(p.pos(), aim, shot.smoke(), t);
+            boolean smoky = smokeOnLine(p.pos(), aim, live, t);
             if (smoky) smokeHits++;
             if (before) {
                 double share = v.share(aim, size);

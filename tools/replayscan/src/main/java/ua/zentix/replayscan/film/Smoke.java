@@ -25,6 +25,8 @@ final class Smoke {
     private static final double OPACITY = 0.85, SPREAD = 0.4;
     /** Кадр в дыму: лучи сеткой по кадру до этой дальности, закрыт луч — света меньше этой доли. */
     static final double SMOTHER_REACH = 40, SMOTHER_LIGHT = 0.4;
+    /** Сетка лучей кадра: доли половины ширины и высоты кадра (3 × 5; ту же сетку прокладывает пилот, {@link Pilot#smother}). */
+    static final double[] GRID_X = {-0.6, 0, 0.6}, GRID_Y = {-0.7, -0.35, 0, 0.35, 0.7};
 
     @Nullable
     private final Object pool;
@@ -126,8 +128,8 @@ final class Smoke {
         Vec3 e = v.eye();
         if (!puffs(e.x, e.y, e.z)) return 0;
         int n = 0, closed = 0;
-        for (double sx : new double[]{-0.6, 0, 0.6}) {
-            for (double sy : new double[]{-0.7, -0.35, 0, 0.35, 0.7}) {
+        for (double sx : GRID_X) {
+            for (double sy : GRID_Y) {
                 Vec3 d = v.fwd().add(v.right().scale(sx * v.tanX())).add(v.up().scale(sy * v.tanY())).normalize().scale(SMOTHER_REACH);
                 n++;
                 if (light(e.x, e.y, e.z, e.x + d.x, e.y + d.y, e.z + d.z, 0) < SMOTHER_LIGHT) closed++;
