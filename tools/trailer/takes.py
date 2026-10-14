@@ -12,12 +12,16 @@ k/60 с, тик журнала записи (тик повтора) — `a + 20�
   блокам), свет сквозь дым, облака, туман, секция, мотор, доля кадра за дымом, глубина LOD DH, камера;
 - `qa/<план>.jsonl` (`HudQa`, живой план с `.watch`): строка на кадр — снаряды плана и удары в кадре и открыты ли;
 - журнал `<план>.events.jsonl` (`EventLog`): пути снарядов по тикам, удары, люди, камера сценария, отметки;
-- `report.jsonl` вывода: окно (`a`, `b`) и тик удара объекта (`event`).
+- `report.jsonl` вывода: окно (`a`, `b`) и тик удара объекта (`event`);
+- журнал `<план>.sounds.jsonl` (`WorldSounds`, сервер записи): все звуки, что играл сервер, пакеты мода со звуком,
+  ушедшие только тем, кто рядом, и снаряды с дальностью мотора; по нему `world_sfx` ставит звуки, которых клиент повтора
+  не получил (он слышит только то, что сервер слал игроку записи), а `edit.load_recording` кладёт их в план.
 """
 import bisect
 import json
 import math
 import os
+import zlib
 from dataclasses import dataclass, field
 
 FPS = 60
@@ -257,6 +261,7 @@ class Take:
     grid: dict = None
     report: dict = None
     hud_text: bool = False                         # в кадре текст интерфейса
+    world: "WorldLog" = None                       # звук мира записи (вывод из повтора)
 
     # --- время
     @property
@@ -393,36 +398,7 @@ def load_take(name, src, root=None, recording=None):
     tl = os.path.join(d, "timeline.jsonl")
     if not os.path.exists(tl) and os.path.exists(tl + f".{name}"):
         tl = tl + f".{name}"   # строки плана из архива экзамена
-    rows = [r for r in read_jsonl(tl) if r.get("shot") == name]
-    # последний дубль плана в журнале (живая запись дописывает журнал)
-    starts = [i for i, r in enumerate(rows) if r.get("type") == "shot"]
-    if starts:
-        head = rows[starts[-1]]
-        t.speed = head.get("speed", 1.0)
-        t.hud_text = head.get("hud", False)
-        rows = rows[starts[-1] + 1:]
-    sounds = {}
-    for r in rows:
-        kind = r.get("type")
-        if kind == "frame":
-            # t — тики от начала плана (Recorder.frame); без него — по номеру кадра
-            sec = r["t"] / TPS if "t" in r else r["k"] * t.speed / FPS
-            t.frames.append(Frame(r["k"], sec, tuple(r["cam"])))
-        elif kind == "sound":
-            s = Sound(r["id"], r["t"] / TPS, r["event"], r.get("file", ""), tuple(r["pos"]), r["volume"], r["pitch"],
-                      r.get("range", 16), r.get("relative", False), r.get("linear", True), r.get("loop", False),
-                      tuple(r.get("lp", (1, 1))))
-            sounds[s.id] = s
-            t.sounds.append(s)
-        elif kind == "update" and r["id"] in sounds:
-            sounds[r["id"]].updates.append((r["t"] / TPS, *r["pos"], r["volume"], r["pitch"], *r.get("lp", (1, 1))))
-        elif kind == "stop" and r["id"] in sounds:
-            sounds[r["id"]].stop = r["t"] / TPS
-        elif kind == "mark":
-            what = r["what"]
-            if not (what.startswith("gone:") and r["t"] <= 0):
-                t.marks.append((r["t"] / TPS, what))
-    t.frames.sort(key=lambda f: f.k)
+    read_timeline(tl, name, t)
     if live:
         rec = recording or d
         qa = os.path.join(d, "qa", f"{name}.jsonl")
@@ -461,4 +437,364 @@ def load_take(name, src, root=None, recording=None):
         replay = (t.report or {}).get("replay", name)
         t.journal = read_journal(os.path.join(d, f"{name}.events.jsonl"))
         t.record_journal = read_journal(os.path.join(rec, "replays", f"{replay}.events.jsonl"))
+        t.world = read_world(os.path.join(rec, "replays", f"{replay}.sounds.jsonl"))
     return t
+
+
+def read_timeline(path, name, t):
+    """Строки плана name из журнала клиента (`Recorder`, timeline.jsonl) — в дубль t: последний дубль плана в журнале
+    (живая запись дописывает журнал), скорость, кадры с камерой, звуки с их изменениями и концом, отметки."""
+    rows = [r for r in read_jsonl(path) if r.get("shot") == name]
+    # последний дубль плана в журнале (живая запись дописывает журнал)
+    starts = [i for i, r in enumerate(rows) if r.get("type") == "shot"]
+    if starts:
+        head = rows[starts[-1]]
+        t.speed = head.get("speed", 1.0)
+        t.hud_text = head.get("hud", False)
+        rows = rows[starts[-1] + 1:]
+    sounds = {}
+    for r in rows:
+        kind = r.get("type")
+        if kind == "frame":
+            # t — тики от начала плана (Recorder.frame); без него — по номеру кадра
+            sec = r["t"] / TPS if "t" in r else r["k"] * t.speed / FPS
+            t.frames.append(Frame(r["k"], sec, tuple(r["cam"])))
+        elif kind == "sound":
+            s = Sound(r["id"], r["t"] / TPS, r["event"], r.get("file", ""), tuple(r["pos"]), r["volume"], r["pitch"],
+                      r.get("range", 16), r.get("relative", False), r.get("linear", True), r.get("loop", False),
+                      tuple(r.get("lp", (1, 1))))
+            sounds[s.id] = s
+            t.sounds.append(s)
+        elif kind == "update" and r["id"] in sounds:
+            sounds[r["id"]].updates.append((r["t"] / TPS, *r["pos"], r["volume"], r["pitch"], *r.get("lp", (1, 1))))
+        elif kind == "stop" and r["id"] in sounds:
+            sounds[r["id"]].stop = r["t"] / TPS
+        elif kind == "mark":
+            what = r["what"]
+            if not (what.startswith("gone:") and r["t"] <= 0):
+                t.marks.append((r["t"] / TPS, what))
+    t.frames.sort(key=lambda f: f.k)
+    return t
+
+
+# ---------------------------------------------------------------- звук мира (WorldSounds)
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MOD_ASSETS = os.path.join(REPO, "mod", "src", "main", "resources", "assets")
+# индекс ресурсов игры, как у edit.SoundBank (./gradlew downloadAssets)
+ASSETS_PROPS = os.path.join(REPO, "mod", "build", "moddev", "minecraft_assets.properties")
+
+WORLD_ID = 10 ** 6   # id звуков мира в списке звуков плана: выше id журнала клиента (Recorder считает с 0)
+MATCH_SEC = 0.1      # звук мира сыгран клиентом: то же событие не дальше 0,1 с…
+MATCH_BLOCKS = 4.0   # …и 4 блоков (звук сущности клиент ставит по своему месту сущности)
+SOUND_LEN_MAX = 8.0  # с: слышен ли звук мира камере, смотрится в этом окне после начала (звуки мира короче)
+ATTENUATION = 16     # затухание варианта по умолчанию (sounds.json: attenuation_distance)
+
+
+@dataclass
+class WorldSound:
+    """Звук, который сыграл сервер (`PlayLevelSoundEvent` после всех подписчиков)."""
+    t: int                   # тик повтора, в который пакет лёг бы у игрока записи
+    gt: int                  # время игры сервера
+    event: str
+    source: str
+    pos: tuple
+    volume: float            # как ушли клиенту
+    pitch: float
+    seed: int = None         # зерно варианта; None — его дал вызывающий, не узнать
+    file: str = None         # вариант, который выбрал бы клиент (сервер записи выбрал звуками своего клиента)
+    attenuation: int = None
+    fv: float = 1.0          # множители громкости и тона варианта
+    fp: float = 1.0
+    range: float = None      # дальность линейного затухания у клиента
+    send: float = None       # дальность, в которой сервер шлёт пакет
+    heard: bool = False      # игрок записи получил пакет (и сущность звука у него была)
+    by: str = None           # игрок, у которого звук (выстрел бота — с места стрелка)
+    entity: dict = None
+
+
+@dataclass
+class Trigger:
+    """Пакет мода, по которому клиент играет звук сам, ушедший только тем, кто ближе radius."""
+    t: int
+    gt: int
+    kind: str                # siren, nuke_warning, grid_failure
+    pos: tuple
+    radius: float
+    heard: bool
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass
+class WorldLog:
+    sounds: list = field(default_factory=list)
+    triggers: list = field(default_factory=list)
+    # (t, gt, [[uuid, оружие, x, y, z, слышно, heard]], [[x, y, z, слышно, heard]])
+    flights: list = field(default_factory=list)
+
+
+def read_world(path):
+    """Журнал WorldSounds; None — файла нет."""
+    if not path or not os.path.exists(path):
+        return None
+    w = WorldLog()
+    for o in read_jsonl(path):
+        t, gt = o.get("t", 0), o.get("gt", 0)
+        if "sound" in o:
+            w.sounds.append(WorldSound(t, gt, o["sound"], o.get("source", ""), tuple(o["pos"]), o.get("volume", 1.0),
+                                       o.get("pitch", 1.0), o.get("seed"), o.get("file"), o.get("attenuation"),
+                                       o.get("fv", 1.0), o.get("fp", 1.0), o.get("range"), o.get("send"),
+                                       o.get("heard", False), o.get("by"), o.get("entity")))
+        elif "trigger" in o:
+            known = ("t", "gt", "trigger", "pos", "radius", "heard")
+            w.triggers.append(Trigger(t, gt, o["trigger"], tuple(o["pos"]), o.get("radius", 0.0), o.get("heard", False),
+                                      {k: v for k, v in o.items() if k not in known}))
+        elif "flights" in o:
+            w.flights.append((t, gt, o.get("flights", []), o.get("interceptors", [])))
+    return w
+
+
+class JavaRandom:
+    """Источник случайных чисел звука у клиента: `RandomSource.create(seed)` (LegacyRandomSource) — LCG 48 бит
+    java.util.Random, `nextInt(bound)` как у него (степень двойки — старшими битами, иначе отбор)."""
+    MULT, ADD, MASK = 0x5DEECE66D, 0xB, (1 << 48) - 1
+
+    def __init__(self, seed):
+        self.state = (seed ^ self.MULT) & self.MASK
+
+    def next(self, bits):
+        self.state = (self.state * self.MULT + self.ADD) & self.MASK
+        r = self.state >> (48 - bits)
+        return r - (1 << 32) if bits == 32 and r >= 1 << 31 else r
+
+    def next_int(self, bound):
+        if bound <= 0:
+            raise ValueError("bound must be positive")
+        if bound & (bound - 1) == 0:
+            return (bound * self.next(31)) >> 31
+        while True:
+            i = self.next(31)
+            j = i % bound
+            if i - j + (bound - 1) < 1 << 31:   # в Java — переполнение int
+                return j
+
+
+@dataclass
+class Variant:
+    file: str                # «namespace:sounds/….ogg», как в журнале клиента
+    attenuation: int
+    volume: float
+    pitch: float
+
+
+class SoundDefs:
+    """События звуков, как их собирает клиент (`SoundManager.Preparations`): записи sounds.json по порядку, вес файла —
+    его weight, вес ссылки на событие (`"type": "event"`) — весь вес того события, громкость и тон ссылки множатся на
+    вариант, затухание — варианта. Ваниль — sounds.json из индекса ресурсов игры (как `edit.SoundBank`), мод — из
+    mod/src/main/resources/assets. Событие, которого нет (Point Blank: его ресурсов в проекте нет), — один файл
+    «namespace:sounds/<путь>.ogg» с затуханием 16, как в журналах клиента; ванильное без индекса — пусто."""
+
+    _default = None
+
+    def __init__(self):
+        self.events = {}     # событие → [(тип, имя, вес, громкость, тон, затухание)]
+
+    @classmethod
+    def default(cls):
+        if cls._default is None:
+            d = cls()
+            vanilla = _vanilla_sounds_json()
+            if vanilla:
+                d.add("minecraft", vanilla)
+            if os.path.isdir(MOD_ASSETS):
+                for ns in sorted(os.listdir(MOD_ASSETS)):
+                    p = os.path.join(MOD_ASSETS, ns, "sounds.json")
+                    if os.path.exists(p):
+                        with open(p, encoding="utf-8") as f:
+                            d.add(ns, json.load(f))
+            cls._default = d
+        return cls._default
+
+    def add(self, namespace, sounds_json):
+        """Пакет ресурсов namespace: записи дописываются к событию, `replace` — заменяют прежние."""
+        for key, reg in sounds_json.items():
+            event = key if ":" in key else f"{namespace}:{key}"
+            out = [] if reg.get("replace") else self.events.get(event, [])
+            for e in reg.get("sounds", ()):
+                if isinstance(e, str):
+                    out.append(("file", _loc(e), 1, 1.0, 1.0, ATTENUATION))
+                else:
+                    out.append((e.get("type", "file"), _loc(e["name"]), int(e.get("weight", 1)), float(e.get("volume", 1.0)),
+                                float(e.get("pitch", 1.0)), int(e.get("attenuation_distance", ATTENUATION))))
+            self.events[event] = out
+
+    def weight(self, event, depth=0):
+        if depth > 16 or event not in self.events:
+            return 0
+        return sum(self._weight(e, depth) for e in self.events[event])
+
+    def _weight(self, e, depth):
+        return self.weight(e[1], depth + 1) if e[0] == "event" else e[2]
+
+    def pick(self, event, seed):
+        """Вариант, который выберет клиент по зерну пакета (`WeighedSoundEvents.getSound`); None — пусто."""
+        if event not in self.events:
+            ns, _, path = event.partition(":")
+            # ванильного события без индекса ресурсов не угадать (файлы игры названы иначе, чем события)
+            return None if ns == "minecraft" else Variant(f"{ns}:sounds/{path}.ogg", ATTENUATION, 1.0, 1.0)
+        return self._pick(event, JavaRandom(seed), 0)
+
+    def _pick(self, event, rnd, depth):
+        total = self.weight(event, depth)
+        if total <= 0:
+            return None
+        j = rnd.next_int(total)
+        for e in self.events[event]:
+            j -= self._weight(e, depth)
+            if j < 0:
+                kind, name, _, vol, pitch, att = e
+                if kind != "event":
+                    ns, _, path = name.partition(":")
+                    return Variant(f"{ns}:sounds/{path}.ogg", att, vol, pitch)
+                v = self._pick(name, rnd, depth + 1)
+                return None if v is None else Variant(v.file, v.attenuation, v.volume * vol, v.pitch * pitch)
+        return None
+
+
+def _loc(name):
+    return name if ":" in name else f"minecraft:{name}"
+
+
+def _vanilla_sounds_json():
+    """sounds.json игры из индекса ресурсов (как его читает edit.SoundBank); нет индекса — None."""
+    if not os.path.exists(ASSETS_PROPS):
+        return None
+    try:
+        with open(ASSETS_PROPS, encoding="utf-8") as f:
+            conf = dict(line.strip().split("=", 1) for line in f if "=" in line and not line.startswith("#"))
+        root = conf["assets_root"]
+        with open(os.path.join(root, "indexes", conf["asset_index"] + ".json"), encoding="utf-8") as f:
+            obj = json.load(f)["objects"]["minecraft/sounds.json"]
+        with open(os.path.join(root, "objects", obj["hash"][:2], obj["hash"]), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, KeyError, ValueError):
+        return None
+
+
+def world_variant(ws, defs=None):
+    """Вариант звука мира: выбранный сервером записи (его клиентом), иначе — по зерну из sounds.json; зерна нет —
+    по месту и времени звука (вариант, может быть, не тот, что у клиента, но звук тот же)."""
+    if ws.file:
+        return Variant(ws.file, ws.attenuation or ATTENUATION, ws.fv, ws.fp)
+    seed = ws.seed if ws.seed is not None else zlib.crc32(f"{ws.event}|{ws.gt}|{ws.pos}".encode())
+    return (defs or SoundDefs.default()).pick(ws.event, seed)
+
+
+def world_entry(ws, index, a, defs=None):
+    """Звук мира записью списка звуков плана edit.py (`render_sfx`): t — тики от начала плана (a — первый тик окна),
+    громкость и тон — с множителями варианта, дальность — как у клиента (`SoundEngine.play`: max(громкость, 1) ×
+    затухание варианта; постоянная дальность события — только дальность рассылки сервера). None — звук пустой."""
+    v = world_variant(ws, defs)
+    if v is None:
+        return None
+    volume = ws.volume * v.volume
+    return {"id": WORLD_ID + index, "t": ws.t - a, "event": ws.event, "file": v.file, "pos": list(ws.pos),
+            "volume": volume, "pitch": ws.pitch * v.pitch, "range": max(volume, 1.0) * v.attenuation,
+            "relative": False, "linear": True, "loop": False}
+
+
+def match_world(world_sounds, client_sounds, sec):
+    """Пары звук мира → звук клиента: то же событие, не дальше MATCH_SEC и MATCH_BLOCKS; каждый звук клиента — одному,
+    ближайшему по времени. sec(ws) — время звука мира на часах звуков клиента. {индекс звука мира: звук клиента}."""
+    by_event = {}
+    for s in client_sounds:
+        by_event.setdefault(s.event, []).append(s)
+    used, out = set(), {}
+    for i, ws in sorted(enumerate(world_sounds), key=lambda p: sec(p[1])):
+        t = sec(ws)
+        best = None
+        for s in by_event.get(ws.event, ()):
+            if id(s) in used or abs(s.t - t) > MATCH_SEC + 1e-9 or dist(s.pos, ws.pos) > MATCH_BLOCKS:
+                continue
+            if best is None or abs(s.t - t) < abs(best.t - t):
+                best = s
+        if best is not None:
+            used.add(id(best))
+            out[i] = best
+    return out
+
+
+def world_unplayed(take):
+    """Звуки мира, начатые в окне дубля, которых клиент повтора не сыграл: [(индекс в журнале, звук)]. Почему — у
+    звука: heard=False — пакет не ушёл игроку записи (дальше дальности рассылки или сущности звука у него не было)."""
+    if take.world is None or take.live:
+        return []
+    end = take.duration
+    inside = [(i, ws) for i, ws in enumerate(take.world.sounds) if -1e-6 <= take.sec(ws.t) <= end + 1e-6]
+    played = match_world([ws for _, ws in inside], take.sounds, lambda ws: take.sec(ws.t))
+    return [p for k, p in enumerate(inside) if k not in played]
+
+
+def world_sfx(take, defs=None):
+    """Звуки мира, которых клиент повтора у камеры дубля не сыграл и которые камера дубля слышит хоть в одном кадре,
+    — записями списка звуков плана edit.py (`Shot.sounds`, формат `render_sfx`)."""
+    out = []
+    for i, ws in world_unplayed(take):
+        e = world_entry(ws, i, take.a, defs)
+        if e is None:
+            continue
+        t0 = take.sec(ws.t)
+        if any(dist(f.cam, ws.pos) < e["range"] for f in take.frames_in(t0, t0 + SOUND_LEN_MAX)):
+            out.append(e)
+    return out
+
+
+def world_sfx_for(name, folder):
+    """Крючок edit.load_recording: звуки мира плана name из папки folder (кандидат вывода из повтора). Живой план,
+    нет журнала звука мира — пусто."""
+    if "/render" not in os.path.abspath(folder):
+        return []
+    take = load_take(name, os.path.abspath(folder))
+    if take.world is None:
+        return []
+    out = world_sfx(take)
+    if out:
+        kinds = {}
+        for e in out:
+            k = sound_kind(e["event"])
+            kinds[k] = kinds.get(k, 0) + 1
+        print(f"  {name}: звуков мира, которых не было у клиента повтора, — {len(out)} "
+              f"({', '.join(f'{k} {n}' for k, n in sorted(kinds.items()))})")
+    return out
+
+
+def missing_triggers(take):
+    """Звуки мода, которые клиент играет сам по пакету, не ушедшему игроку записи, хотя камера дубля в его радиусе:
+    тревоги и аварии сети (`Trigger`) и моторы снарядов и зенитных ракет (снимки полётов). В монтаж не ставятся —
+    звук мода собирает клиент; список — для проверки. [{t, kind, pos, radius, distance}], t — секунды дубля."""
+    if take.world is None or take.live or not take.frames:
+        return []
+    out, end = [], take.duration
+    for tr in take.world.triggers:
+        t = take.sec(tr.t)
+        cam = take.cam_at(t)
+        if tr.heard or not -1e-6 <= t <= end or cam is None:
+            continue
+        d = dist(cam, tr.pos)
+        if d < tr.radius:
+            out.append({"t": t, "kind": tr.kind, "pos": tr.pos, "radius": tr.radius, "distance": d})
+    seen = set()
+    for tick, _, flights, sams in take.world.flights:
+        t = take.sec(tick)
+        cam = take.cam_at(t)
+        if not -1e-6 <= t <= end or cam is None:
+            continue
+        rows = [("motor:" + f[1], f[0], f[2:5], f[5], f[6]) for f in flights]
+        rows += [("motor:interceptor", f"sam{k}", f[0:3], f[3], f[4]) for k, f in enumerate(sams)]
+        for kind, key, pos, hear, heard in rows:
+            d = dist(cam, pos)
+            if heard or key in seen or d >= hear:
+                continue
+            seen.add(key)
+            out.append({"t": t, "kind": kind, "pos": tuple(pos), "radius": hear, "distance": d})
+    return sorted(out, key=lambda m: m["t"])

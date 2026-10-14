@@ -64,6 +64,7 @@ from scipy.signal import butter, resample_poly, sosfilt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from paths import DIST, MOD, ROOT  # noqa: E402
+import takes  # noqa: E402
 
 REC = os.path.join(MOD, "run", "scenario", "trailer")
 CACHE = os.path.join(ROOT, "tools", ".trailer-cache")
@@ -299,6 +300,7 @@ def load_recording(rec=REC):
                     s.marks.append((e["t"], e["what"]))
     for s in shots.values():
         s.keys = sorted(s.frames)
+        s.sounds += takes.world_sfx_for(s.name, rec)  # звуки мира, которых сервер не слал игроку записи
     return {n: s for n, s in shots.items() if s.frames}
 
 
