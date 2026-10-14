@@ -74,16 +74,19 @@ def _framed(sc: Scene, tr: Track, a: int, b: int, size: bool = False) -> float:
     return n
 
 
-def _of(sc: Scene, weapon: str) -> list[Track]:
-    return [tr for tr in sc.tracks.values() if weapon in ("*", "any") or tr.weapon == weapon]
-
-
-def pick(sc: Scene, sel: str, span: int = 0) -> Pick:
+def pick(sc: Scene, sel: str, span: int = 0, only: str | None = None) -> Pick:
     """Выбор по строке: `impact:W[@x,z][#n]`, `first:W`, `framed:W`, `flight:W`, `launch:W@x,z[,r]`, `track:<номер>`,
     `nuke`, `auto` (удар в окне, лучший у камеры сценария; нет — снаряд, которого она держит дольше всех). Выбирает по
     всему окну «start»…«end», как трейлер; `span` режет только окно плана (13.10 p12: выбор по первым 30 тикам взял
     другой шахед, чем вывод)."""
     a0, b0 = window(sc)
+
+    def _of(sc: Scene, weapon: str) -> list[Track]:
+        # `only` — путь по номеру при правиле плана (`--subject p12=track:1` у плана `flight:drone`): правило то же,
+        # выбор — из одного пути
+        return [tr for tr in sc.tracks.values() if (weapon in ("*", "any") or tr.weapon == weapon)
+                and (only is None or tr.id == only)]
+
     m = re.fullmatch(r"(\w+)(?::([\w*]+))?(?:@(-?[\d.]+),(-?[\d.]+)(?:,([\d.]+))?)?(?:#(\d+))?", sel.strip())
     if not m:
         raise SystemExit(f"не понял объект плана: {sel}")

@@ -180,10 +180,15 @@ def plan_one(path: str, args, table: dict):
     name = os.path.basename(path).split(".")[0]
     entry = table.get(name, {})
     sel = subject_for(name, args.subject) or entry.get("subject", "auto")
+    only = None
+    own_sel = entry.get("subject")
+    if sel.startswith("track:") and own_sel and own_sel not in ("auto", "scene", "nuke"):
+        # путь по номеру при правиле плана: полёт остаётся полётом (без удара), удар — ударом
+        only, sel = sel.split(":", 1)[1], own_sel
     span = args.span if args.span is not None else entry.get("span", 0)
     out = os.path.join(args.out, name)
     os.makedirs(out, exist_ok=True)
-    log(f"{name}: объект {sel}" + (f", span {span}" if span else ""))
+    log(f"{name}: объект {sel}" + (f" (путь {only})" if only else "") + (f", span {span}" if span else ""))
     blank = S.Scene(W.empty((0, 0, 0), (1, 1, 1)))
     sc = S.from_eventlog(path, blank.world)
     sc.fog = args.fog
@@ -191,7 +196,7 @@ def plan_one(path: str, args, table: dict):
     if args.shown:
         # трейлер выбирает объект по местам, как их показывает вывод (`Shown`), — и здесь до выбора
         S.smooth_tracks(sc, args.shown)
-    p = J.pick(sc, sel, span)
+    p = J.pick(sc, sel, span, only)
     log(f"  {p.what}: окно {p.a}..{p.b}" + (f", удар {p.key} у {np.round(p.key_pos, 1).tolist()}" if p.key >= 0 else ""))
     w = load_world(path, p, sc, args.regions, args.radius, os.path.join(out, "world.npz"))
     sc = S.from_eventlog(path, w)

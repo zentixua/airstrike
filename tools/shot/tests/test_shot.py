@@ -414,6 +414,8 @@ class PickTest(unittest.TestCase):
             self.assertEqual((p.track.id, p.a, p.b), ("2", 1, 30))
             p = J.pick(sc, "track:1", 30)
             self.assertEqual((p.track.id, p.key, p.b), ("1", -1, 30))
+            # путь по номеру при правиле плана: правило то же (полёт — без удара), выбор — из одного пути
+            self.assertEqual(J.pick(sc, "flight:drone", 30, only="1").track.id, "1")
 
     def test_ties_go_to_the_first_born(self):
         # из равных ударов трейлер берёт первый по строкам «new» (`EventLog.Data.flights`), не по первой точке пути
