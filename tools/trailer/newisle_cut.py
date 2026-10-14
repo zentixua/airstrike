@@ -2,7 +2,8 @@
 """Монтаж трейлера на Newisle из того, что снял конвейер (produce.py): план монтажа по листу аниматика
 (scenes/newisle-animatic.json) — склейки на местах и длинах листа, дубль плана — прошедший проверку вывод (PASS в
 best.txt) или живая запись; плана нет — чёрная заливка с его именем (черновик показывает дыру; план живого дубля
-Артёма, ещё не снятый, — «утром с Артёмом»). Сам монтаж —
+Артёма, ещё не снятый, — «утром с Артёмом»). Провал ворот монтажа (cut_checks: интерфейс под кинокаше, повтор
+плана, чат ключа, рост сирены) — тоже заливка, с причиной. Сам монтаж —
 montage.py (проверка verdict.py: склейка, которую проверка не пропускает, в черновике становится заливкой).
 
     python3 tools/trailer/newisle_cut.py --work ПАПКА_РАБОТЫ [--draft | --final] [--music Juggernaut.mp3] [--check]
@@ -17,6 +18,8 @@ import os
 import re
 import subprocess
 import sys
+
+import cut_checks
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENES = os.path.join(HERE, "scenes")
@@ -73,9 +76,11 @@ def live_plans(takes):
     return {p for t in takes["takes"] if "artem" in t for s in t["shots"] for p in s["plans"]}
 
 
-def plan_of(sheet, dirs, broken=(), music=None, later=()):
+def plan_of(sheet, dirs, broken=(), music=None, later=(), gated=None):
     """План монтажа для montage.py по листу: склейки по порядку листа, длины — его (такты — сеткой трека); неснятый план
-    из `later` (живые дубли) — заливка «утром с Артёмом»."""
+    из `later` (живые дубли) — заливка «утром с Артёмом», проваливший ворота монтажа (`gated`, cut_checks) — заливка
+    с причиной."""
+    gated = gated or {}
     bar = float(sheet.get("bar", 2 * BEAT))
     cuts, t, starts = [], 0.0, []
     for i, s in enumerate(sheet["shots"]):
@@ -89,17 +94,18 @@ def plan_of(sheet, dirs, broken=(), music=None, later=()):
             cuts.append(c)
             continue
         plan = s["plan"]
-        if plan in dirs and plan not in broken:
+        if plan in dirs and plan not in broken and plan not in gated:
             c = {"take": plan, "kind": "scene", "anchor": "start", "dur": dur, "hold": False, "plan": plan}
         else:
-            why = "утром с Артёмом" if plan in later and plan not in broken else "not shot"
+            why = (f"ворота монтажа: {gated[plan]}" if plan in gated
+                   else "утром с Артёмом" if plan in later and plan not in broken else "not shot")
             c = {"kind": "fill", "level": 0, "dur": dur, "id": f"{plan}-missing",
                  "text": {"lines": [f"{plan} — {why}"], "style": "title"}, "plan": plan}
         lb = sheet.get("letterbox") or {}
         if lb.get("until") == plan and "take" in c:
             c["open"] = f"start+{float(lb.get('open', 0)):.2f}"
         cuts.append(c)
-    out = {"name": "newisle-draft", "takes": {p: d for p, d in dirs.items() if p not in broken},
+    out = {"name": "newisle-draft", "takes": {p: d for p, d in dirs.items() if p not in broken and p not in gated},
            "letterbox": bool(sheet.get("letterbox")), "cuts": cuts}
     if music:
         pieces = []
@@ -131,10 +137,14 @@ def main(argv=None):
     takes = load(os.path.join(SCENES, "newisle-takes.json"))
     sheet = load(os.path.join(SCENES, "newisle-animatic.json"))
     dirs = shot_dirs(state, takes)
+    scenario = load(os.path.join(SCENES, "newisle.json")) or {}
+    gated = cut_checks.gates(sheet, takes, scenario, dirs, state, REPO)
+    if gated:
+        print("ворота монтажа (заливкой):", "; ".join(f"{p} — {w}" for p, w in sorted(gated.items())))
     need = [s["plan"] for s in sheet["shots"] if "plan" in s]
     missing = [p for p in need if p not in dirs]
-    if a.final and missing:
-        sys.exit("чистовой монтаж ждёт все планы; не сняты: " + ", ".join(missing))
+    if a.final and (missing or gated):
+        sys.exit("чистовой монтаж ждёт все планы; не сняты: " + ", ".join(missing or gated))
     out = os.path.join(a.work, "cut")
     os.makedirs(out, exist_ok=True)
     name = "newisle-final" if a.final else "newisle-draft"
@@ -144,7 +154,7 @@ def main(argv=None):
     broken = set()
     montage = os.path.join(HERE, "montage.py")
     for _ in range(8):
-        plan = plan_of(sheet, dirs, broken, music, later=live_plans(takes))
+        plan = plan_of(sheet, dirs, broken, music, later=live_plans(takes), gated=gated)
         plan["name"] = name
         path = os.path.join(out, name + ".json")
         with open(path, "w", encoding="utf-8") as f:
@@ -160,7 +170,7 @@ def main(argv=None):
         broken |= bad
     else:
         sys.exit("монтаж не сошёлся за 8 проходов")
-    print("нет в монтаже:", ", ".join(missing + sorted(broken)) if missing or broken else "—")
+    print("нет в монтаже:", ", ".join(missing + sorted(broken) + sorted(gated) if missing or broken or gated else "—"))
     if a.check:
         return 0
     args = ["uv", "run", montage, path, "--root", "/", "--out", os.path.join(out, name + ".mp4")]

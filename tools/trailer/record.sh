@@ -36,6 +36,7 @@ if [ -n "${INCOMING_LIVE_WINDOW:-}" ]; then
   printf '[general]\n' > "$RUN/alsoft.conf"
   export INCOMING_SIZE="${INCOMING_LIVE_SIZE:-1280x720}"
 fi
+# chatScale 1.5: строка чата второго ключа (n30) — 40 px из 1440 (2,8 %), читается с телефона; при 1 — 1,9 %
 cat > "$RUN/options.txt" <<OPT
 onboardAccessibility:false
 pauseOnLostFocus:false
@@ -43,6 +44,7 @@ renderDistance:${INCOMING_RENDER_DISTANCE:-12}
 simulationDistance:16
 entityDistanceScaling:1.0
 guiScale:3
+chatScale:1.5
 fov:0.0
 bobView:false
 soundCategory_music:0.0
