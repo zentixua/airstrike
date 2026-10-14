@@ -156,7 +156,7 @@ done
 Прислать оба `report.md` и `best.txt`, строки `SCENARIO film heap`/`restart`, ошибки — как в п. 3.
 
 ## 6. Монтаж из всего снятого
-После п. 5 и, если оно было этой ночью, вывода камер по сцене (`render-planned`, задание `shot-trailer.md`).
+После п. 5 и п. 7 и, если оно было этой ночью, вывода камер по сцене (`render-planned`, задание `shot-trailer.md`).
 `tools/trailer/cut.sh` собирает строку п. 4 сам: у плана — PASS из самого сильного вывода (`CUT_RENDERS` в скрипте:
 `render-planned` — слабее всех, `render-human3` и `render-metro` — сильнее всех), нет PASS — не прошедший, живые планы —
 из `film-war2`, `film-war4`, `film-war5`. Прежний монтаж п. 4 не трогается — новый в свои файлы:
@@ -165,3 +165,110 @@ tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trai
 ```
 Прислать: `dist/incoming-trailer-v2-lite.mp4`, `dist/incoming-trailer-v2-cuts.md`, `dist/incoming-trailer-edit.sh`,
 `dist/incoming-trailer-edit.log`.
+В логе монтажа строки `! <план>: в … — беру …` — план взят из более слабого дубля, где есть момент склейки (сход у
+пусков, фронт волны у p48 и p50): прислать их отдельно.
+
+## 7. Батарея заново, p18, концовка (видеокарта; после TikTok clips8, до п. 6)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка (между шагами, не во время записи или вывода).
+Что исправлено:
+- Пуски p10a–c, p20, p01c, p35: план начинался, как только снаряд вставал на направляющую, а сходит он через 0,6–1 с; у
+  «Града» в p20 и p01c — только через минуту (трубы перезаряжаются после залпа p10b, а приказ, пока залп идёт, пусковая
+  отклоняет). В монтаже p10a и p35 кончались до первого схода, в p01c не сошло ни одной ракеты. Теперь окно — с поджига,
+  p20 ждёт перезарядки труб (~минута записи), p01c снимается в том же залпе изнутри пакета. Сцена `scene:battery`,
+  пишутся только эти планы и p11 (погоня за шахедом p10c: в журнале `film-war2` до очереди мест дрожь объекта 16 %).
+- p18: камера сценария проходит в 0,1 блока над ступенью лестницы метро — у вывода две запасные той же камеры выше на
+  0,25 и 0,4 (`own-…-up25`, `own-…-up40`).
+- p48 и p50 из `film-war2` — заново, с отметкой фронта: в `film-war4` волна в p50 через 1,75 с от начала плана, монтажу
+  нужно 5,76 с (волна на последний удар трека). Монтаж берёт тот дубль, где фронта ждать дольше.
+Свободного места — как в п. 2.
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war6-battery && chmod -R u+w mod/run/scenario/saves/war6-battery
+INCOMING_TRAILER_DIR=film-war6 INCOMING_WAR_PART=scene:battery INCOMING_WORLD=war6-battery \
+INCOMING_TRAILER_SHOTS=p10a,p10b,p10c,p11,p20,p01c,p35 tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war6 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p10a,p10b,p10c,p11,p20,p01c,p35 \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war4 INCOMING_FILM_OUT=render-metro2 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p18 \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war2 INCOMING_FILM_OUT=render-ends INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p48,p50 \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+for R in film-war6/render film-war4/render-metro2 film-war2/render-ends; do
+  python3 tools/trailer/report.py mod/run/scenario/$R --md mod/run/scenario/$R/report.md
+done
+```
+В логе записи: нет `момент не наступил` у этих планов и нет `the launcher is busy with the previous order`; прислать
+строки `TRAILER p10`, `TRAILER p20`, `TRAILER p01c`, `TRAILER p35`, `SCENARIO film`. Из вывода — три `report.md` и
+`best.txt`, строки `SCENARIO film heap`/`restart`, ошибки (как в п. 3); у p01c и p20 в `report.md` мотор больше 0 %.
+Потом — п. 6.
+
+## 8. Вспышки отсчёта p40b, p40c и монтаж v3 (видеокарта; после очереди: TikTok clips9, p32 треда переосмыслений)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка (между шагами, не во время записи или вывода).
+p40b — сход «Града» в 0,48 с между цифрами отсчёта — не снят ни разу: в `film-war2` и `film-war4` трубы пакета ещё
+перезаряжались после залпов батареи, и в окне плана схода нет (W2 — объект у края прорисовки, W4 — «момент не
+наступил»). Сцена `scene:p40` — одни вспышки, ночью, на свежих пусковых, без МБР и ядерного удара; окно — с поджига.
+Монтаж v3 — из всего снятого, с этими вспышками и p32 из `film-war2/render-planned2` (шаг 5 задания
+`shot-trailer.md`), если он есть; прежние v2 и монтаж п. 4 не трогаются.
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war7-p40 && chmod -R u+w mod/run/scenario/saves/war7-p40
+INCOMING_TRAILER_DIR=film-war7 INCOMING_WAR_PART=scene:p40 INCOMING_WORLD=war7-p40 \
+INCOMING_TRAILER_SHOTS=p40b,p40c tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war7 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p40b,p40c \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+python3 tools/trailer/report.py mod/run/scenario/film-war7/render --md mod/run/scenario/film-war7/render/report.md
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v3.mp4
+```
+В логе записи: нет `момент не наступил` и `the launcher is busy with the previous order`; прислать строки `TRAILER p40`
+и `SCENARIO film`. Из вывода — `report.md`, `best.txt`, ошибки (как в п. 3); у p40b и p40c мотор больше 0 %. Из
+монтажа — как в п. 6, с `v3` вместо `v2`.
+
+## 9. Вспышка p40c, стена p48, люди в p50 и монтаж v4 (видеокарта; сразу)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка (между шагами, не во время записи или вывода).
+Три плана v3 слабее сценария:
+- p40c — вспышка тёмная: камера стояла в 9 блоках сбоку от пакета, две пусковые из трёх были вне кадра. Новая камера —
+  в 24 блоках, все три в кадре. Сцена `scene:p40`, пишется только p40c.
+- p48 — в сценарии стена закрывает горизонт и башни исчезают, а в дубле `film-war2` стена уже прошла городок, пыль
+  расходится и башни проступают: план ждал фронт у самого холма. Теперь своя часть `p48` (свой подрыв на свежей копии
+  мира), окно — за 3,5 с до стены у городка; монтаж берёт план с начала.
+- p50 — людей на крыше нет в кадре: камера смотрела на гриб поверх голов. Тот же повтор `film-war4`, запасные камеры
+  с взглядом ниже на 12° и 16° (`own-…-down12`, `own-…-down16`).
+Свободного места — как в п. 2 (две копии мира).
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war8-p40 && chmod -R u+w mod/run/scenario/saves/war8-p40
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war9-p48 && chmod -R u+w mod/run/scenario/saves/war9-p48
+INCOMING_TRAILER_DIR=film-war8 INCOMING_WAR_PART=scene:p40 INCOMING_WORLD=war8-p40 \
+INCOMING_TRAILER_SHOTS=p40c tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war9 INCOMING_WAR_PART=p48 INCOMING_WORLD=war9-p48 \
+INCOMING_TRAILER_SHOTS=p48 tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war8 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p40c \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war9 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p48 \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war4 INCOMING_FILM_OUT=render-p50people INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p50 \
+INCOMING_FILM_CAMERA='own-.*-down.*' tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+for R in film-war8/render film-war9/render film-war4/render-p50people; do
+  python3 tools/trailer/report.py mod/run/scenario/$R --md mod/run/scenario/$R/report.md
+done
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v4.mp4
+```
+В логе записи: нет `момент не наступил` и `the launcher is busy with the previous order`; прислать строки `TRAILER p40`,
+`TRAILER p48` и `SCENARIO film`. Из вывода — три `report.md` и `best.txt`, ошибки (как в п. 3). Из монтажа — как в п. 6,
+с `v4` вместо `v2`; лёгкую версию — частями, как v3.
+
+## 10. p50 — люди на крыше живы (видеокарта; сразу)
+Рабочее дерево съёмки — на коммит из сообщения координатора и сборка (между шагами, не во время записи или вывода).
+В v4 p50 (камера ниже, `render-p50people`) людей в кадре по-прежнему нет: их убивает вспышка. Крыша в ~1,1 км от
+подрыва, свет там ~35 кал/см², с 10 мод убивает; в p45 люди стоят через 1,4 с после вспышки, к началу p50 их нет.
+Теперь люди на крыше — в творческом режиме (свет и волна их не трогают), а p50 — своя часть `p50` (свой подрыв на свежей
+копии мира, без МБР; план — через 2 с после подрыва, 8 с). Вывод — только камерами сценария с взглядом ниже.
+Свободного места — как в п. 2 (одна копия мира).
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war10-p50 && chmod -R u+w mod/run/scenario/saves/war10-p50
+INCOMING_TRAILER_DIR=film-war10 INCOMING_WAR_PART=p50 INCOMING_WORLD=war10-p50 \
+INCOMING_TRAILER_SHOTS=p50 tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+INCOMING_TRAILER_DIR=film-war10 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p50 INCOMING_FILM_CAMERA='own-.*-down.*' \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+python3 tools/trailer/report.py mod/run/scenario/film-war10/render --md mod/run/scenario/film-war10/render/report.md
+tools/trailer/cut.sh --lang en --music <Juggernaut.mp3> --out dist/incoming-trailer-v5.mp4
+```
+В логе записи: нет `момент не наступил`; прислать строки `TRAILER p50`, `SCENARIO film` и все строки с `Watch` или
+`Guard` (смерть кого-то из них — ошибка). Из вывода — `report.md`, `best.txt`, ошибки (как в п. 3). Из монтажа — как в
+п. 6, с `v5` вместо `v2`; лёгкую версию — частями, как v3.

@@ -87,9 +87,9 @@ import java.util.function.BooleanSupplier;
  * начала или с отметки ({@code siren} — тревога над игроком, {@code front} — фронт ядерного взрыва у камеры, и
  * отметки {@link Film}).
  * <p>
- * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
- * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42; по умолчанию
- * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p16}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
+ * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB}, {@code nukeC},
+ * {@code p48} и {@code p50} — ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя
+ * МБР для p42; по умолчанию — всё, кроме {@code nukeB}, {@code nukeC}, {@code p48}, {@code p50} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p16}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
  * {@code streets} — уличный бой (площадь и проспект, около сотни ботов) с планами 26–30.
  */
 final class War {
@@ -229,6 +229,8 @@ final class War {
         if (all || part.equals("nuke")) nuke();
         if (part.equals("nukeB")) nukeFar();
         if (part.equals("nukeC")) nukeNear();
+        if (part.equals("p48")) wallOverTown();
+        if (part.equals("p50")) roofWave();
         if (part.equals("icbm")) icbm();
         // один план или одна сцена для проверки съёмки из повтора (ReplayFilm) и короткой перезаписи
         if (part.equals("p03")) dawnFlight();
@@ -301,8 +303,15 @@ final class War {
                     fight();
                     nuke();
                 }
+                case "p40" -> {
+                    // вспышки отсчёта одни, без МБР и ядерного удара за ними: ночь, пусковые свежие — трубы «Града» не
+                    // перезаряжаются после залпов батареи (в film-war2 и film-war4 p40b без схода)
+                    film.run(() -> Film.cmd("time set 17000"));
+                    racks();
+                    nightFlashes();
+                }
                 default -> throw new IllegalArgumentException("INCOMING_WAR_PART=" + part
-                        + ": сцены — dawnSquare, firstStrike, battery, sky, airship, p25, p01d, p34, streets, throughFire, nuke");
+                        + ": сцены — dawnSquare, firstStrike, battery, sky, airship, p25, p01d, p34, streets, throughFire, nuke, p40");
             }
         }
         if (part.equals("p16")) {
@@ -1505,7 +1514,7 @@ final class War {
                 .onReady(() -> fireAll(missileRack))
                 .camera(() -> CineCamera.track(new Vec3(-1552, 70.2, 507),
                         film.smoothFocus(() -> film.newest(CruiseMissileEntity.class), new Vec3(-1470, 76, ROW_MISSILE), 0.25), Rig.fov(85)))
-                .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
+                .when(() -> lit(CruiseMissileEntity.class, missileRack), 400);
         // p10b: «Град» выпускает 40 ракет
         film.shot("p10b").length(40).hidden()
                 .onReady(() -> fireAll(rocketRack))
@@ -1514,7 +1523,8 @@ final class War {
                     Vec3 l = Vec3.atBottomCenterOf(rocketRack.get(2));
                     return CineCamera.track(l.add(-110, 2.5, -12), () -> l.add(8, 12, 0), Rig.fov(100));
                 })
-                .when(() -> film.nearest(RocketEntity.class, BATTERY, 120) != null, 400);
+                .cue(0, () -> volleyAt = mc.level.getGameTime())
+                .when(() -> lit(RocketEntity.class, rocketRack), 400);
         // p10c и p11: шахеды уходят со стойки; FPV за шахедом
         film.shot("p10c").length(40).hidden()
                 .onReady(() -> fireAll(droneRack))
@@ -1523,14 +1533,17 @@ final class War {
                     Vec3 l = Vec3.atBottomCenterOf(droneRack.get(2));
                     return CineCamera.track(l.add(-90, 2, -10), film.smoothFocus(() -> film.newest(DroneEntity.class), l.add(3, 3, 0), 0.3), Rig.fov(85));
                 })
-                .when(() -> film.nearest(DroneEntity.class, BATTERY, 120) != null, 600);
+                .when(() -> lit(DroneEntity.class, droneRack), 600);
         film.shot("p11").length(60).hidden().noPrep()
                 .after(() -> film.newest(DroneEntity.class) != null, 200)
                 .camera(() -> film.chaseOf(film.newest(DroneEntity.class), 7, 2.4, -2.6, 16, 4, 62));
 
-        // p20: вся линия разом — кран над батареей с юго-востока, выше холма и дыма пусков (ряды идут по диагонали кадра)
+        // p20: вся линия разом — кран над батареей с юго-востока, выше холма и дыма пусков (ряды идут по диагонали кадра).
+        // Залп «Града» — когда трубы перезарядились после p10b (минута с каждого поджига, LauncherRack.ROCKET): раньше
+        // приказ пакету, чей залп ещё идёт, отказ, а принятый ждал перезарядки на направляющих — в p20 и p01c «Грады»
+        // молчали (14.10)
         film.run(this::reloadAll);
-        film.waitTicks(60);
+        film.waitUntil(() -> mc.level.getGameTime() >= volleyAt + RELOAD, 2 * RELOAD);
         film.shot("p20").length(50).hidden()
                 .onReady(() -> {
                     fireAll(missileRack);
@@ -1539,24 +1552,25 @@ final class War {
                 })
                 .camera(() -> CineCamera.dolly(new Vec3(-1440, 108, 575), new Vec3(-1446, 122, 580), 50,
                         () -> new Vec3(-1490, 70, 525), 64))
-                .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
-        // p01c: «Град» изнутри — сорок огненных хвостов вокруг камеры
-        film.run(this::reloadAll);
-        film.waitTicks(60);
+                .when(() -> lit(StrikeProjectile.class, allRacks()), 400);
+        // p01c: «Град» изнутри — сорок огненных хвостов вокруг камеры: тот же залп p20 (пакет выпускает 40 ракет за 16 с),
+        // окно — с поджига у пакета камеры
         film.shot("p01c").length(35).hidden()
-                .onReady(() -> fireAll(List.of(rocketRack.get(1))))
                 .camera(() -> {
                     Vec3 l = Vec3.atBottomCenterOf(rocketRack.get(1));
                     return CineCamera.track(l.add(-6, 5, 2), () -> l.add(30, 20, 0), 84);
                 })
-                .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
+                .when(() -> lit(RocketEntity.class, List.of(rocketRack.get(1))), 400);
+        // ракеты p20 сошли, пакеты замолчали — приказ p35 они примут
+        film.run(this::reloadAll);
+        film.waitTicks(60);
 
         // p35: камера низко между рядами, к востоку от стреляющих: ракеты проносятся над ней и роняют ускорители
         // (стреляет западная половина ряда — дым пусков остаётся в 20 блоках от камеры)
         film.shot("p35").length(35).hidden()
                 .onReady(() -> fireAll(missileRack.subList(0, 4)))
                 .camera(() -> CineCamera.track(new Vec3(-1470, 69.5, BATTERY.z), () -> new Vec3(-1510, 85, ROW_MISSILE), 70))
-                .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
+                .when(() -> lit(CruiseMissileEntity.class, missileRack.subList(0, 4)), 400);
 
         // p36: ответ Востока — шахеды накрывают батарею, расчёт бежит от пусковых
         film.shot("p36").length(50).hidden()
@@ -1695,6 +1709,34 @@ final class War {
     }
 
     private final RandomSource fireOrder = RandomSource.create(10);
+
+    /** Перезарядка «Града» после поджига ({@code LauncherRack.ROCKET}) и разброс начала пакетов в {@link #fireAll}. */
+    private static final int RELOAD = 1200 + 4 * 14 + 20;
+    /** Время игры у клиента, когда загорелся первый «Град» залпа p10b (начало его окна). */
+    private long volleyAt = Long.MIN_VALUE / 2;
+
+    /** Все пакеты батареи. */
+    private List<BlockPos> allRacks() {
+        List<BlockPos> all = new ArrayList<>(missileRack);
+        all.addAll(rocketRack);
+        all.addAll(droneRack);
+        return all;
+    }
+
+    /**
+     * Снаряд с пакетов {@code rack} загорелся: окно плана пуска — с поджига. Снаряд стоит в ячейке с приказа до своего
+     * поджига (не раньше 10–12 тиков, у «Града» — пока труба не перезарядится), и условие «снаряд у батареи» начинало
+     * план с пустых направляющих: в p10a и p35 первый сход был после склейки, в p01c — ни одного (14.10).
+     */
+    private boolean lit(Class<? extends StrikeProjectile> type, List<BlockPos> rack) {
+        for (Entity e : mc.level.entitiesForRendering()) {
+            if (!type.isInstance(e) || e.isRemoved() || ((StrikeProjectile) e).flightPhase() == FlightPhase.READY) continue;
+            for (BlockPos p : rack) {
+                if (e.distanceToSqr(Vec3.atBottomCenterOf(p)) < 12 * 12) return true;
+            }
+        }
+        return false;
+    }
 
     private void reloadAll() {
         for (List<BlockPos> rack : List.of(missileRack, rocketRack, droneRack)) {
@@ -2558,6 +2600,31 @@ final class War {
 
     // ================================================================ IV: МБР и ядерный удар
 
+    /**
+     * p40b, p40c: вспышки ночного боя у батареи (между цифрами отсчёта); пусковые поставила часть «west» или сцена
+     * ({@link #racks}).
+     */
+    private void nightFlashes() {
+        film.run(this::reloadAll);
+        film.waitTicks(40);
+        film.shot("p40b").length(30).hidden()
+                .onReady(() -> fireAll(rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))))
+                .camera(() -> {
+                    Vec3 l = new Vec3(-1474.5, BATTERY_Y, ROW_ROCKET);
+                    return CineCamera.track(l.add(-10, 1.6, -7), () -> l.add(10, 8, 0), 60);
+                })
+                .when(() -> lit(RocketEntity.class, rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))), 400);
+        // p40c: все три пусковые в кадре с 24 блоков сбоку, со стороны от ряда «Градов» — какая бы ни загорелась первой
+        // (у камеры в 9 блоках две из трёх были вне кадра, вспышка 14.10 — тёмная установка и след без пламени)
+        film.shot("p40c").length(30).hidden()
+                .onReady(() -> fireAll(missileRack.subList(0, Math.min(3, missileRack.size()))))
+                .camera(() -> {
+                    Vec3 l = new Vec3(-1519.5, BATTERY_Y, ROW_MISSILE);
+                    return CineCamera.track(l.add(-6, 1.6, -24), () -> l.add(6, 8, 0), 60);
+                })
+                .when(() -> lit(CruiseMissileEntity.class, missileRack.subList(0, Math.min(3, missileRack.size()))), 400);
+    }
+
     private void nuke() {
         film.run(() -> Film.cmd("time set 17000"));
         // расчёт у пусковых ночью
@@ -2578,23 +2645,7 @@ final class War {
                     + " hotbar.0 with incoming:strike_designator[incoming:loadout={weapon:\"nuke\",count:1,spread:0}]");
             cast().command("give " + CREW[0] + " incoming:icbm 1");
         });
-        // p40b, p40c: вспышки ночного боя у батареи (между цифрами отсчёта); пусковые поставила часть «west»
-        film.run(this::reloadAll);
-        film.waitTicks(40);
-        film.shot("p40b").length(30).hidden()
-                .onReady(() -> fireAll(rocketRack.subList(Math.min(3, rocketRack.size()), Math.min(4, rocketRack.size()))))
-                .camera(() -> {
-                    Vec3 l = new Vec3(-1474.5, BATTERY_Y, ROW_ROCKET);
-                    return CineCamera.track(l.add(-10, 1.6, -7), () -> l.add(10, 8, 0), 60);
-                })
-                .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
-        film.shot("p40c").length(30).hidden()
-                .onReady(() -> fireAll(missileRack.subList(0, Math.min(3, missileRack.size()))))
-                .camera(() -> {
-                    Vec3 l = new Vec3(-1519.5, BATTERY_Y, ROW_MISSILE);
-                    return CineCamera.track(l.add(4, 1.0, -9), () -> l.add(14, 10, 0), 64);
-                })
-                .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
+        nightFlashes();
         // p53 (после титров): ключ, ☢ LAUNCH IN 3, отмена — отсчёт показывает пульт того, кто запускает
         actor(NIGHT_POST, NIGHT_POST.add(100, 4, 0), "incoming:strike_designator[incoming:loadout={weapon:\"nuke\",count:1,spread:0}]");
         film.shot("p53").length(70).hud().player(t -> new Pose(Vec3.ZERO, -90, -6, 0, 70))
@@ -2659,6 +2710,20 @@ final class War {
                 .when(() -> film.warningTicks() < 300, 4000);
 
         // p45, p50: крыша в ~900 блоках: вспышка — люди отворачиваются; волна закрывает небо и накрывает их
+        roofCrowd();
+        film.shot("p45").length(80).hidden()
+                .camera(() -> CineCamera.track(FINAL_ROOF.add(-7, 3.2, -6), () -> GZ.add(0, 250, 0), 60))
+                .when(() -> film.warningTicks() < 30, 4000)
+                .cue(31, () -> film.withServer(s -> roof.cower(GZ)));
+        finalRoof(320).noPrep();
+    }
+
+    /**
+     * Люди на крыше p45 и p50 — в творческом режиме: свет подрыва, радиация и волна их не трогают. Крыша в ~1,1 км от
+     * точки подрыва (15 кт, 590 м над землёй), свет там ~35 кал/см², а с 10 мод убивает ({@code NuclearWarhead.burn}):
+     * в p45 люди ещё стоят через 1,4 с после вспышки, а к началу p50 (через 2,5 с) крыша пуста (14.10).
+     */
+    private void roofCrowd() {
         hiddenAt(FINAL_ROOF, GZ);
         film.onServer(level -> {
             roof = new Crowd(cast(), server());
@@ -2669,19 +2734,37 @@ final class War {
         });
         settle();
         film.onServer(level -> {
+            for (Crowd.Person p : roof.people()) cast().command("gamemode creative " + p.name);
             for (int i = 3; i < 6; i++) film.armSoldier("Guard" + i, 1);
             roof.watch(GZ.add(0, 300, 0), 30);
         });
-        film.shot("p45").length(80).hidden()
-                .camera(() -> CineCamera.track(FINAL_ROOF.add(-7, 3.2, -6), () -> GZ.add(0, 250, 0), 60))
-                .when(() -> film.warningTicks() < 30, 4000)
-                .cue(31, () -> film.withServer(s -> roof.cower(GZ)));
-        film.shot("p50").length(320).hidden().noPrep()
+    }
+
+    /** p50: камера над людьми на крыше отъезжает, волна закрывает небо и накрывает их. */
+    private Film.Shot finalRoof(int length) {
+        return film.shot("p50").length(length).hidden()
                 .camera(() -> {
                     Vec3 a = FINAL_ROOF.add(-9, 5.5, -8), b = FINAL_ROOF.add(-5, 2.6, -10);
                     return CineCamera.dolly(a, b, 320, () -> GZ.add(0, 330, 0), 64);
                 })
                 .cue(120, () -> film.withServer(s -> roof.watch(GZ.add(0, 600, 0), 40)));
+    }
+
+    /**
+     * Часть p50: крыша и волна своим подрывом, без МБР, отсчёта и p45. Люди отворачиваются в тике подрыва, как по
+     * вспышке в p45; план начинается через 2 с после подрыва (в части nuke — через 2,5 с, сразу за p45): волна на крыше
+     * через 2,25 с плана (в film-war4 — через 1,75 с), монтажу до неё нужно 1,74 с.
+     */
+    private void roofWave() {
+        film.run(() -> Film.cmd("time set 17000"));
+        roofCrowd();
+        film.waitTicks(100);
+        finalRoof(160)
+                .onReady(() -> {
+                    Film.cmd("incoming nuke now at " + xyz(at(GZ)) + " 15 air");
+                    film.withServer(s -> roof.cower(GZ));
+                })
+                .when(() -> film.sinceDetonation() >= 40, 600);
     }
 
     /**
@@ -2700,7 +2783,7 @@ final class War {
                 .when(() -> frontIn(at(WAVE_TOWN)) < 25, 4000);
     }
 
-    /** Часть nukeC: стена между домами на камеру (p49), волна закрывает горизонт с взгорка (p48) — по порядку прихода. */
+    /** Часть nukeC: стена между домами на камеру (p49). */
     private void nukeNear() {
         detonate(WAVE_STREET);
         film.shot("p49").length(70).hidden()
@@ -2709,9 +2792,18 @@ final class War {
                     return CineCamera.track(WAVE_STREET.add(0, 1.5, 0), () -> WAVE_STREET.add(dir.scale(80)).add(0, 12, 0), 72);
                 })
                 .when(() -> frontIn(WAVE_STREET) < 45, 4000);
+    }
+
+    /**
+     * Часть p48: с холма стена накрывает городок на горизонте, башни исчезают — своим подрывом. План начинается за 3,5 с
+     * до стены у городка (он в кадре между холмом и эпицентром). В части nukeC p48 шёл после p49 и ждал фронт у самого
+     * холма — стена уже прошла город, в кадре пыль расходилась и башни проступали (14.10).
+     */
+    private void wallOverTown() {
+        detonate(WAVE_HILL);
         film.shot("p48").length(100).hidden()
                 .camera(() -> CineCamera.track(g(WAVE_HILL).add(0, 18, 0), () -> GZ.add(-150, 150, -150), 24))
-                .when(() -> frontIn(at(WAVE_HILL)) < 70, 4000);
+                .when(() -> frontIn(at(WAVE_TOWN)) < 70, 4000);
     }
 
     /**

@@ -126,7 +126,7 @@ final class Coverage {
         own("p16", Rig.scene(), false, SCENE);
         // удар за стеклом окна: лучи по блокам стекло считают стеной — проверяется мир, вспышку несёт свет
         own("p17", Rig.impact("missile", new Vec3(3062.5, 0, 338.5), 0), false, SCENE);
-        own("p18", Rig.impact("rocket", new Vec3(3330.5, 0, 300.5), 0), true, new Need(0, 0, 0.4, 0));
+        own("p18", Rig.impact("rocket", new Vec3(3330.5, 0, 300.5), 0), true, new Need(0, 0, 0.4, 0), Rig.ownUp(true, 0.25), Rig.ownUp(true, 0.4));
         own("p19a", Rig.impact("missile", null, 0), false, HIT, Rig.own(false, 30));
         // половина плана 19 (полторы секунды)
         own("p19b", 40, Rig.flight("missile"), false, OVERHEAD, Rig.own(false, 30), Rig.own(false, 24));
@@ -185,7 +185,8 @@ final class Coverage {
         own("p47", Rig.scene(), false, SCENE.smokeIsSubject());
         own("p48", Rig.scene(), false, SCENE.smokeIsSubject());
         own("p49", Rig.scene(), false, SCENE.smokeIsSubject());
-        own("p50", Rig.scene(), false, SCENE.smokeIsSubject());
+        // люди на крыше: камера сценария смотрела на гриб поверх их голов — запасные с взглядом ниже
+        own("p50", Rig.scene(), false, SCENE.smokeIsSubject(), Rig.ownTilt(false, 12), Rig.ownTilt(false, 16));
     }
 
     private Coverage() {}

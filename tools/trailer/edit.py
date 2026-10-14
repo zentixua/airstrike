@@ -304,28 +304,44 @@ def load_recording(rec=REC):
 
 def pick_takes(recordings, lang):
     """Дубль каждого плана из записей (--rec по порядку): последний; план с текстом игры в кадре — последний
-    на языке ролика (en_us/ru_ru), а если такого нет — последний какой есть, с предупреждением."""
+    на языке ролика (en_us/ru_ru), а если такого нет — последний какой есть, с предупреждением. Второй результат — все
+    дубли плана, сильный первым, по одному из папки (запасные для prefer_fitting)."""
     takes = {}
     for rec in recordings:
         for name, s in rec.items():
             takes.setdefault(name, []).append(s)
-    shots = {}
+    shots, alts = {}, {}
     for name, cands in takes.items():
-        own = [s for s in cands if s.lang == lang]
+        pool = cands
         if any(s.hud for s in cands):
+            own = [s for s in cands if s.lang == lang]
             if not own:
                 print(f"  ! {name}: нет дубля на {lang}, текст в кадре — {cands[-1].lang}")
-            shots[name] = (own or cands)[-1]
-        else:
-            shots[name] = cands[-1]
-    return shots
+            pool = own or cands
+        shots[name] = pool[-1]
+        seen, order = set(), []
+        for s in reversed(pool):
+            if s.rec not in seen:
+                seen.add(s.rec)
+                order.append(s)
+        alts[name] = order
+    return shots, alts
 
 
 def anchor(shot, spec):
     """Момент плана в секундах игры: число, «end», «mark:что» или «sound:часть имени» (#n — n-е совпадение, #-1 —
-    последнее) с ±сдвигом."""
+    последнее) с ±сдвигом. Нет такого в плане — начало плана (со сдвигом, не раньше нуля)."""
+    moment, off = find_anchor(shot, spec)
+    if moment is None:
+        print(f"  ! {shot.name}: нет «{spec}», беру начало плана")
+        return max(off, 0.0)
+    return moment
+
+
+def find_anchor(shot, spec):
+    """(момент по anchor или None, если отметки или звука в плане нет; сдвиг из spec)."""
     if isinstance(spec, (int, float)):
-        return float(spec)
+        return float(spec), 0.0
     off = 0.0
     for sign in "+-":
         if sign in spec[1:]:
@@ -337,7 +353,7 @@ def anchor(shot, spec):
             except ValueError:
                 pass
     if spec == "end":
-        return shot.duration + off
+        return shot.duration + off, off
     kind, what = spec.split(":", 1)
     nth = 1
     if "#" in what:  # «sound:blast#3» — третье совпадение
@@ -349,9 +365,8 @@ def anchor(shot, spec):
     elif kind == "sound":
         hits = [e["t"] for e in shot.sounds if what in e["event"]]
     if len(hits) >= abs(nth):
-        return shot.sec(hits[nth - 1 if nth > 0 else nth]) + off
-    print(f"  ! {shot.name}: нет «{spec}», беру начало плана")
-    return max(off, 0.0)
+        return shot.sec(hits[nth - 1 if nth > 0 else nth]) + off, off
+    return None, off
 
 
 # ---------------------------------------------------------------- монтажный лист
@@ -410,6 +425,13 @@ class Text:
 
 END = 130.0  # 2:10
 HIT_LAND = 0.6  # где в склейке ложится удар плана, если склейка не задаёт своего якоря
+# Волна у крыши плана 50 — через 1,75 с от его начала (film-war4): план идёт сразу за p45 в том же подрыве, а волна
+# доходит до крыши за ~4 с после вспышки — раньше её на крыше снимать нечего. Поэтому план 50 начинается за 1,74 с до
+# последнего удара (волна — на него), а время до него берут стены 48 и 49 (окна их записей — 5 и 3,5 с). До 14.10
+# план 50 шёл с 1:52 и волна приходила за 4 с до удара, а на ударе небо уже светлело. Другой дубль p50 — число по его
+# отметке front (в логе монтажа — «p50: план начинается на … позже»).
+P50_AT = LAST_AT - 1.74
+P49_DUR = 3.48
 HIT_RING = 0.8  # сколько удар склейки холодного начала и пика звучит после неё, с (Clip.ring)
 
 # 53 плана по таблице сценария (страница сценария, версия 9): время, кадр, что в кадре. Start, I, II — 2.39:1, с плана 15 — 16:9.
@@ -438,10 +460,12 @@ PLANS = [
     Plan(8, "0:12", "Карта наведения: курсор ставит метку на небоскрёбе"),
     Plan(9, PARTS[0].trailer(13.5), "Пульт STRIKE CONSOLE, курсор на «MISSION (10)»"),
     # ---- II · Первый удар: без музыки
+    # пуски — от поджига (звук старта у камеры): в записях до 14.10 план начинался, пока снаряды ещё стояли на
+    # направляющих, и склейка с начала плана кончалась до первого схода
     Plan(10, FIRE_AT, "Пуск, три склейки", [
-        Clip("a", 0.0, None, "ракеты сходят с пусковых, сбрасывают ускорители"),
-        Clip("b", 0.0, None, "«Град» выпускает 40 ракет"),
-        Clip("c", 0.0, None, "шахеды уходят со стойки"),
+        Clip("a", "sound:launch.booster-0.1", None, "ракеты сходят с пусковых, сбрасывают ускорители"),
+        Clip("b", "sound:rocket.launch-0.1", None, "«Град» выпускает 40 ракет"),
+        Clip("c", "sound:launch.booster-0.1", None, "шахеды уходят со стойки"),
     ]),
     Plan(11, "0:18", "FPV за шахедом над рекой, дымные следы на восток"),
     Plan(12, "0:20", "Деревня: шахеды низко над жителем, он поднимает голову"),
@@ -490,7 +514,8 @@ PLANS = [
          [Clip("", "mark:impact", None, "три удара справа налево, бинокль ведёт за ними", land=0.35)]),
     Plan(34, "1:07", "С борта ракеты: пике, SIGNAL LOST, помехи",
          [Clip("", "mark:gone+0.4", None, "помехи режут в следующий план", land="end")]),
-    Plan(35, "1:08", "Пусковая Запада: залп, ракеты роняют ускорители"),
+    Plan(35, "1:08", "Пусковая Запада: залп, ракеты роняют ускорители",
+         [Clip("", "sound:launch.booster-0.1", None, "ракеты сходят над камерой")]),
     Plan(36, "1:09", "Шахеды Востока накрывают позиции Запада"),
     Plan(37, "1:10", "B-2 на закате: створки, бомба, земля вспучивается", [Clip("", "mark:release-1.2", None)]),
     # Волна 5 · Ночь и пик
@@ -503,13 +528,14 @@ PLANS = [
     Plan(39, "1:15", "Пик: все виды оружия, пуски и прилёты вперемешку",
          [Clip(shot, at, 0.48 if i < 12 else 0.24, f"пик {i + 1}/20", ring=HIT_RING) for i, (shot, at) in enumerate(PEAK)]
          + [Clip("p39a", 3.0, None, "пик 20/20: ковёр разрывов на камеру", ring=HIT_RING)], grid=4),
-    # второй ключ на три сильные доли: просьба командира в чате, ключ повёрнут, МБР уходит; между ними вспышки боя;
-    # на третьей всё обрывается
+    # второй ключ на три сильные доли: просьба командира в чате, ключ повёрнут, МБР уходит; между ними вспышки боя —
+    # сход с пусковых от звука старта (окно записей до 65ae39d начиналось со снаряда на направляющей); на третьей всё
+    # обрывается
     Plan(40, "1:22.6", "Второй ключ: просьба, ключ, пуск МБР, вспышки боя", [
         Clip("p40a", 1.0, 0.48, "☢ … asks for the second key"),
-        Clip("b", 0.0, 0.48, "вспышка боя"),
+        Clip("b", "sound:rocket.launch-0.05", 0.48, "вспышка боя: сходит «Град»"),
         Clip("p40a", 2.0, 0.48, "☢ … turned the second key"),
-        Clip("c", 0.0, 0.48, "вспышка боя"),
+        Clip("c", "sound:launch.booster-0.05", 0.48, "вспышка боя: сходят ракеты"),
         Clip("p40a", 3.0, None, "МБР уходит со стола — обрыв"),
     ]),
     # ---- IV · Конец света: 16 секунд без музыки, камера медленная; трек возвращается с волной
@@ -522,12 +548,14 @@ PLANS = [
     Plan(46, "1:41", "Блэкаут: город гаснет, огненный шар тянет гриб",
          [Clip("", 1.5, None, "вспышка уже была в плане 45")]),
     Plan(47, "1:44", "С высоты: стена пыли катится по рельефу"),
-    Plan(48, "1:47", "С холма: волна закрывает горизонт, башни исчезают",
-         [Clip("", "mark:front", None, "стена накрывает взгорок", land=2.4)]),
-    Plan(49, "1:50", "Улица: стена несётся между домами на камеру",
+    # стены 48 и 49 длиннее, чем на сетке: они отдают время плану 50 (см. P50_AT). План 48 — с начала: запись (часть
+    # p48) начинается за 3,5 с до стены у городка на горизонте; до холма стена за план не доходит
+    Plan(48, "1:47.6", "С холма: волна закрывает горизонт, башни исчезают",
+         [Clip("", 0.0, None, "стена накрывает городок, башни исчезают")]),
+    Plan(49, P50_AT - P49_DUR, "Улица: стена несётся между домами на камеру",
          [Clip("", "mark:front", None, "стена у камеры", land=1.6)]),
     # момент плана, когда волна накрывает людей, — на последний удар трека; чёрный — на обрыв трека
-    Plan(50, "1:52", "Финал: крыша в км от эпицентра, волна накрывает людей",
+    Plan(50, P50_AT, "Финал: крыша в км от эпицентра, волна накрывает людей",
          [Clip("", "mark:front", None, "волна накрывает людей — на последний удар", sync=LAST_AT)]),
     # ---- Титул
     Plan(51, RELEASE_AT, "Логотип INCOMING", [Fill()]),
@@ -626,25 +654,68 @@ def build_edit(lang="en"):
     return edit, texts, cuts, total, p14
 
 
+def placing(s, c, slowmo=False):
+    """Как склейка c ложится на дубль s: (скорость, якорь, где в склейке момент, сколько до момента нужно, с)."""
+    rate = s.speed if slowmo and s.speed < 1 else 1.0
+    at, land = c.at, c.land
+    if at is None:
+        # удар — то, ради чего план: он в склейке, после него — огонь и звук
+        impact = any(m == "impact" for _, m in s.marks)
+        at, land = ("mark:impact", round(HIT_LAND * c.dur, 3)) if impact else (0.0, 0.0)
+    if c.sync is not None:
+        lead = c.sync - c.start
+    elif land == "end":
+        lead = c.dur
+    else:
+        lead = float(land)
+    return rate, at, land, lead * rate
+
+
+def prefer_fitting(edit, shots, alts, slowmo=False):
+    """Дубль плана, на который ложатся его склейки: в самом сильном нет якоря склейки (p01c — ни одного схода «Града»)
+    или момент так близко к началу, что склейка сдвинулась бы (p50 — волна за 4 с до последнего удара), — берётся
+    дубль слабее, где якорей не меньше и сдвиг меньше хотя бы на 0,25 с. Выбор — в лог."""
+    for name, cands in alts.items():
+        clips = [c for c in edit if isinstance(c, Clip) and c.shot == name]
+        if not clips or len(cands) < 2 or shots.get(name) is not cands[0]:
+            continue
+
+        def cost(s):
+            misses, late = 0, 0.0
+            for c in clips:
+                _, at, _, need = placing(s, c, slowmo)
+                moment, _ = find_anchor(s, at)
+                if moment is None:
+                    misses += 1
+                else:
+                    late += max(0.0, need - moment)
+            return misses, late
+
+        base = cost(cands[0])
+        if base == (0, 0.0):
+            continue
+        best, best_cost = cands[0], base
+        for s in cands[1:]:
+            m, late = cost(s)
+            if m < best_cost[0] or m == best_cost[0] and late < best_cost[1] - 0.25:
+                best, best_cost = s, (m, late)
+        if best is not cands[0]:
+            def why(v):
+                parts = ([f"нет якоря у {v[0]} склеек"] if v[0] else []) + ([f"сдвиг {v[1]:.2f} с"] if v[1] > 0 else [])
+                return ", ".join(parts) or "ложится"
+            print(f"  ! {name}: в {cands[0].rec} {why(base)} — беру {best.rec} ({why(best_cost)})")
+            shots[name] = best
+
+
 def resolve(edit, shots, slowmo=False):
     """Откуда в плане начинается каждая склейка (якоря по записи); раскрытие кадра плана 14 — время трейлера."""
     for c in edit:
         if not isinstance(c, Clip) or c.shot not in shots:
             continue
         s = shots[c.shot]
-        c.rate = s.speed if slowmo and s.speed < 1 else 1.0
-        if c.at is None:
-            # удар — то, ради чего план: он в склейке, после него — огонь и звук
-            impact = any(m == "impact" for _, m in s.marks)
-            c.at, c.land = ("mark:impact", round(HIT_LAND * c.dur, 3)) if impact else (0.0, 0.0)
+        c.rate, c.at, c.land, need = placing(s, c, slowmo)
         moment = anchor(s, c.at)
-        if c.sync is not None:
-            lead = c.sync - c.start
-        elif c.land == "end":
-            lead = c.dur
-        else:
-            lead = float(c.land)
-        c.src = moment - lead * c.rate
+        c.src = moment - need
         if c.src < 0:
             print(f"  ! {c.shot}: план начинается на {-c.src:.2f} с позже, чем нужно склейке — сдвигаю")
             c.src = 0.0
@@ -1205,13 +1276,14 @@ def main():
     if args.out is None:
         args.out = os.path.join(DIST, "incoming-trailer.mp4" if args.lang == "en" else f"incoming-trailer-{args.lang}.mp4")
     music = music_file(args.music)
-    shots = pick_takes([load_recording(rec) for rec in args.rec or [REC]], GAME_LANG[args.lang])
+    shots, alts = pick_takes([load_recording(rec) for rec in args.rec or [REC]], GAME_LANG[args.lang])
     for t in args.take:
         name, _, rec = t.partition("=")
         took = load_recording(rec).get(name)
         if took is None:
             sys.exit(f"--take {t}: в {rec} нет плана {name}")
         shots[name] = took
+        alts[name] = [took]
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
     edit, texts, cuts, total, p14 = build_edit(args.lang)
@@ -1224,6 +1296,7 @@ def main():
     extra = sorted(set(shots) - used)
     if extra:
         print("  в записи, но не в монтаже:", ", ".join(extra))
+    prefer_fitting(edit, shots, alts, args.slowmo)
     resolve(edit, shots, args.slowmo)
     opened = opening(p14, shots)
     print_edit(edit, shots)
