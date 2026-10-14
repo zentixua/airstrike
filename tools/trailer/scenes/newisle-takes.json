@@ -51,7 +51,7 @@
   },
   {
    "id": "T03", "title": "Терраса: внезапный удар", "from": "chain", "clock": "night", "siren": false, "minutes": 8,
-   "artem": {"mark": "camera:n49", "stand": {"at": [-150, -60], "above": -25}, "look": "c1_terrace_hit",
+   "artem": {"mark": "camera:n49", "stand": "c1_terrace", "look": "c1_terrace_hit",
              "hints": ["Терраса Города 1, ночь. Встань у стеклянной двери лицом к городу.", "Нажми Enter — начнём.", "Стой и смотри на город, пока экран не станет чёрным."]},
    "shots": [
     {"plans": ["n49", "n50a", "n50"], "offsets": {"n50a": 4.0, "n50": 4.7}, "seconds": 9,
@@ -405,7 +405,7 @@
   }
  ],
  "searches": {
-  "terrace": {"about": "Расстояние удара у террасы (n50): стекло двери выбито, дом стоит. Пробы — удар по точкам на линии от камеры n49 к c1_terrace_hit, каждая — на свежей копии мастера; результат — place c1_terrace_hit.", "place": "c1_terrace_hit", "from_camera": "n49", "toward": "c1_terrace_hit", "distances": [40, 50, 60, 70, 85], "weapon": "missile", "probes": ["terrace_glass", "terrace_house"], "glass_broken_min": 0.5, "house_kept_min": 0.97},
+  "terrace": {"about": "Расстояние удара у террасы (n50): стекло двери выбито, дом стоит. Пробы — удар по точкам на линии от камеры n49 к c1_terrace_hit, каждая — на свежей копии мастера; результат — place c1_terrace_hit.", "place": "c1_terrace_hit", "from_camera": "n49", "toward": "c1_terrace_hit", "distances": [30, 36, 42, 48, 54], "weapon": "missile", "probes": ["terrace_glass", "terrace_house"], "glass_broken_min": 0.5, "house_kept_min": 0.97},
   "grad": {"about": "Залп «Града» n41, который сервер держит на 20 TPS: пробы — залпы по 8, 16, 24, 32 снаряда; берётся наибольший, у которого тик сервера в пике ≤ 50 мс. Результат — strikes n41.", "plan": "n41", "sizes": [8, 16, 24, 32], "mspt_max": 50},
   "spots": {"about": "Места по лучам по блокам: углы камер наблюдения, кафе, толпа и костёр, бункер в 180 блоках от толпы, лодка восточнее моста. Результат — places.", "items": [
    {"place": "c1_cafe", "near": [-144, 20], "r": 14, "kind": "ground", "see": "c1_metro_in"},
