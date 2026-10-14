@@ -52,9 +52,11 @@ REACH = 600.0
 class Heights:
     """Высоты карты из mapstudy: `top[z, x]` (твёрдый верх) и `ground[z, x]`, начало — угол рамки."""
 
-    def __init__(self, top, ground, x0, z0, streets=(), tall=(), water=None, sea=62):
+    def __init__(self, top, ground, x0, z0, streets=(), tall=(), water=None, sea=62, canopy=None):
         self.top = np.asarray(top, dtype=np.float32)
         self.ground = np.asarray(ground, dtype=np.float32)
+        # верх всего (листва, трава, вода): закрывает взгляд и место камеры; в прежних выводах без него — твёрдый верх
+        self.canopy = np.maximum(self.top, np.asarray(canopy, np.float32)) if canopy is not None else self.top
         # вода сверху: из mapstudy, а в прежних выводах без неё — верх ниже уровня моря (дно озера)
         self.water = np.asarray(water, bool) if water is not None else self.top < sea
         self.x0, self.z0 = int(x0), int(z0)
@@ -66,9 +68,11 @@ class Heights:
         with open(os.path.join(folder, "mapstudy.json"), encoding="utf-8") as f:
             st = json.load(f)
         x0, z0 = st["box"][:2]
-        wet = os.path.join(folder, "water.npy")
+        def opt(name):
+            f = os.path.join(folder, name)
+            return np.load(f) if os.path.exists(f) else None
         return cls(np.load(os.path.join(folder, "top.npy")), np.load(os.path.join(folder, "ground.npy")), x0, z0,
-                   st.get("streets", ()), st.get("tall", ()), np.load(wet) if os.path.exists(wet) else None)
+                   st.get("streets", ()), st.get("tall", ()), opt("water.npy"), canopy=opt("canopy.npy"))
 
     def cell(self, x, z):
         zi = np.clip(np.floor(np.asarray(z) - self.z0).astype(np.int64), 0, self.top.shape[0] - 1)
@@ -78,6 +82,21 @@ class Heights:
     def top_at(self, x, z):
         zi, xi = self.cell(x, z)
         return self.top[zi, xi] + 1          # над верхним блоком
+
+    def block_at(self, x, z):
+        """Над верхом всего, что закрывает взгляд (с листвой)."""
+        zi, xi = self.cell(x, z)
+        return self.canopy[zi, xi] + 1
+
+    def open_sky(self, zi, xi, r=2, tol=1.5):
+        """В клетках и вокруг (±r) нет листвы над твёрдым верхом (трава не в счёт): камера не под деревом и не в кроне."""
+        out = np.ones(len(zi), bool)
+        for dz in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                zz = np.clip(zi + dz, 0, self.top.shape[0] - 1)
+                xx = np.clip(xi + dx, 0, self.top.shape[1] - 1)
+                out &= self.canopy[zz, xx] - self.top[zz, xx] <= tol
+        return out
 
     def ground_at(self, x, z):
         zi, xi = self.cell(x, z)
@@ -94,11 +113,11 @@ class Heights:
         n = max(2, int(d / step))
         k = np.arange(1, n) / n
         x, y, z = (a[i] + (b[i] - a[i]) * k for i in range(3))
-        top = self.top_at(x, z)
+        block = self.block_at(x, z)
         back = (1 - k) * d
-        same = (np.abs(top - self.top_at(b[0], b[2])) <= 2) & (back <= own)
+        same = (np.abs(block - self.top_at(b[0], b[2])) <= 2) & (back <= own)
         skip = np.cumprod(same[::-1])[::-1].astype(bool) | (back < spare)
-        return bool((top[~skip] <= y[~skip] + 0.5).all())
+        return bool((block[~skip] <= y[~skip] + 0.5).all())
 
 
 def point(h, spec, places, default_above=2.0):
@@ -165,7 +184,7 @@ def pick_spot(h, pose, target, roof, places):
     else:
         ok = (bh <= 1.5) & flat(h, zi, xi)
     d = np.hypot(X - target[0], Z - target[2])
-    ok &= (d >= lo) & (d <= hi) & ~h.water[zi, xi]
+    ok &= (d >= lo) & (d <= hi) & ~h.water[zi, xi] & h.open_sky(zi, xi)
     if not ok.any():
         what = "крыши" if roof else "места на земле"
         return None, f"нет {what} в {radius} блоках от {near[0]:.0f}, {near[1]:.0f} в {lo:.0f}–{hi:.0f} блоках от цели"
@@ -251,7 +270,8 @@ def resolve(h, plan, places):
         eyes = [e] * n
     elif kind == "peak":
         X, Z, zi, xi = candidates(h, xz(h, pose["at"], places), pose.get("radius", 30), 2)
-        order = np.argsort(-h.top[zi, xi])
+        # сначала открытые (без деревьев над головой), выше — раньше
+        order = np.lexsort((-h.top[zi, xi], ~h.open_sky(zi, xi)))
         e = None
         for k in order[:200]:
             cand = np.array([X[k], h.top[zi[k], xi[k]] + 1 + pose.get("above", 1.7), Z[k]])
@@ -369,6 +389,19 @@ def previs(res, plan, h, places, regions, out_dir, size, cache):
         cache.clear()
         wld = W.from_regions(regions, lo, hi) if regions else W.empty(lo, tuple(hi - lo))
         cache.update(box=(lo, hi), world=wld)
+    lift = 0
+    for f in res["frames"]:
+        # глаз в блоке (место из данных высот под навесом, точка задана с ошибкой) — вверх до воздуха
+        e = np.array(f["eye"], float)
+        for k in range(60):
+            if wld.kind_at(e[None] + np.array([[0, 0.3, 0]]))[0] not in (W.OPAQUE, W.SOFT, W.WATER):
+                break
+            e[1] += 1
+        if e[1] > f["eye"][1]:
+            lift = max(lift, e[1] - f["eye"][1])
+            f["eye"][1] = round(float(e[1]), 1)
+    if lift:
+        res["notes"] += f"; глаз был в блоке — поднят на {lift:.0f}"
     sc = SC.Scene(world=wld)
     for j, s in enumerate(plan.get("strikes", [])):
         to = point(h, s.get("to", plan["target"]), places, 0.0)

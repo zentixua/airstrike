@@ -133,6 +133,33 @@ class ScoutTest(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertIn("цель закрыта", r["notes"])
 
+    def test_trees_block_sight_and_spots(self):
+        top, ground, streets = _map()
+        canopy = top.copy()
+        canopy[100 + 100 - 3:100 + 100 + 3, 100 + 20 - 3:100 + 20 + 3] = 75   # крона над (20, 100)
+        h = self.S.Heights(top, ground, -100, -100, streets, canopy=canopy)
+        self.assertTrue(self.h.sees([10, 66, 100], [30, 66, 100]))
+        self.assertFalse(h.sees([10, 66, 100], [30, 66, 100]), "листва закрывает взгляд")
+        plan = {"id": "g", "target": [100, 100], "pose": {"kind": "ground", "near": [20, 100], "radius": 6, "dist": [60, 90]}}
+        r = self.S.resolve(h, plan, {})
+        self.assertFalse(r["ok"], "под кроной камере не место")
+
+    def test_eye_inside_ground_is_lifted(self):
+        try:
+            import scipy  # noqa: F401
+            sys.path.insert(0, self.S.SHOT)
+            from shotlib import world as W
+        except ImportError:
+            self.skipTest("нужны scipy и shotlib")
+        res = {"id": "x", "title": "", "time": "day", "camera": "fixed", "distance": None, "target": None, "notes": "",
+               "frames": [{"t": 0, "eye": [0.5, 60.7, 0.5], "yaw": 0, "pitch": 0, "fov": 50}]}
+        lo, hi = np.array([-200, -64, -200]), np.array([200, 200, 200])
+        cache = {"box": (lo - 1000, hi + 1000), "world": W.empty(lo, tuple(hi - lo), ground_y=64)}
+        with tempfile.TemporaryDirectory() as d:
+            self.S.previs(res, {}, self.h, {}, None, d, (64, 36), cache)
+        self.assertGreaterEqual(res["frames"][0]["eye"][1], 63.7)
+        self.assertIn("поднят", res["notes"])
+
     def test_main_writes_poses_report_and_frames(self):
         try:
             import PIL  # noqa: F401
