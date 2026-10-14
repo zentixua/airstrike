@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -121,7 +122,20 @@ def cameras(shot: dict) -> list[dict]:
 
 
 SMOKE_LIFE = 4800
+# бомба: глубже этого под верхом (BunkerCover.BREACH_DEPTH) взрыв не прорывается наружу — без шара, столб из провала
+BREACH_DEPTH = 10
 _HIT_WEAPONS: dict[int, tuple] = {}
+
+
+def smoke_row(t: int, x: float, y: float, z: float, surface: float | None, weapon: str | None) -> list:
+    """Строка дыма удара для Plume replayscan: место, поперечник шара, вид взрыва. Дым бомбы — над верхом (surfaceY пакета
+    взрыва, как у FarBlasts.add), не у заряда в толще; заряд глубже BREACH_DEPTH — вид 5 (столб без шара)."""
+    look = BLAST_LOOK.get(weapon, 2)
+    if look == 4 and surface is not None:
+        if math.floor(int(surface) - y) > BREACH_DEPTH:
+            look = 5
+        y = surface
+    return [t, x, y, z, BLAST.get(weapon, 16), look]
 
 
 def hit_weapons(con) -> dict:
@@ -143,7 +157,13 @@ def film_shot(con, cid: str, shot: dict) -> dict:
         subject["area"] = {"pos": s["centre"], "size": 2 * s.get("spread", 60)}
     dim = dim_of(con, shot)
     # столб дыма у Incoming стоит до 4 минут (FarBlasts.Look.life ракеты — 4800 тиков): удары с тех пор
-    smoke = con.execute("SELECT id, t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
+    # ядерный подрыв — без строки: у него своя картинка, не столб взрыва (снаряда в пакете подрыва нет — по пакету)
+    smoke = con.execute("""
+        WITH k AS (SELECT id, t, x, y, z, events FROM impact_kinds
+                   WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? AND srcs NOT LIKE '%nuke_detonation%'),
+        s AS (SELECT k.id, max(TRY_CAST(json_extract(ev.data, '$.surfaceY') AS DOUBLE)) AS surface
+              FROM k, unnest(k.events) AS u(e) JOIN events ev ON ev.e = u.e WHERE regexp_matches(ev.src, ':blast$') GROUP BY k.id)
+        SELECT k.id, k.t, k.x, k.y, k.z, s.surface FROM k LEFT JOIN s ON s.id = k.id ORDER BY k.t""",
                         [dim, a - SMOKE_LIFE, b]).fetchall()
     # поперечник огненного шара и вид взрыва — по оружию снаряда (дым удара: модель Plume replayscan); МБР — без строки:
     # у ядерного подрыва своя картинка, не столб взрыва
@@ -151,8 +171,7 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     far = kind in ("far", "nuke", "fly")
     return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far or kind == "fpv" else 20,
             "far": far, "cameras": cameras(shot), "subject": subject,
-            "smoke": [[t, x, y, z, BLAST.get(weapons.get(i), 16), BLAST_LOOK.get(weapons.get(i), 2)] for i, t, x, y, z in smoke
-                      if weapons.get(i) != "icbm"],
+            "smoke": [smoke_row(t, x, y, z, surface, weapons.get(i)) for i, t, x, y, z, surface in smoke if weapons.get(i) != "icbm"],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", ""),
             **({"time": shot["camera"]["time"]} if "time" in shot["camera"] else {})}
 

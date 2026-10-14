@@ -91,6 +91,27 @@ class PlumeTest {
     }
 
     @Test
+    void deepBombSmokeIsAColumnFromTheCrater() {
+        // бомба глубже 10 блоков: частиц шара и вала пыли нет, столб из провала — сразу (FarBlasts.BUNKER_DEEP)
+        Plume deep = Plume.of(new double[]{100, 0, 64, 0, 24, 5});
+        assertSame(Plume.Look.BUNKER_DEEP, deep.look());
+        assertEquals(12, deep.shapes(130).size(), "only the column puffs");
+        assertTrue(deep.shapes(130).stream().noneMatch(Plume.Shape::cylinder), "no dust surge");
+        assertTrue(deep.clearance(AT.add(0, 8, 0), 160) < 0, "above the crater");
+        assertTrue(deep.alive(3100) && !deep.alive(3101));
+        // свой дым — по горизонтали: удар плана — заряд в толще, дым — над верхом
+        assertFalse(deep.blocks(AT.add(-60, 8, 0), new Vec3(0, 40, 0), 160));
+    }
+
+    @Test
+    void puffBehindTheEyeHidesNothing() {
+        // квадрат клуба — лицом к камере через свою середину: середина за глазом — квадрат за камерой
+        double half = 10;
+        assertEquals(1, Smoke.cover(0, 0, 0, 0, 0, 40, 1600, 0, 0, 3, half, 0, 0, 40, 0), 1e-9, "in front");
+        assertEquals(0, Smoke.cover(0, 0, 0, 0, 0, 40, 1600, 0, 0, -3, half, 0, 0, 40, 0), 1e-9, "behind");
+    }
+
+    @Test
     void cylinderAndBallShapes() {
         Plume.Shape ball = new Plume.Shape(0, 70, 0, 5, 0, false, 1);
         assertEquals(-5, ball.distance(0, 70, 0), 1e-9);

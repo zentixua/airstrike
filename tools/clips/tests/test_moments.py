@@ -781,6 +781,10 @@ class FpvTest(unittest.TestCase):
         self.assertTrue(plan["subject"]["path"] and plan["subject"]["path"][-1][0] == 1200, "путь снаряда до удара — пилоту")
         self.assertIn([400, -600.5, 64.0, 60.5, 12, 2], plan["smoke"], "дым прежних ударов — с поперечником шара и видом взрыва шахеда")
         self.assertIn([1200, -600.5, 64.0, 60.5, 12, 2], plan["smoke"], "и ударов прохода")
+        self.assertEqual(film_plan.smoke_row(5, 0.5, 40.0, 0.5, 64.0, "bomb"), [5, 0.5, 64.0, 0.5, 24, 5],
+                         "бомба в 24 блоках под верхом: дым над провалом, столб без шара")
+        self.assertEqual(film_plan.smoke_row(5, 0.5, 58.0, 0.5, 64.5, "b2"), [5, 0.5, 64.5, 0.5, 24, 4], "в 6 блоках — прорыв наружу")
+        self.assertEqual(film_plan.smoke_row(5, 0.5, 64.0, 0.5, None, "missile"), [5, 0.5, 64.0, 0.5, 18, 3])
         # место названо человеком, а у края чанков места мало: снимается удар, где его больше всего
         r = clips.Replay(strikes(), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
         r.fpv_specs = [clips.fpv_spec("near=-350,60,40 shots=1 seconds=9 time=night")]

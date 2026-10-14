@@ -15,7 +15,7 @@ import java.util.List;
  * разброс клубов. Модель — фигуры с непрозрачностью ({@link Shape}): облако шара и клубы столба — шары, дымок воронки —
  * цепочка шаров, вал пыли — цилиндр; граница фигуры — плотная середина клубов (0,7 полуразмера, как у отрисовки). На
  * проходах 13.10 (9 полётов, кадры против модели) она отделяет кадры, закрытые дымом, от чистых: камера в фигуре или
- * взгляд вперёд в неё — 85 из 87 закрытых кадров и 1 из 193 чистых. Прежняя модель (столб радиусом 8 и 25 с жизни) не
+ * взгляд вперёд в неё — 86 из 87 закрытых кадров и 2 из 193 чистых. Прежняя модель (столб радиусом 8 и 25 с жизни) не
  * знала столба и вдвое занижала клубы — пилот вёл дрон в дым сразу после удара. По модели пилот ({@link Pilot}) и
  * оценка камер обходят дым; вывод меряет сам дым мода ({@link Smoke}).
  *
@@ -37,13 +37,16 @@ record Plume(int t, Vec3 pos, double size, Look look) {
     /**
      * Вид взрыва ({@code S2C.Blast}) и его дым: радиус шара частиц вблизи ({@code BlastEffects}: шахед и РСЗО — 5, ракета
      * 8,5, бомба 11), тиков догорания в воронке, столб ({@code FarBlasts.Look}: шар светит тиков, высота, за сколько тиков
-     * поднимается, радиус клуба у основания и в шапке, клубов, жизнь). Бомба — прорыв наружу (больше и выше, чем без него).
+     * поднимается, радиус клуба у основания и в шапке, клубов, жизнь). Бомба — заряд не глубже 10 блоков под верхом
+     * ({@code BunkerCover.breaches}): прорыв наружу — шар, пыль и столб выше; глубже — только столб из провала, без
+     * частиц шара ({@code FarBlasts.BUNKER_DEEP}, {@code BlastEffects.Bunker}). Дым бомбы — над верхом, а не у заряда.
      */
     enum Look {
         ROCKET(5, 220, 8, 105, 2400, 7, 26, 10, 3000),
         DRONE(5, 220, 13, 150, 2400, 10, 40, 12, 3600),
         MISSILE(8.5, 320, 30, 270, 2400, 18, 70, 14, 4800),
-        BUNKER(11, 0, 20, 210, 2400, 18, 55, 14, 4200);
+        BUNKER(11, 0, 20, 210, 2400, 18, 55, 14, 4200),
+        BUNKER_DEEP(0, 0, 0, 110, 500, 14, 32, 12, 3000);
 
         final double r, column, base, top;
         final int fire, ball, riseTicks, puffs, life;
@@ -60,13 +63,17 @@ record Plume(int t, Vec3 pos, double size, Look look) {
             this.life = life;
         }
 
-        /** Номер в строке дыма плана ({@code plan.py}): 1 — РСЗО, 2 — шахед, 3 — ракета, 4 — бомба; 0 и прочее — нет. */
+        /**
+         * Номер в строке дыма плана ({@code plan.py}): 1 — РСЗО, 2 — шахед, 3 — ракета, 4 — бомба с прорывом наружу, 5 —
+         * бомба глубже; 0 и прочее — нет.
+         */
         static Look of(int code) {
             return switch (code) {
                 case 1 -> ROCKET;
                 case 2 -> DRONE;
                 case 3 -> MISSILE;
                 case 4 -> BUNKER;
+                case 5 -> BUNKER_DEEP;
                 default -> null;
             };
         }
@@ -147,7 +154,7 @@ record Plume(int t, Vec3 pos, double size, Look look) {
         if (!alive(at)) return;
         double u = at - t, r = look.r;
         int from = look.smokeFrom();
-        if (u < BALL_LIFE) {
+        if (r > 0 && u < BALL_LIFE) {
             // облако шара: клубы из 0,3 R над местом разлетаются до 0,11 R за тик (сопротивление 0,9), всплывают, сносятся
             double cy = pos.y + 0.35 * r + 0.3 * r * 0.55 + (0.11 + 0.55 * 0.08 * r) * BALL.move(u) + BALL.rise(u);
             double reach = 0.3 * r + 0.11 * r * BALL.move(u), half = r * (0.55 + 1.4 * grow4(u / BALL_MEAN));
@@ -155,7 +162,7 @@ record Plume(int t, Vec3 pos, double size, Look look) {
             out.add(new Shape(pos.x + WIND_X * BALL.wind(u), cy, pos.z + WIND_Z * BALL.wind(u), reach + CORE * half, 0, false,
                     0.92 * in * fade(u / BALL_MEAN, 0.45)));
         }
-        if (u < DUST_LIFE) {
+        if (r > 0 && u < DUST_LIFE) {
             // вал пыли: клубы от 0,5 R расходятся по земле со скоростью до 0,35 R за тик (сопротивление 0,88)
             double half = r * (0.35 + 0.8 * grow4(u / DUST_MEAN));
             out.add(new Shape(pos.x + WIND_X * DUST.wind(u), pos.y, pos.z + WIND_Z * DUST.wind(u), 0.5 * r + 0.35 * r * DUST.move(u) + CORE * half,
@@ -180,8 +187,8 @@ record Plume(int t, Vec3 pos, double size, Look look) {
             double alpha = 0.85 * emerge * (1 - smoothstep(look.life * (0.35 + 0.45 * f), look.life, u));
             double pr = (look.base + (look.top - look.base) * f) * grow * spread, h = 0.6 * pr + f * look.column * rise;
             double shear = 0.3 + 0.7 * f * rise;
-            // размер клуба до 1,15 номинала, середина клуба от оси — до 0,38 его радиуса у 9 из 10 клубов
-            out.add(new Shape(pos.x + WIND_X * DRIFT * u * shear, pos.y + h, pos.z + WIND_Z * DRIFT * u * shear, pr * (1.15 * CORE + 0.38), 0, false, alpha));
+            // размер клуба до 1,15 номинала, середина клуба от оси столба — до 0,49 его радиуса у 9 из 10 клубов
+            out.add(new Shape(pos.x + WIND_X * DRIFT * u * shear, pos.y + h, pos.z + WIND_Z * DRIFT * u * shear, pr * (1.15 * CORE + 0.49), 0, false, alpha));
         }
     }
 
@@ -200,7 +207,7 @@ record Plume(int t, Vec3 pos, double size, Look look) {
      * блоков от цели — её же (огненный шар и его дым и есть то, на что смотрят).
      */
     boolean blocks(Vec3 from, Vec3 to, double at) {
-        if (!alive(at) || pos.distanceTo(to) <= OWN) return false;
+        if (!alive(at) || beside(pos, to, OWN)) return false;
         for (Shape s : shapes(at)) {
             if (s.alpha() >= 0.5 && s.crosses(from, to)) return true;
         }
@@ -209,6 +216,15 @@ record Plume(int t, Vec3 pos, double size, Look look) {
 
     /** Свой дым цели: удар ближе этого к ней. */
     static final double OWN = 12;
+
+    /**
+     * Точки ближе {@code d} по горизонтали: дым бомбы стоит над провалом, а удар плана — заряд в толще, на десятки блоков
+     * ниже.
+     */
+    static boolean beside(Vec3 a, Vec3 b, double d) {
+        double dx = a.x - b.x, dz = a.z - b.z;
+        return dx * dx + dz * dz <= d * d;
+    }
 
     // ---------------------------------------------------------------- частицы мода
 

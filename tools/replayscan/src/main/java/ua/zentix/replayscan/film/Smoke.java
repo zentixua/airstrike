@@ -154,11 +154,20 @@ final class Smoke {
                 if (a <= 0.004f || additive.getBoolean(kind.get(p))) continue;
                 put(x.getDouble(p), y.getDouble(p), z.getDouble(p), quad.getFloat(p), a);
             }
-            if (events != null) columns(ex, ey, ez);
-            return true;
         } catch (ReflectiveOperationException | RuntimeException e) {
             return false;
         }
+        if (events != null) {
+            int particles = held;
+            try {
+                columns(ex, ey, ez);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                // столбы не читаются — дальше только частицы (в итоге — smoke_columns false)
+                events = null;
+                held = particles;
+            }
+        }
+        return true;
     }
 
     private void put(double px, double py, double pz, double half, double a) {
@@ -213,12 +222,18 @@ final class Smoke {
         }
     }
 
-    /** Доля, на которую клуб полуразмера {@code half} в {@code p} закрывает отрезок от глаза (0 — мимо, 1 — сквозь середину). */
-    private static double cover(double ex, double ey, double ez, double dx, double dy, double dz, double len2,
+    /**
+     * Доля, на которую клуб полуразмера {@code half} в {@code p} закрывает отрезок от глаза (0 — мимо, 1 — сквозь
+     * середину). Клуб — квадрат лицом к камере через свою середину ({@code FxQuads.billboard}): середина за глазом —
+     * квадрат за камерой, его не видно.
+     */
+    static double cover(double ex, double ey, double ez, double dx, double dy, double dz, double len2,
                                 double px, double py, double pz, double half, double tx, double ty, double tz, double spare) {
         double ox = px - tx, oy = py - ty, oz = pz - tz;
         if (ox * ox + oy * oy + oz * oz < spare * spare) return 0;
-        double u = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((px - ex) * dx + (py - ey) * dy + (pz - ez) * dz) / len2));
+        double along = (px - ex) * dx + (py - ey) * dy + (pz - ez) * dz;
+        if (along <= 0) return 0;
+        double u = len2 < 1e-9 ? 0 : Math.min(1, along / len2);
         double cx = ex + dx * u - px, cy = ey + dy * u - py, cz = ez + dz * u - pz;
         double miss = Math.sqrt(cx * cx + cy * cy + cz * cz), dense = half * DENSE;
         if (miss >= half) return 0;

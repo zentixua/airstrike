@@ -204,8 +204,14 @@ final class Pilot {
     final List<Plume> plumes;
     /** Другие удары окна: в кадре — в плюс. */
     final List<Plume> others;
-    /** Дым по образцам окна ({@link #a}…{@link #b} через 2 тика): фигуры ударов рядом и свой ли это дым удара прохода. */
+    /**
+     * Дым по образцам окна ({@link #a}…{@link #b} через 2 тика): фигуры ударов рядом, по ударам подряд; у каждого удара —
+     * конец его фигур, шар вокруг них (сперва проверяется он: ударов за 4 минуты войны — сотни) и свой ли это дым удара
+     * прохода.
+     */
     private final Plume.Shape[][] smoke;
+    private final int[][] groupEnd;
+    private final double[][] bound;
     private final boolean[][] own;
     final Grid grid;
     final long seed;
@@ -224,7 +230,7 @@ final class Pilot {
         this.main = main;
         this.plumes = plumes;
         this.others = plumes.stream().filter(p -> p.t() >= a + 10 && p.t() <= b - 6
-                && !(Math.abs(p.t() - main.t()) <= 4 && p.pos().distanceTo(main.pos()) <= Plume.OWN)).toList();
+                && !(Math.abs(p.t() - main.t()) <= 4 && Plume.beside(p.pos(), main.pos(), Plume.OWN))).toList();
         this.grid = grid;
         this.seed = seed;
         this.t0 = a - BEFORE;
@@ -233,42 +239,91 @@ final class Pilot {
         this.controls = new Controls();
         int n = (b - a) / 2 + 1;
         this.smoke = new Plume.Shape[n][];
+        this.groupEnd = new int[n][];
+        this.bound = new double[n][];
         this.own = new boolean[n][];
         List<Plume.Shape> shapes = new ArrayList<>();
+        List<Integer> ends = new ArrayList<>();
+        List<double[]> bounds = new ArrayList<>();
         List<Boolean> mine = new ArrayList<>();
         for (int k = 0; k < n; k++) {
             int t = a + 2 * k;
             shapes.clear();
+            ends.clear();
+            bounds.clear();
             mine.clear();
             for (Plume pl : plumes) {
                 if (!pl.alive(t)) continue;
                 int before = shapes.size();
                 pl.shapes(t, shapes);
-                boolean isOwn = pl.pos().distanceTo(main.pos()) <= Plume.OWN;
                 for (int i = shapes.size() - 1; i >= before; i--) {
                     Plume.Shape s = shapes.get(i);
                     if (s.alpha() < Plume.SEEN || Math.hypot(s.x() - main.pos().x, s.z() - main.pos().z) > SMOKE_REACH + s.r()) shapes.remove(i);
                 }
-                while (mine.size() < shapes.size()) mine.add(isOwn);
+                if (shapes.size() == before) continue;
+                ends.add(shapes.size());
+                bounds.add(bound(shapes.subList(before, shapes.size())));
+                mine.add(Plume.beside(pl.pos(), main.pos(), Plume.OWN));
             }
             smoke[k] = shapes.toArray(new Plume.Shape[0]);
+            groupEnd[k] = ends.stream().mapToInt(Integer::intValue).toArray();
+            bound[k] = new double[4 * bounds.size()];
+            for (int g = 0; g < bounds.size(); g++) System.arraycopy(bounds.get(g), 0, bound[k], 4 * g, 4);
             own[k] = new boolean[mine.size()];
-            for (int i = 0; i < own[k].length; i++) own[k][i] = mine.get(i);
+            for (int g = 0; g < own[k].length; g++) own[k][g] = mine.get(g);
         }
     }
 
-    /** Расстояние до дыма образца {@code k} (меньше 0 — в дыму). */
-    double smokeClearance(int k, double x, double y, double z) {
-        double best = Double.POSITIVE_INFINITY;
-        for (Plume.Shape s : smoke[k]) best = Math.min(best, s.distance(x, y, z));
+    /** Шар вокруг фигур удара: середина рамки и её полудиагональ. */
+    private static double[] bound(List<Plume.Shape> shapes) {
+        double x0 = Double.POSITIVE_INFINITY, y0 = x0, z0 = x0, x1 = Double.NEGATIVE_INFINITY, y1 = x1, z1 = x1;
+        for (Plume.Shape s : shapes) {
+            x0 = Math.min(x0, s.x() - s.r());
+            x1 = Math.max(x1, s.x() + s.r());
+            z0 = Math.min(z0, s.z() - s.r());
+            z1 = Math.max(z1, s.z() + s.r());
+            y0 = Math.min(y0, s.cylinder() ? s.y() : s.y() - s.r());
+            y1 = Math.max(y1, s.cylinder() ? s.top() : s.y() + s.r());
+        }
+        double dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+        return new double[]{(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, Math.sqrt(dx * dx + dy * dy + dz * dz) / 2};
+    }
+
+    /** Расстояние до дыма образца {@code k} (меньше 0 — в дыму), не больше {@code limit}: дальше пилоту всё равно. */
+    double smokeClearance(int k, double x, double y, double z, double limit) {
+        double best = limit;
+        double[] bd = bound[k];
+        int from = 0;
+        for (int g = 0; g < groupEnd[k].length; g++) {
+            int to = groupEnd[k][g];
+            double dx = x - bd[4 * g], dy = y - bd[4 * g + 1], dz = z - bd[4 * g + 2];
+            if (Math.sqrt(dx * dx + dy * dy + dz * dz) - bd[4 * g + 3] < best) {
+                for (int i = from; i < to; i++) best = Math.min(best, smoke[k][i].distance(x, y, z));
+            }
+            from = to;
+        }
         return best;
     }
 
     /** Дым образца {@code k} на линии взгляда (свой дым удара прохода — нет: на него и смотрят). */
     boolean smokeOnLine(int k, Vec3 from, Vec3 to) {
-        Plume.Shape[] sm = smoke[k];
-        for (int i = 0; i < sm.length; i++) {
-            if (!own[k][i] && sm[i].alpha() >= 0.5 && sm[i].crosses(from, to)) return true;
+        double[] bd = bound[k];
+        double dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, len2 = dx * dx + dy * dy + dz * dz;
+        int lo = 0;
+        for (int g = 0; g < groupEnd[k].length; g++) {
+            int hi = groupEnd[k][g];
+            if (!own[k][g]) {
+                double cx = bd[4 * g], cy = bd[4 * g + 1], cz = bd[4 * g + 2], r = bd[4 * g + 3];
+                double u = len2 < 1e-9 ? 0 : Mth.clamp(((cx - from.x) * dx + (cy - from.y) * dy + (cz - from.z) * dz) / len2, 0, 1);
+                double ex = from.x + dx * u - cx, ey = from.y + dy * u - cy, ez = from.z + dz * u - cz;
+                if (ex * ex + ey * ey + ez * ez < r * r) {
+                    for (int i = lo; i < hi; i++) {
+                        Plume.Shape s = smoke[k][i];
+                        if (s.alpha() >= 0.5 && s.crosses(from, to)) return true;
+                    }
+                }
+            }
+            lo = hi;
         }
         return false;
     }
@@ -276,7 +331,7 @@ final class Pilot {
     /** Взгляд из {@code p} вдоль {@code fwd} упирается в дым ближе {@link #AHEAD_SMOKE} блоков (кадр во весь экран в дыму). */
     boolean smokeAhead(int k, Vec3 p, Vec3 fwd) {
         for (double d : AHEAD_SMOKE) {
-            if (smokeClearance(k, p.x + fwd.x * d, p.y + fwd.y * d, p.z + fwd.z * d) < 0) return true;
+            if (smokeClearance(k, p.x + fwd.x * d, p.y + fwd.y * d, p.z + fwd.z * d, 0) < 0) return true;
         }
         return false;
     }
@@ -482,7 +537,7 @@ final class Pilot {
             }
             // дым: камера в нём, перед объективом (весь кадр в дыму), на линии взгляда к удару
             int k = (t - a) / 2;
-            double sc = smokeClearance(k, p.x, p.y, p.z);
+            double sc = smokeClearance(k, p.x, p.y, p.z, SMOKE);
             if (sc < SMOKE) {
                 j += 25 + 10 * Math.min(SMOKE - sc, 10);
                 if (tally != null) tally.smoke++;
