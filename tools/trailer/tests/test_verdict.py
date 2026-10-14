@@ -28,7 +28,7 @@ def _w(path, rows):
 
 
 def render_take(root, name="p10", seconds=5.0, impact=2.0, seen=1.0, share=0.05, yaw=None, people=(), sounds=(),
-                blast=True, suffix=""):
+                blast=True, suffix="", qa_extra=None):
     """Дубль вывода из повтора: камера стоит у CAM и смотрит на HIT, снаряд летит к HIT и бьёт в `impact` с.
     yaw(k) — курс кадра k (рывки камеры); people — места людей журнала; sounds — (с, событие, место) сверх взрыва."""
     rec = os.path.join(root, "film")
@@ -44,7 +44,7 @@ def render_take(root, name="p10", seconds=5.0, impact=2.0, seen=1.0, share=0.05,
         after = t >= impact
         qa.append({"t": a + t * T.TPS, "ready": True, "in": True, "x": 0.0, "y": 0.0, "share": share,
                    "seen": seen, "clear": 1.0, "cloud": False, "far": False, "drawn": True, "engine": 0.0 if after else 0.3,
-                   "entity": not after, "smoke": 0.0, "dh": 1, "cam": [*CAM, y, 0.0], "fov": 70.0})
+                   "entity": not after, "smoke": 0.0, "dh": 1, "cam": [*CAM, y, 0.0], "fov": 70.0, **(qa_extra or {})})
     sid = 0
     if blast:
         tl.append({"type": "sound", "shot": name, "t": (impact + ARRIVE) * T.TPS, "id": sid, "event": "incoming:blast.far",
@@ -216,11 +216,30 @@ class VerdictTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             t = render_take(root, people=crowd)
             silent = self.check([V.Cut(0, 1.5, "scene", t.name, 0.0, fight=True)], [t])[0]
-            self.assertIn("sound", [f.rule for f in silent.findings])
+            self.assertIn("gunfire", [f.rule for f in silent.findings])
             guns = [V.Placed(t.name, 100 + i, "pointblank:ak47", "gun", 0.1 * i, 0.1 * i + 0.3, 0.2, 0.1 * i)
                     for i in range(10)]
             loud = self.check([V.Cut(0, 1.5, "scene", t.name, 0.0, fight=True)], [t], placed=guns)[0]
             self.assertTrue(loud.ok, loud.findings)
+        # бой в 200 блоках: выстрелов не слышно и в игре (v5 p31, p32, p39)
+        far = [(CAM[0] + dx, 79.0, CAM[2] + 200) for dx in (-6, -2, 2, 6)]
+        with tempfile.TemporaryDirectory() as root:
+            t = render_take(root, people=far)
+            v = self.check([V.Cut(0, 1.5, "scene", t.name, 0.0, fight=True)], [t])[0]
+            self.assertTrue(v.ok, v.findings)
+
+    def test_hero_needs_light(self):
+        """МБР v5 ночью: в кадре и крупная, но тёмная и в своём дыму — FAIL; без меры света — FAIL по данным."""
+        cut = lambda t: [V.Cut(0, 1.5, "flight", t.name, 0.0, need={"hero": True})]
+        for extra, rule in ((None, "data"), ({"light": 0.1, "own": 1.0}, "light"), ({"light": 0.8, "own": 0.2}, "smoke"),
+                            ({"light": 0.8, "own": 1.0}, None)):
+            with tempfile.TemporaryDirectory() as root:
+                t = render_take(root, share=0.2, qa_extra=extra)
+                v = self.check(cut(t), [t])[0]
+                if rule:
+                    self.assertIn(rule, [f.rule for f in v.findings], extra)
+                else:
+                    self.assertTrue(v.ok, v.findings)
 
     def test_siren_cut_off_and_music(self):
         with tempfile.TemporaryDirectory() as root:

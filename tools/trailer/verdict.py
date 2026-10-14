@@ -12,18 +12,21 @@
 - `launch` — пуск: звук старта в склейке, снаряд потом в кадре;
 - `siren` — тревога: сирена слышна с начала, держится `siren_hold` секунд без музыки;
 - `text` — текст на экране (чат, тревога, пульт): каждая строка — не меньше времени чтения;
-- `scene` — спокойный план: только общие правила;
+- `scene` — спокойный план: только общие правила; `onboard` — с борта снаряда (поворот камеры — его, без пределов);
+- `nuke`, `wave` — подрыв и волна (тряску камеры даёт модель мода, без пределов поворота; дым — сам объект);
 - `fill` — чёрный или белый кадр.
 
 Общие правила для склейки с дублем: у объекта есть проверка кадров (у живого плана без неё — FAIL), камера без рывков
 и объект на экране без дрожи (вторые разности по кадрам), мир построен, LOD DH со своей глубиной, кадр не в дыму;
-`fight` у склейки — в кадре бой: у видимых бойцов должны быть слышны выстрелы. Окно дубля не повторяется в двух
+`fight` у склейки — идёт бой: бойцы ближе, чем слышен выстрел, — выстрелы должны быть в ролике. Окно дубля не повторяется в двух
 склейках. Пороги — `RULES` (у склейки — свои в `Cut.need`).
 """
 import math
 from dataclasses import dataclass, field
 
 import takes as T
+
+FREE_CAMERA = ("onboard", "nuke", "wave")   # камера, которую ведёт снаряд или модель мода
 
 RULES = {
     "lead": 0.5,            # hit: удар не раньше стольких секунд от начала склейки (виден подлёт)
@@ -35,7 +38,9 @@ RULES = {
     "flight_share": 0.7,    # flight: объект в кадре и виден в такой доле кадров склейки
     "min_share": 0.012,     # объект не мельче (доля высоты кадра), медиана по видимым кадрам
     "hero_share": 0.04,     # главный объект (need.hero) — не мельче
-    "launch_lead": 0.15,    # launch: звук старта не раньше стольких секунд от начала склейки
+    "hero_light": 0.3,      # …освещён не слабее (FrameQa light, 0–1)
+    "hero_dark": 0.3,       # …в темноте или в своём дыму — не дольше такой доли кадров
+    "launch_lead": 0.05,    # launch: звук старта не раньше стольких секунд от начала склейки (склейка — от звука старта)
     "launch_after": 0.6,    # launch: после старта в склейке не меньше
     "siren_pre": 0.5,       # siren: сирена началась не позже стольких секунд после начала склейки
     "siren_hold": 5.0,      # siren: сирена держится столько без музыки
@@ -48,8 +53,8 @@ RULES = {
     "jitter": 4.0,          # дрожь объекта на экране: 95-й процентиль второй разности, % полукадра/кадр²
     "ready": 0.98,          # мир построен в такой доле кадров (0 — не проверять, облако)
     "smoky": 0.25,          # кадров, где больше половины кадра за дымом, — не больше доли
-    "fight_people": 3,      # fight: бойцов в кадре (ближе fight_range) — с такого числа бой считается видимым
-    "fight_range": 160.0,
+    "fight_people": 3,      # fight: бойцов ближе, чем слышен выстрел, — с такого числа бой слышен у камеры
+    "gun_earshot": 80.0,    # …слышен: дальность звука выстрела АК Point Blank (журнал клиента: range 80, линейно)
     "fight_frames": 0.5,    # …в такой доле кадров
     "gun_rate": 1.0,        # fight: выстрелов в ролике не меньше стольких в секунду склейки
     "hit_sound_gain": 0.003,  # звук удара считается легшим в ролик, если громкость у камеры выше
@@ -201,7 +206,8 @@ class Checker:
         return v
 
     def motion(self, v, c, t, frames):
-        """Камера: скорость поворота и рывок по кадрам; объект: дрожь на экране, пока он в кадре."""
+        """Камера: скорость поворота и рывок по кадрам; объект: дрожь на экране, пока он в кадре. Камера с борта
+        снаряда (`onboard`) и планы подрыва и волны (тряску даёт модель мода) — без пределов поворота."""
         speed, jerk, jit = [], [], []
         for p, q in zip(frames, frames[1:]):
             dt = (q.t - p.t) or 1 / T.FPS
@@ -215,6 +221,8 @@ class Checker:
             if p.qa and q.qa and r.qa and p.qa.get("in") and q.qa.get("in") and r.qa.get("in") and "x" in p.qa:
                 jit.append(100 * math.hypot(r.qa["x"] - 2 * q.qa["x"] + p.qa["x"], r.qa["y"] - 2 * q.qa["y"] + p.qa["y"]))
         v.data.update(cam_speed=p95(speed), cam_jerk=p95(jerk), jitter=p95(jit))
+        if c.kind in FREE_CAMERA:
+            speed, jerk = [], []
         if speed and p95(speed) > c.rule("cam_speed"):
             v.fail("camera", f"камера поворачивается {p95(speed):.0f}°/с (95-й процентиль), предел {c.rule('cam_speed'):.0f}")
         if jerk and p95(jerk) > c.rule("cam_jerk"):
@@ -272,9 +280,11 @@ class Checker:
             s = next((s for s in t.sounds if s.id == p.sound), None)
             if s is None or s.t < imp.t - 0.05:
                 continue
-            if imp.pos is not None and T.dist(s.pos, imp.pos) > 8:
-                continue
-            got.append(p)
+            # взрыв мода звучит у слушателя со стороны удара: свой — у места удара или к приходу фронта
+            near = imp.pos is None or T.dist(s.pos, imp.pos) <= 8
+            timed = imp.arrival is not None and abs(s.t - imp.arrival) <= T.ARRIVAL_SLACK
+            if near or timed:
+                got.append(p)
         return got
 
     def next_silence(self, after):
@@ -356,17 +366,40 @@ class Checker:
         shares = [q["share"] for q in good if "share" in q]   # у HudQa величины нет
         if not shares:
             return
+        if c.need.get("hero"):
+            self.lit(v, c, good)
         m = median(shares)
         v.data["size"] = m
         lim = c.rule("hero_share") if c.need.get("hero") else c.rule("min_share")
         if m < lim:
             v.fail("size", f"объект {100 * m:.1f} % высоты кадра (медиана), нужно не меньше {100 * lim:.1f} %")
 
+    def lit(self, v, c, good):
+        """Главный объект различим глазом: освещён (свет на нём, 0–1: блоки и небо с учётом времени суток) и не
+        утонул в своём дыме (свет сквозь дым его же следа, без огня у сопла). Рамка в кадре и лучи по блокам этого не
+        видят: МБР v5 ночью (p41, p42) была в кадре и крупной, а на экране — тёмный силуэт в дыму и огонь сопла."""
+        rows = [q for q in good if "share" in q]
+        if not all("light" in q and "own" in q for q in rows):
+            v.fail("data", "у главного объекта нет меры света и своего дыма (проверка кадров до 14.10)")
+            return
+        dark = sum(1 for q in rows if q["light"] < c.rule("hero_light")) / len(rows)
+        smoked = sum(1 for q in rows if q["own"] < 0.5) / len(rows)
+        v.data.update(dark=dark, own_smoke=smoked)
+        if dark > c.rule("hero_dark"):
+            v.fail("light", f"главный объект в темноте в {100 * dark:.0f} % кадров (свет ниже {c.rule('hero_light'):.2f})")
+        if smoked > c.rule("hero_dark"):
+            v.fail("smoke", f"главный объект в своём дыму в {100 * smoked:.0f} % кадров")
+
     def k_launch(self, v, c, t, frames):
-        starts = [s for s in t.launches() if c.src + c.rule("launch_lead") <= s[0] <= c.src_end - c.rule("launch_after")]
+        starts = [s for s in t.launches() if c.src + c.rule("launch_lead") - 0.02 <= s[0] <= c.src_end - c.rule("launch_after")]
         if not starts:
             any_ = [s[0] - c.src for s in t.launches()]
-            v.fail("event", "звука старта в склейке нет" + (f" (старты на {', '.join(f'{x:+.2f}' for x in any_[:4])} с)" if any_ else ""))
+            inside = [x for x in any_ if -0.02 <= x <= c.dur]
+            if inside:
+                v.fail("event", f"старт на {inside[0]:+.2f} с, а после старта в склейке {c.dur - inside[0]:.2f} с, "
+                                f"нужно {c.rule('launch_after'):.2f} с: схода снаряда не видно")
+            else:
+                v.fail("event", "звука старта в склейке нет" + (f" (старты на {', '.join(f'{x:+.2f}' for x in any_[:4])} с)" if any_ else ""))
             return
         t0 = starts[0][0]
         after = [f.qa for f in frames if f.t >= t0 and f.qa and "in" in f.qa]
@@ -412,19 +445,15 @@ class Checker:
                 v.fail("text", f"строка «{line[:40]}» на экране {c.dur:.2f} с, для чтения нужно {need:.1f} с")
 
     def fight(self, v, c, t, frames):
-        """Бой в кадре: бойцы (люди журнала ближе fight_range, в кадре) — тогда выстрелы должны быть слышны."""
-        seen = 0
+        """Бой у камеры: бойцы журнала ближе, чем слышен выстрел (дальность его звука в дубле, иначе gun_earshot), —
+        игра у камеры сыграла бы выстрелы, в кадре стрелок или нет, поэтому они должны быть в ролике. Дальше —
+        выстрелов не слышно и в игре (v5: p31, p32 — 310–430 блоков, p39 — 190–230)."""
+        reach = max((s.range for s in t.sounds if s.kind == "gun" and s.linear), default=c.rule("gun_earshot"))
+        heard = 0
         for f in frames[::3]:
-            people = t.people_at(f.t)
-            n = 0
-            for name, p in people.items():
-                if name == "Sokol":
-                    continue
-                pr = T.project(f.cam, f.fov, (p[0], p[1] + 1.4, p[2]))
-                if pr and abs(pr[0]) <= 1 and abs(pr[1]) <= 1 and pr[2] <= c.rule("fight_range"):
-                    n += 1
-            seen += n >= c.rule("fight_people")
-        share = seen / max(1, len(frames[::3]))
+            n = sum(1 for name, p in t.people_at(f.t).items() if name != "Sokol" and T.dist(f.cam, p[:3]) <= reach)
+            heard += n >= c.rule("fight_people")
+        share = heard / max(1, len(frames[::3]))
         v.data["fighters"] = share
         if share < c.rule("fight_frames"):
             return
@@ -432,8 +461,8 @@ class Checker:
         rate = len(guns) / max(c.dur, 1e-3)
         v.data["gun_rate"] = rate
         if rate < c.rule("gun_rate"):
-            v.fail("sound", f"бой в кадре ({100 * share:.0f} % кадров — бойцы), а выстрелов в ролике {len(guns)} "
-                            f"({rate:.1f}/с, нужно {c.rule('gun_rate'):.1f}/с)")
+            v.fail("gunfire", f"бой ближе {reach:.0f} блоков от камеры ({100 * share:.0f} % кадров), а выстрелов в ролике "
+                              f"{len(guns)} ({rate:.1f}/с, нужно {c.rule('gun_rate'):.1f}/с)")
 
     # ------------------------------------------------------------ весь монтаж
     def repeats(self, out):

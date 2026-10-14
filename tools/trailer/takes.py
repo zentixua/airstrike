@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 FPS = 60
 TPS = 20
 SOUND_SPEED = 17.15  # блоков за тик: фронт звука и волны мода (Acoustics.SPEED, Warheads.FRONT_SPEED)
+ARRIVAL_SLACK = 0.2  # с: сыгранный звук взрыва относится к удару, если начат так близко к приходу фронта
 
 # роды звуков (по событию звука): как их зовёт проверка
 BLAST_SOUNDS = ("incoming:blast.", "incoming:rocket.blast", "incoming:bomb.")
@@ -328,27 +329,36 @@ class Take:
         return out
 
     def _arrival(self, imp):
-        """Звук удара дошёл до камеры: по звуку взрыва, который клиент сыграл у этого места, иначе — по фронту
-        17,15 блока за тик до места камеры в каждом кадре."""
+        """Звук удара дошёл до камеры: по звуку взрыва, который клиент сыграл, иначе — по фронту 17,15 блока за тик до
+        места камеры в каждом кадре. Взрыв мода звучит не у места удара, а у слушателя со стороны удара
+        (`Acoustics`): сыгранный звук — у места удара или начатый в `ARRIVAL_SLACK` от прихода фронта."""
         if imp.pos is None:
             return
         cam0 = self.cam_at(imp.t)
         if cam0 is not None and imp.distance is None:
             imp.distance = dist(cam0, imp.pos)
-        for s in self.sounds:
-            if s.kind == "blast" and s.t >= imp.t - 0.05 and dist(s.pos, imp.pos) < 8:
-                imp.arrival, imp.arrival_played = s.t, True
-                return
+        front = None
         for fr in self.frames:
             if fr.t < imp.t:
                 continue
             if dist(fr.cam, imp.pos) <= SOUND_SPEED * TPS * (fr.t - imp.t):
-                imp.arrival = fr.t
-                return
-        last = self.frames[-1].cam if self.frames else None
-        if last is not None:
+                front = fr.t
+                break
+        if front is None and self.frames:
             # дальше конца дубля: камера у последнего кадра
-            imp.arrival = imp.t + dist(last, imp.pos) / (SOUND_SPEED * TPS)
+            front = imp.t + dist(self.frames[-1].cam, imp.pos) / (SOUND_SPEED * TPS)
+        played = self.blast_for(imp, front)
+        if played is not None:
+            imp.arrival, imp.arrival_played = played.t, True
+        else:
+            imp.arrival = front
+
+    def blast_for(self, imp, front):
+        """Сыгранный звук взрыва этого удара: у места удара или начатый у прихода фронта."""
+        for s in sorted((s for s in self.sounds if s.kind == "blast" and s.t >= imp.t - 0.05), key=lambda s: s.t):
+            if dist(s.pos, imp.pos) < 8 or front is not None and abs(s.t - front) <= ARRIVAL_SLACK:
+                return s
+        return None
 
     def launches(self):
         """Пуски по звукам старта, что сыграл клиент: (секунды дубля, событие, место)."""
