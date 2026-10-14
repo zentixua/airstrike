@@ -117,6 +117,8 @@ class FakeMachine(P.Machine):
         take = env.get("INCOMING_NEWISLE_TAKE") or env.get("INCOMING_NEWISLE_TRIAL", "").replace(":", "-")
         if cmd[0] == "cut":
             take = "cut"
+        elif cmd[0] == "triage":
+            take = "triage"
         elif kind == "render":
             take = os.path.basename(os.path.dirname(env["INCOMING_TRAILER_DIR"]))
         key = (take, kind, int(env.get("INCOMING_NEWISLE_VARIANT", 0)))
@@ -136,7 +138,7 @@ def ok_result(take, plans, saved=True):
 
 
 def default(kind, take, env):
-    if take == "cut":
+    if take in ("cut", "triage"):
         return {"seconds": 60}
     if kind == "render":
         return {"seconds": 120, "render": {}}
@@ -434,6 +436,39 @@ class ProduceTest(unittest.TestCase):
         gaps = [b - a for a, b in zip(stamps, stamps[1:])]
         self.assertLessEqual(max(gaps), 305, "статус свежее 5 минут и посреди 20-минутной записи")
         self.assertTrue(os.path.getsize(os.path.join(self.cfg["work"], "produce.log")) > 0)
+
+    def test_skipped_take_gets_triage_without_waiting(self):
+        self.cfg["triage"] = ["triage", "-o", "{out}", "-a", "{rec}/record.log", "take {take}: {reason}"]
+        bad = {"seconds": 300, "result": ok_result("A", ["a1"]), "log": "WARN SCENARIO film camera a1: камера в блоках"}
+        c, m = self.conveyor({("A", "record"): bad})
+        self.assertEqual(0, c.run(["A", "D"]))
+        self.assertEqual("skipped", c.state["takes"]["A"]["status"])
+        rec = c.state["takes"]["A"]["attempts"][-1]["rec"]
+        tri = [cmd for cmd in m.cmds if cmd[0] == "triage"]
+        self.assertEqual(1, len(tri))
+        self.assertEqual(os.path.join(rec, "triage.md"), tri[0][2])
+        self.assertTrue(tri[0][5].startswith("take A: a1: камера в блоках"))
+        self.assertEqual("passed", c.state["takes"]["D"]["status"], "разбор не держит цепочку")
+
+    def test_gpu_lock_held_by_other_job_pauses(self):
+        lock = os.path.join(self.tmp.name, "gpu.lock")
+        self.cfg["gpu_lock"] = lock
+        c, m = self.conveyor()
+        held = P.Machine().lock(lock)          # другая задача (GLM) держит видеокарту
+        orig = m.sleep
+
+        def sleep(sec):
+            orig(sec)
+            if sec >= 60:
+                P.Machine().unlock(held)        # отпустила за время паузы
+        m.sleep = sleep
+        m.lock, m.unlock = P.Machine().lock, P.Machine().unlock
+        self.assertEqual(0, c.run(["A"]))
+        self.assertTrue(any(e[0] == "pause" and "видеокарта занята" in e[2] for e in c.events))
+        self.assertEqual("passed", c.state["takes"]["A"]["status"])
+        again = P.Machine().lock(lock)
+        self.assertIsNotNone(again, "конвейер отпускает замок после клиента")
+        P.Machine().unlock(again)
 
     def test_guard_refuses_protected_and_foreign_paths(self):
         c, m = self.conveyor()

@@ -20,11 +20,20 @@
     "work": "/mnt/data/projects/airstrike/mod/run/newisle-night", "protected": ["<python3 tools/paths.py PRISM>"],
     "record": ["tools/trailer/film.sh", "record", "shaders"], "render": ["tools/trailer/film.sh", "render", "shaders"],
     "commit": "<SHA>", "pause_if_running": ["instances/Airstrike Pack"],
+    "gpu_lock": "/mnt/data/projects/airstrike/mod/run/gpu.lock",
+    "triage": ["/mnt/data/projects/airstrike/mod/run/claude-work/glm/glm.sh", "ask", "-o", "{out}", "-t", "900",
+               "-a", "{rec}/record.log", "-a", "{rec}/result.json", "-a", "{work}/status.txt",
+               "Newisle trailer take {take} was not filmed: {reason}. From the attached log and result write at most 10 lines: the likely cause with the log line that shows it, and a proposed fix in the stager (Newisle.java, NewisleData.java or newisle-takes.json: file and what to change). Do not judge camera taste or story."],
     "env": {"JAVA_HOME": "<python3 tools/paths.py JAVA>", "PATH": "<каталог uv>:/usr/local/bin:/usr/bin:/bin",
             "INCOMING_MODS_DIR": "run/film-war/minecraft/mods", "INCOMING_SIZE": "2560x1440",
             "INCOMING_RENDER_DISTANCE": "32", "INCOMING_LANG": "en_us", "INCOMING_FILM_CLOUDS": "320",
             "INCOMING_NEED_FRAMES": "3000", "INCOMING_MUSIC": "<Juggernaut.mp3 на ноутбуке, как у монтажа v5>"}}
    ```
+
+Шаги 1–3 — механика без решений: их можно отдать GLM одной задачей `glm.sh work` (полный доступ на ноутбуке, правила —
+`GLM-RULES.md` рядом с `glm.sh`), проверка — `level.dat` мастера, зелёная сборка и `produce.py status --config …`.
+Любой другой клиент игры на ноутбуке (GLM, ролики) — только под тем же замком: `flock mod/run/gpu.lock <команда>`;
+конвейер, найдя замок занятым, встаёт на паузу.
 
 ## 2. Игра Артёма (~20 минут, вечером)
 Его игра закрыта (`pgrep -f 'instances/Airstrike Pack'` пусто). Окно игры — на его рабочем столе и звук — в его
@@ -55,9 +64,11 @@ Claude не участвует, конвейер сам ставит паузы,
 (`systemctl --user stop newisle-watch.timer`), его `watch.txt` читается вместе со статусом.
 
 ## 4. Утро (строка Артёма «черновик»)
-Прочитать только `status.txt` и список не снятых; `mod/run/newisle-night/cut/newisle-draft.mp4` — на его телефон по
+Прочитать только `status.txt`, `watch.txt` и у каждого не снятого дубля `takes/<дубль>/a<n>/triage.md` (разбор GLM,
+≤ 10 строк; сырые логи — только если разбора мало, и сперва выжимкой `glm.sh ask`); `mod/run/newisle-night/cut/newisle-draft.mp4` — на его телефон по
 Taildrop (`tailscale file cp … pixel-9a:`; его строка покрывает передачу). Куски пробы — в черновике (n42, n52, n43; n13,
 n38, n14; n33, n47, n36, n35). Ответ ≤ 5 строк: что готово, что не снято и почему. Правки по номерам планов: порядок,
 длина, музыка — лист аниматика и `python3 tools/trailer/newisle_cut.py --work mod/run/newisle-night --draft`; камера —
 перевывод одного плана из его повтора (`.claude/rules/trailer.md`: «Правка по замечанию»); мир дубля лежит в
-`saves/`, пока его не убрала проверка места.
+`saves/`, пока его не убрала проверка места. Перевывод и пересборку черновика по готовой строке команды может выполнить
+GLM (`glm.sh work`, под замком видеокарты); принят ли план — по `best.txt` (PASS) и проверке монтажа, решает Claude.

@@ -37,9 +37,12 @@ status — файл статуса (пять строк).
 запись и проверка по данным, без вывода и монтажа], env {переменные}, pause_if_running [подстроки командной строки java
 игры Артёма], world_gb (размер копии мира, по умолчанию — замер мастера), fault_kill_s (90), pause_minutes, limits
 {сверх limits дублей}, commit (начало SHA: другой коммит в repo — стоп), status (файл статуса, по умолчанию
-<work>/status.txt), cut [команда монтажа без --draft/--final; false — без монтажа].
+<work>/status.txt), cut [команда монтажа без --draft/--final; false — без монтажа], gpu_lock (файл замка видеокарты:
+запись и вывод — под ним, держит другая задача — пауза), triage [команда разбора не снятого дубля, не ждётся; в
+аргументах {take} {rec} {work} {repo} {reason} {out}].
 """
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -136,6 +139,20 @@ class Machine:
                         except OSError:
                             pass
         return best
+
+    def lock(self, path):
+        """Замок видеокарты (flock на файле): свободен — открытый файл, держит другой — None."""
+        f = open(path, "a+")
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            f.close()
+            return None
+        return f
+
+    def unlock(self, f):
+        if f is not None:
+            f.close()
 
     def git_head(self, repo):
         r = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True)
@@ -383,8 +400,47 @@ class Conveyor:
         base = measured if measured else 60 * float(self.takes[take].get("minutes", 10)) if take in self.takes else 1800
         return float(self.limits["take_factor"]) * base
 
+    def gpu(self, kind):
+        """Запись и вывод — под замком видеокарты машины (`gpu_lock`): его же берёт любая другая задача с клиентом игры
+        (GLM, ролики), иначе два клиента делили бы видеокарту и память. Держит другой — пауза, как на игре Артёма."""
+        path = self.cfg.get("gpu_lock")
+        if not path or kind not in ("record", "render"):
+            return None
+        pause = 60 * float(self.cfg.get("pause_minutes", self.limits.get("pause_minutes", 30)))
+        while True:
+            f = self.m.lock(path)
+            if f is not None:
+                return f
+            why = f"видеокарта занята другой задачей ({path})"
+            self.events.append(("pause", self.current, why))
+            self.status("paused", why)
+            if self.night_end is not None and self.m.now() + pause > self.night_end:
+                raise Stopped(f"ночь кончилась на паузе: {why}")
+            self.m.sleep(pause)
+
     def client(self, kind, take, cmd, env, rec, limit):
         """Клиент до выхода под сторожем: срок, движение, куча, игра Артёма. Итог — (код или None, причина снятия)."""
+        lock = self.gpu(kind)
+        try:
+            return self.watch(kind, take, cmd, env, rec, limit)
+        finally:
+            self.m.unlock(lock)
+
+    def triage(self, take, rec, reason):
+        """Разбор не снятого дубля другой моделью (`triage` машины, например glm.sh ask — только чтение): к утру рядом с
+        записью — `triage.md`, короткая причина и предложение правки; решение — за Claude. Конвейер его не ждёт."""
+        cmd = self.cfg.get("triage")
+        if not cmd or not rec or not os.path.isdir(rec):
+            return
+        sub = {"take": take, "rec": rec, "work": self.work, "repo": self.repo, "reason": reason.replace("\n", " ")[:500],
+               "out": os.path.join(rec, "triage.md")}
+        try:
+            self.m.start([a.format(**sub) for a in cmd], self.repo, self.env({}), os.path.join(rec, "triage.log"))
+            self.events.append(("triage", take, sub["out"]))
+        except (OSError, KeyError, IndexError, ValueError) as e:
+            self.say(f"разбор {take} не запущен: {e!r}")
+
+    def watch(self, kind, take, cmd, env, rec, limit):
         log = os.path.join(rec, f"{kind}.log")
         proc = self.m.start(cmd, self.repo, env, log)
         start = self.m.now()
@@ -560,6 +616,8 @@ class Conveyor:
             raise Stopped(f"{take}: слишком много попыток")
         if st.get("status") not in ("passed", "chained"):
             st.update(status="skipped", snapshot=kept)
+            last = st["attempts"][-1] if st["attempts"] else {}
+            self.triage(take, last.get("rec"), "; ".join(a.get("reason", "") for a in st["attempts"]))
         self.state.setdefault("spent", {})[take] = self.state.get("spent", {}).get(take, 0) + round(self.m.now() - t0)
         src = t.get("from", "chain")
         if src == "chain" and st.get("snapshot"):
@@ -675,6 +733,8 @@ class Conveyor:
             return 0
         except Stopped as e:
             self.status("stopped, waiting", str(e))
+            tries = self.state["takes"].get(self.current_take, {}).get("attempts") or [{}]
+            self.triage(self.current_take, tries[-1].get("rec"), str(e))
             return STOPPED_EXIT
         except Exception as e:  # noqa: BLE001 — неожиданное: остановиться и сказать, а не упасть молча
             self.status("stopped, waiting", f"ошибка конвейера: {e!r}")
