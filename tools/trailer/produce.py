@@ -24,7 +24,7 @@ status — файл статуса (пять строк).
 Ограждения (limits в newisle-takes.json): пауза вместо падения, пока свободно меньше `disk_floor_gb` (+ размер копии
 мира), памяти меньше `ram_floor_gb` + `client_gb` или идёт игра Артёма (`pause_if_running` машины); срок дубля —
 `take_factor` × замер (до замера — `minutes` дубля), срок ночи — `night_hours`; сторож снимает клиент без движения
-(лог и папка дубля не растут) дольше `stall_seconds`, с живой кучей выше `heap_share` и замечает упавший; запись и
+(папка дубля не растёт, в логе нет строк, кроме пульса кучи) дольше `stall_seconds`, с живой кучей выше `heap_share` и замечает упавший; запись и
 удаление — только в папках работы, путь под защищёнными корнями (`protected`, мастер) — отказ. Неожиданное (дубль
 сказал «stopped», ошибка конвейера) — «остановлен, жду» в статусе и выход с кодом 3: дальше решает человек.
 
@@ -472,7 +472,10 @@ class Conveyor:
                 proc.kill(hard=True)
                 kill_at = None
                 continue
-            moved = self.m.newest_mtime([log, rec])
+            # движение — папка дубля или строка лога, кроме пульса кучи: клиент на экране «Failed to load world»
+            # пишет только пульс раз в минуту и иначе стоял бы до срока
+            pos, pct, said = tail_heap(log, pos)
+            moved = max(self.m.newest_mtime([rec]), now if said else 0)
             if moved > last:
                 last = moved
             why = None
@@ -481,7 +484,6 @@ class Conveyor:
             elif now - last > stall:
                 why = f"нет движения {stall / 60:.0f} мин"
             else:
-                pos, pct = tail_heap(log, pos)
                 if pct is not None and pct > heap:
                     why = f"живая куча {pct}% > {heap:.0f}%"
                 else:
@@ -767,17 +769,19 @@ def read(path):
 
 
 def tail_heap(log, pos):
-    """Последняя строка кучи с места pos; итог — (новое место, процент или None)."""
+    """Лог с места pos: (новое место, процент последней строки кучи или None, была ли строка кроме пульса кучи)."""
     try:
         with open(log, "rb") as f:
             f.seek(pos)
             chunk = f.read()
     except OSError:
-        return pos, None
+        return pos, None, False
+    text = chunk.decode("utf-8", "replace")
     pct = None
-    for m in HEAP_RE.finditer(chunk.decode("utf-8", "replace")):
+    for m in HEAP_RE.finditer(text):
         pct = int(m.group(1))
-    return pos + len(chunk), pct
+    said = any(line.strip() and not HEAP_RE.search(line) for line in text.splitlines())
+    return pos + len(chunk), pct, said
 
 
 def check_take(result, log, take):

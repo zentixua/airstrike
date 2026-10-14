@@ -55,6 +55,9 @@ class FakeProc:
         if self.code is not None or self.killed:
             return self.code
         if self.plan.get("hang"):
+            if self.plan.get("pulse"):
+                with open(self.log, "a", encoding="utf-8") as f:
+                    f.write("NEWISLE heap 11% (1100 МБ из 10000)\n")
             return None
         if self.m.t - self.start >= self.plan.get("seconds", 60):
             self.finish()
@@ -110,6 +113,8 @@ class FakeMachine(P.Machine):
         p = self.procs[-1] if self.procs else None
         if p and p.plan.get("silent"):
             return p.start
+        if p and p.plan.get("pulse"):      # растёт только лог (пульс кучи), папка дубля стоит
+            return self.t if p.log in paths else p.start
         return self.t
 
     def start(self, cmd, cwd, env, log):
@@ -224,6 +229,21 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual("camera", envs[0].get("INCOMING_NEWISLE_FAULT"))
         self.assertNotIn("INCOMING_NEWISLE_FAULT", envs[1], "запасная камера — без порчи")
         self.assertTrue(P.smoke_verdict(c, {"A": "camera"})["pass"])
+
+    def test_heap_pulse_alone_is_no_movement(self):
+        # клиент на экране «Failed to load world»: в лог идёт только пульс кучи — сторож снимает его, не ждёт срока
+        c, m = self.conveyor({("A", "record", 0): {"hang": True, "pulse": True}})
+        self.assertEqual(0, c.run(["A"]))
+        first = c.state["takes"]["A"]["attempts"][0]
+        self.assertIn("нет движения", first["reason"])
+        self.assertEqual("passed", c.state["takes"]["A"]["status"], "пересъёмка снимает дубль")
+
+    def test_search_stall_stops_that_search(self):
+        c, m = self.conveyor({("boat", "record"): {"hang": True, "pulse": True}})
+        with self.assertRaises(P.Stopped) as e:
+            c.trial("boat")
+        self.assertIn("нет движения", str(e.exception))
+        self.assertLess(m.t - 1000, 3600, "не до срока пробы")
 
     def test_silent_client_and_heap_are_cut_off(self):
         script = {("A", "record", 0): {"hang": True, "silent": True},
