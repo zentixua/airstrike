@@ -790,8 +790,9 @@ public final class StrikeGameTests {
 
     /**
      * МБР со дна шахты (стенка из камня 25 блоков с проёмом 4×4 — как шахта Minuteman, ~24 м глубины и ~3,7 м
-     * в поперечнике): пока хвост в шахте, ракета идёт отвесно — не дальше 0,5 блока от оси, — и уходит выше шахты на 20
-     * блоков, не разбившись.
+     * в поперечнике): пока хвост в шахте, ракета идёт по оси — не дальше 0,5 блока от неё (корпус 2×2 до стенки не
+     * достаёт и при 1 блоке), — и уходит выше шахты на 20 блоков. Столкновений на разгоне у МБР нет
+     * ({@link #icbmUnderRoofStillClimbs}), так что проверка шахты — это ось.
      */
     @GameTest(template = "range", timeoutTicks = 200, batch = "icbm_silo", skyAccess = true)
     public static void icbmClimbsOutOfSilo(GameTestHelper h) {
@@ -815,6 +816,7 @@ public final class StrikeGameTests {
         IcbmEntity icbm = ModEntities.ICBM.get().create(level);
         icbm.prepare(pad, pad.add(2000, 0, 0), null);
         level.addFreshEntity(icbm);
+        afterTest(h, icbm::discard);
         double half = WeaponSpec.NUKE.airframe().noseLength();
         double[] top = {pad.y}, off = {0};
         int[] out = {-1};
@@ -837,7 +839,7 @@ public final class StrikeGameTests {
 
     /**
      * МБР со стола на обычной высоте земли (y 64) видно около девяти секунд: от старта до ухода за потолок мира — 8–11 с
-     * (160–220 тиков), а не ~4 с. Стол — в воздухе над площадкой: столкновений на разгоне нет, а высота площадки GameTest
+     * (160–220 тиков), и уходит она именно там, а не раньше, на краю тикающих чанков. Стол — в воздухе над площадкой: столкновений на разгоне нет, а высота площадки GameTest
      * не та, что у поверхности мира.
      */
     @GameTest(template = "range", timeoutTicks = 300, batch = "icbm_sky", skyAccess = true)
@@ -862,11 +864,16 @@ public final class StrikeGameTests {
             age[0] = icbm.age();
             if (age[0] % 20 == 0) bySecond.append(String.format(Locale.ROOT, " %d с: +%.0f (%.2f бл/тик);", age[0] / 20, icbm.getY() - 9 - pad.y, icbm.speed()));
         });
+        boolean[] told = {false};
         h.succeedWhen(() -> {
             h.assertTrue(icbm.isRemoved(), "МБР ещё в небе");
-            Incoming.LOG.info("МБР в небе: {} тиков, последняя высота {} (потолок {});{}", age[0], String.format(Locale.ROOT, "%.0f", last[0]),
-                    level.getMaxBuildHeight(), bySecond);
-            h.assertTrue(last[0] > level.getMaxBuildHeight(), "МБР убрана до потолка мира: на " + last[0]);
+            if (!told[0]) {
+                told[0] = true;
+                Incoming.LOG.info("МБР в небе: {} тиков, последняя высота {} (потолок {});{}", age[0], String.format(Locale.ROOT, "%.0f", last[0]),
+                        level.getMaxBuildHeight(), bySecond);
+            }
+            double ceiling = level.getMaxBuildHeight() + WeaponSpec.NUKE.ascent().ceiling();
+            h.assertTrue(last[0] > ceiling - 10, "МБР убрана до потолка " + ceiling + ": на " + last[0]);
             h.assertTrue(age[0] >= 160 && age[0] <= 220, "МБР в небе " + age[0] + " тиков");
         });
     }

@@ -194,15 +194,21 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
 
     /**
      * Разгон твёрдотопливной ступени вертикального старта: тяга постоянна, масса падает по мере выгорания топлива,
-     * поэтому ускорение растёт — a(t) = T / (m₀ − ṁ·t) − g, ṁ = топливо / время работы. Сопротивление воздуха, рост
-     * тяги с высотой и программа тангажа не учтены: это чистое ускорение вдоль корпуса.
+     * поэтому ускорение растёт — a(t) = T / (m₀ − ṁ·t) − g, ṁ = топливо / время работы. Сопротивление воздуха и рост
+     * тяги с высотой не учтены; g вычитается целиком, как при отвесном подъёме: при наклоне до {@code 90 − climbPitch}
+     * от вертикали это меньше 2 % ускорения. Тангаж упрощён — открытой программы тангажа нет: до {@code pitchOverTick}
+     * ракета идёт строго по оси (хвост выходит из шахты), потом плавно наклоняется к курсу цели до {@code climbPitch}.
      *
-     * @param thrust      тяга, Н
-     * @param launchMass  стартовая масса ракеты, кг
-     * @param propellant  топливо ступени, кг
-     * @param burnSeconds время работы ступени, с
+     * @param thrust        тяга, Н
+     * @param launchMass    стартовая масса ракеты, кг
+     * @param propellant    топливо ступени, кг
+     * @param burnSeconds   время работы ступени, с
+     * @param pitchOverTick с этого тика нос наклоняется к курсу цели
+     * @param climbPitch    угол подъёма над горизонтом после наклона, °
+     * @param ceiling       выше потолка мира на столько блоков ракета больше не нужна (дальше летит удар)
      */
-    public record Ascent(double thrust, double launchMass, double propellant, double burnSeconds) {
+    public record Ascent(double thrust, double launchMass, double propellant, double burnSeconds, int pitchOverTick, float climbPitch,
+                         int ceiling) {
         /** Ускорение свободного падения, м/с². */
         static final double G = 9.81;
 
@@ -367,7 +373,9 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      * (https://www.af.mil/About-Us/Fact-Sheets/Display/Article/104466/lgm-30g-minuteman-iii/); топливо первой ступени —
      * 20 780 кг за 61 с (S. Fetter, «A Ballistic Missile Primer», табл. первой ступени Minuteman: у Minuteman III она та же,
      * https://gotech.spp.umd.edu/sites/default/files/2019-08/1990-MissilePrimer.pdf). На отрыве 1,56 g, к 10 с — 1,82 g:
-     * без тангажа 165 м/с и ~810 м по вертикали. Сила
+     * 165 м/с и ~810 м по оси. Строго отвесно 3 с (хвост выходит из шахты 25 блоков к ~1,8 с), потом наклон к курсу
+     * цели до 85° над горизонтом; за потолок мира + 320 уходит через ~8,5 с на y 64, отойдя на ~30 блоков вбок: дальше
+     * вбок она уходила бы из готовых чанков у места пуска. Сила
      * взрыва — {@code bunkerPower}: своей настройки у МБР нет, её подрыв ядерный (мощность — килотонны {@code Loadout.Nuke}),
      * а поле паспорта обязательно. Промаха нет: у настоящей МБР он в сотни метров, но при ядерном заряде ничего не меняет,
      * а подрыв точно в отметке совпадает с её сиреной и предупреждением.
@@ -377,7 +385,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Route(null, 0, 0, 0, 0, 0, 0), Tracking.POINT, null, Blast.NONE, 0, false, 0.5f,
             new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 0, 9, 0, 600 * 25, 0, null, 0, Attack.NONE,
                     ph -> ph.boosterLit() ? Hearing.ICBM : 0, new Signature(1.0, false)),
-            null, Munition.single(() -> ModItems.ICBM.get()), new Ascent(903_700, 36_030, 20_780, 61));
+            null, Munition.single(() -> ModItems.ICBM.get()), new Ascent(903_700, 36_030, 20_780, 61, 60, 85, 320));
 
     /**
      * РСЗО в духе БМ-21 «Град»: неуправляемые реактивные снаряды по баллистике с пакета из 40 труб, залп очередью
