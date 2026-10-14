@@ -173,14 +173,14 @@
     "kind": "path",
     "points": [
      [
-      -430,
+      -400,
       70,
-      340
+      300
      ],
      [
-      -300,
+      -320,
       70,
-      170
+      190
      ]
     ]
    },
@@ -252,19 +252,19 @@
     "kind": "path",
     "points": [
      [
-      -60,
+      -120,
+      160,
+      -230
+     ],
+     [
+      -160,
+      155,
+      -170
+     ],
+     [
+      -200,
       150,
-      -300
-     ],
-     [
-      -170,
-      140,
-      -100
-     ],
-     [
-      -250,
-      130,
-      60
+      -110
      ]
     ],
     "tilt": 15
@@ -308,6 +308,22 @@
    "target": "south_launchers",
    "features": [
     "fixed_launcher"
+   ]
+  },
+  {
+   "id": "n07a",
+   "act": "1",
+   "title": "North spotter with binoculars on the hill",
+   "time": "dawn",
+   "fov": 40,
+   "pose": {
+    "kind": "peak",
+    "at": "hill_spot",
+    "radius": 12
+   },
+   "target": "c1_core",
+   "features": [
+    "spotter"
    ]
   },
   {
@@ -679,25 +695,87 @@
   {
    "id": "n20",
    "act": "3-street",
-   "title": "Fight in the west district",
+   "title": "FPV over the street fight in the west district",
    "time": "day",
-   "fov": 65,
+   "fov": 75,
    "frames": 3,
    "dur": 4,
+   "camera": "fpv",
    "pose": {
-    "kind": "street",
-    "near": [
-     -446,
+    "kind": "path",
+    "points": [
+     {
+      "at": [
+       -520,
+       6
+      ],
+      "ground": 24
+     },
+     {
+      "at": [
+       -455,
+       6
+      ],
+      "ground": 18
+     },
+     {
+      "at": [
+       -390,
+       3
+      ],
+      "ground": 24
+     }
+    ],
+    "look_ahead": true,
+    "tilt": 22
+   },
+   "target": {
+    "at": [
+     -400,
      6
     ],
-    "above": 2,
-    "toward": [
-     -354,
-     6
-    ]
+    "above": 0
    },
+   "need_sight": false,
+   "strikes": [
+    {
+     "from": [
+      -300,
+      -300
+     ],
+     "to": {
+      "at": [
+       -410,
+       10
+      ],
+      "above": 0
+     },
+     "weapon": "rocket",
+     "eta": 2.5,
+     "flight": 9,
+     "cruise": 120
+    },
+    {
+     "from": [
+      -300,
+      -300
+     ],
+     "to": {
+      "at": [
+       -395,
+       0
+      ],
+      "above": 0
+     },
+     "weapon": "rocket",
+     "eta": 2.9,
+     "flight": 9,
+     "cruise": 120
+    }
+   ],
    "features": [
-    "fight"
+    "fight",
+    "fpv"
    ]
   },
   {
@@ -930,6 +1008,55 @@
    ]
   },
   {
+   "id": "n25a",
+   "act": "3-fire",
+   "title": "FPV at sunset from the bridge toward burning City 1",
+   "time": "sunset",
+   "fov": 75,
+   "frames": 3,
+   "dur": 4,
+   "camera": "fpv",
+   "pose": {
+    "kind": "path",
+    "points": [
+     [
+      -529,
+      95,
+      250
+     ],
+     [
+      -505,
+      100,
+      175
+     ],
+     [
+      -470,
+      105,
+      100
+     ]
+    ],
+    "look_ahead": true,
+    "tilt": 10
+   },
+   "target": "c1_tower_w",
+   "need_sight": false,
+   "strikes": [
+    {
+     "from": [
+      -800,
+      600
+     ],
+     "to": "c1_tower_w",
+     "weapon": "missile",
+     "eta": 3,
+     "flight": 5
+    }
+   ],
+   "features": [
+    "fpv"
+   ]
+  },
+  {
    "id": "n25",
    "act": "3-fire",
    "title": "Onboard the missile through the gorge",
@@ -961,6 +1088,66 @@
    "features": [
     "projectile_camera",
     "waypoints"
+   ]
+  },
+  {
+   "id": "n26a",
+   "act": "3-night",
+   "title": "FPV at night over City 1 roofs, trails far away",
+   "time": "night",
+   "fov": 75,
+   "frames": 3,
+   "dur": 4,
+   "camera": "fpv",
+   "pose": {
+    "kind": "path",
+    "points": [
+     [
+      -110,
+      215,
+      -130
+     ],
+     [
+      -150,
+      215,
+      -80
+     ],
+     [
+      -195,
+      212,
+      -30
+     ]
+    ],
+    "look_ahead": true,
+    "tilt": 15
+   },
+   "target": "c1_tower_w",
+   "need_sight": false,
+   "strikes": [
+    {
+     "from": [
+      -600,
+      700
+     ],
+     "to": "c1_tower_w",
+     "weapon": "drone",
+     "eta": 3.5,
+     "flight": 12
+    },
+    {
+     "from": [
+      -300,
+      700
+     ],
+     "to": "c1_east",
+     "weapon": "missile",
+     "eta": 3,
+     "flight": 6
+    }
+   ],
+   "features": [
+    "fpv",
+    "trails"
    ]
   },
   {
@@ -1151,7 +1338,7 @@
    "id": "n30",
    "act": "4",
    "title": "Second key",
-   "time": "dawn",
+   "time": "night",
    "fov": 50,
    "camera": "hud",
    "pose": {
@@ -1175,7 +1362,7 @@
    "id": "n31",
    "act": "4",
    "title": "Silo opens, ICBM launch",
-   "time": "dawn",
+   "time": "night",
    "fov": 30,
    "pose": {
     "kind": "ground",
@@ -1204,7 +1391,7 @@
    "id": "n32",
    "act": "4",
    "title": "ICBM climbs past the mountains",
-   "time": "dawn",
+   "time": "night",
    "fov": 40,
    "pose": {
     "kind": "peak",
@@ -1224,7 +1411,7 @@
    "id": "n33",
    "act": "4",
    "title": "MISSILE ATTACK on City 1 screens",
-   "time": "dawn",
+   "time": "night",
    "fov": 60,
    "camera": "hud",
    "pose": {
@@ -1246,7 +1433,7 @@
    "id": "n34",
    "act": "4",
    "title": "Flash over City 1",
-   "time": "dawn",
+   "time": "night",
    "fov": 45,
    "pose": {
     "kind": "peak",
@@ -1262,7 +1449,7 @@
    "id": "n35",
    "act": "4",
    "title": "The wave crosses the lake (City 2 roof)",
-   "time": "dawn",
+   "time": "night",
    "fov": 35,
    "pose": {
     "kind": "roof",
@@ -1284,7 +1471,7 @@
    "id": "n36",
    "act": "4",
    "title": "The wave takes City 1 (hill)",
-   "time": "dawn",
+   "time": "night",
    "fov": 50,
    "pose": {
     "kind": "peak",
