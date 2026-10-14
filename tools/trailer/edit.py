@@ -1035,12 +1035,13 @@ def _render(i):
     return np.clip(a, 0, 255).astype(np.uint8).tobytes()
 
 
-def render_frames(n, jobs, init):
+def render_frames(n, jobs, init, step=1):
     """Кадры трейлера по порядку. В работе и в очереди — не больше 2×jobs кадров: Pool.imap не ждёт потребителя
-    и копит готовые кадры (6 МБ на 1080p), пока кодер x264 медленнее отрисовки, — 16 процессов съели бы больше 8 ГБ."""
+    и копит готовые кадры (6 МБ на 1080p), пока кодер x264 медленнее отрисовки, — 16 процессов съели бы больше 8 ГБ.
+    step — каждый step-й кадр (черновик montage.py в 30 fps — 2)."""
     with multiprocessing.Pool(jobs, _init_worker, init) as pool:
         pending = collections.deque()
-        for i in range(n):
+        for i in range(0, n, step):
             pending.append(pool.apply_async(_render, (i,)))
             if len(pending) >= 2 * jobs:
                 yield pending.popleft().get()
@@ -1110,10 +1111,12 @@ HIT_LATE = 0.3  # ~100 блоков
 RING_FADE = 0.25  # спад удара в конце Clip.ring, с
 
 
-def render_sfx(edit, shots, total, bank, cuts=()):
+def render_sfx(edit, shots, total, bank, cuts=(), span=None):
     """Звук игры по монтажу: каждый звук плана, попавший в склейку, — с громкостью и панорамой по камере; удар склейки
     с Clip.ring звучит и после неё (камера — её последний кадр), до ближайшего обрыва cuts. Второй результат — громкость
-    голоса снарядов (CRAFT_SOUNDS) по отсчётам, для ухода музыки под него."""
+    голоса снарядов (CRAFT_SOUNDS) по отсчётам, для ухода музыки под него. span(склейка, звук журнала) — окно звука в
+    секундах игры (начало, конец, звучит после склейки) или None — не звучит: так монтаж от событий (montage.py) кладёт
+    звук по своему плану звука (J/L), а не по ring."""
     out = np.zeros((int(total * SR) + SR, 2), np.float32)
     craft = np.zeros(len(out), np.float32)
     for c in edit:
@@ -1137,10 +1140,15 @@ def render_sfx(edit, shots, total, bank, cuts=()):
             base_pitch = max(0.5, min(2.0, e["pitch"])) / stretch
             length = (stop - t0) if stop is not None else len(data) / SR / base_pitch * (1 if not e["loop"] else 1e9)
             rings = c.ring > 0 and not e["loop"] and e["event"].startswith(HIT_SOUNDS) and lo <= t0 <= hi + HIT_LATE * c.rate
-            if t0 + length < lo - 0.05 or t0 > hi and not rings:
+            if span is None and (t0 + length < lo - 0.05 or t0 > hi and not rings):
                 continue
             seg_start = max(t0, lo)
             seg_end = min(ring_end if rings else hi, t0 + length)
+            if span is not None:
+                got = span(c, e)
+                if got is None:
+                    continue
+                seg_start, seg_end, rings = got[0], min(got[1], t0 + length), got[2]
             if seg_end <= seg_start:
                 continue
             n = int((seg_end - seg_start) / c.rate * SR)
@@ -1209,15 +1217,16 @@ def smooth(a, k):
     return ((c[k:] - c[:-k]) / k).astype(np.float32)
 
 
-def music_track(total, path):
-    """Музыка по карте PARTS: куски трека на своих местах трейлера, вход — на долю, конец — обрыв после удара."""
+def music_track(total, path, parts=None):
+    """Музыка по карте PARTS (или своей карте parts): куски трека на своих местах трейлера, вход — на долю, конец —
+    обрыв после удара."""
     wav = os.path.join(CACHE, "juggernaut.wav")
     if not os.path.exists(wav) or os.path.getmtime(wav) < os.path.getmtime(path):
         subprocess.run([ffmpeg(), "-loglevel", "error", "-y", "-i", path, "-ar", str(SR), "-ac", "2", wav], check=True)
     x, _ = sf.read(wav, dtype="float32", always_2d=True)
     out = np.zeros((int(total * SR) + SR, 2), np.float32)
     env = np.zeros(len(out), np.float32)   # где звучит музыка и насколько громко — для громкости звука игры
-    for p in PARTS:
+    for p in PARTS if parts is None else parts:
         a, i = int(round(p.track * SR)), int(round(p.at * SR))
         n = min(int(round((p.end - p.track) * SR)), len(x) - a, len(out) - i)
         g = np.ones(n, np.float32)
@@ -1237,11 +1246,13 @@ def music_track(total, path):
 SFX_WITH_MUSIC, SFX_ALONE = 0.9, 1.3  # звук игры под музыкой и там, где её нет
 
 
-def mix(edit, cuts, shots, total, music_path):
-    """Звук трейлера: звуки записи планов по монтажу (render_sfx) и музыка; своих звуков монтаж не добавляет."""
+def mix(edit, cuts, shots, total, music_path, span=None, parts=None, limit=True):
+    """Звук трейлера: звуки записи планов по монтажу (render_sfx) и музыка; своих звуков монтаж не добавляет.
+    span и parts — план звука и карта музыки монтажа от событий (montage.py); limit=False — без мягкого ограничителя
+    (громкость и пик montage.py ставит сам, loudness.py)."""
     bank = SoundBank()
-    sfx, craft = render_sfx(edit, shots, total, bank, cuts)
-    music, env = music_track(total, music_path)
+    sfx, craft = render_sfx(edit, shots, total, bank, cuts, span)
+    music, env = music_track(total, music_path, parts)
     env = smooth(env, int(0.3 * SR))       # громкость звука игры меняется плавно
     sfx *= (SFX_ALONE + (SFX_WITH_MUSIC - SFX_ALONE) * env)[:, None]
     # голос снаряда (средний модуль за 50 мс) от половины громкости музыки и громче — музыка уходит вниз на DUCK_DB,
@@ -1252,6 +1263,8 @@ def mix(edit, cuts, shots, total, music_path):
     want = np.maximum(want, smooth(want, int(0.3 * SR)))
     music *= (10 ** (-DUCK_DB / 20 * want))[:, None]
     out = music * 0.55 + sfx
+    if not limit:
+        return out
     # мягкий ограничитель
     peak = np.max(np.abs(out)) + 1e-9
     out = np.tanh(out * (1.4 / max(1.0, peak * 0.7))) * 0.95
