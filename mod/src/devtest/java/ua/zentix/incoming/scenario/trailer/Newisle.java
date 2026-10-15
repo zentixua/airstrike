@@ -758,10 +758,18 @@ final class Newisle {
                 // часы сервера: пущен — когда снаряд появился у него, удар — когда полёт кончился
                 if (firstSeenServer >= 0) o.addProperty("launched", (firstSeenServer - startServer) / 20.0);
                 if (goneServer >= 0) o.addProperty("actual", (goneServer - startServer) / 20.0);
-            } else if (start >= 0) {
-                o.addProperty("launched", (at - start) / 20.0);
+            }
+            if (start >= 0) {
+                // часы клиента: расписание пуска и повтор (окно плана) — на них; под нагрузкой часы клиента
+                // отстают от серверных на период синхронизации, и серверное «actual» читается ранним (T13, 15.10:
+                // удары ровно в eta по клиенту, сервер — на 1.1 с раньше) — отдаём оба, ворота берут любой из них
+                if (startServer >= 0 && at >= 0) o.addProperty("skew", (startServer - start) / 20.0);
+                if (startServer < 0 && at >= 0) o.addProperty("launched", (at - start) / 20.0);
                 long moment = strike.pass() != null ? nearestTick : gone;
-                if (moment >= 0) o.addProperty("actual", (moment - start) / 20.0);
+                if (moment >= 0) {
+                    o.addProperty("actual_client", (moment - start) / 20.0);
+                    if (!o.has("actual")) o.addProperty("actual", (moment - start) / 20.0);   // без сервера — как раньше
+                }
             }
             if (strike.pass() != null && nearest < Double.MAX_VALUE) o.addProperty("pass_distance", nearest);
             return o;

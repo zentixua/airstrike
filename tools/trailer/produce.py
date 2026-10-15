@@ -942,7 +942,11 @@ def check_take(result, log, take):
             if not k.get("bound"):
                 out.append(f"{name}: удар {k.get('weapon')} не найден у клиента")
             elif "actual" in k and abs(k["actual"] - k["eta"]) > ETA_TOLERANCE:
-                out.append(f"{name}: {k.get('weapon')} в {k['actual']:.1f} с вместо {k['eta']:.1f}")
+                # расписание пуска и повтор — на часах клиента: под нагрузкой они отстают от серверных
+                # (T13, 15.10: серверное actual на 1.1 с раньше, клиентское — ровно eta) — любой из них в допуске
+                if not ("actual_client" in k and abs(k["actual_client"] - k["eta"]) <= ETA_TOLERANCE):
+                    out.append(f"{name}: {k.get('weapon')} в {k['actual']:.1f} с вместо {k['eta']:.1f}"
+                               + (f" (клиент {k['actual_client']:.1f})" if "actual_client" in k else ""))
     return out
 
 
