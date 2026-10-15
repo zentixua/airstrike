@@ -318,7 +318,7 @@
   },
   {
    "id": "T20", "title": "FPV ночью над тёмным городом", "from": "chain", "clock": "night", "siren": true, "minutes": 8,
-   "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "strikes": [{"weapon": "missile", "from": [-300, 700], "to": [-135, 52], "eta": 3.0}, {"weapon": "missile", "from": [-600, 700], "to": [-264, 55], "eta": 3.5}], "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
+   "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "strikes": [{"weapon": "missile", "route": "south_a", "eta": 3.0}, {"weapon": "missile", "route": "south_b", "eta": 3.5}], "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
   },
   {
    "id": "T21", "title": "Ковёр «Града» ночью", "from": "chain", "clock": "night", "siren": true, "minutes": 10,
