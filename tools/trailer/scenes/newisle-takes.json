@@ -163,7 +163,7 @@
    ]
   },
   {
-   "id": "T10", "title": "ЗРК и мобильная группа", "from": "chain", "clock": "dawn", "siren": true, "minutes": 12,
+   "id": "T10", "title": "ЗРК и мобильная группа", "from": "branch:T09", "clock": "dawn", "siren": true, "minutes": 12,
    "stage": [
     {"do": "sam", "at": "c1_sam", "load": 0},
     {"do": "player", "at": {"at": [-530, 296], "above": 40}, "look": "c1_sam", "mode": "spectator"},
@@ -187,7 +187,7 @@
      "ready": [{"do": "sam.clear", "at": "c1_sam", "r": 24}],
      "cues": [{"at": 1.0, "do": "gunners.fire", "group": "mg", "weapon": "drone", "range": 160}],
      "end": [{"do": "gunners.stop", "group": "mg"}],
-     "cover": {"n46": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD"}}}
+     "cover": {"n46": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"]}}}
    ],
    "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 24}]
   },
@@ -198,7 +198,7 @@
    "cover": {"n18": {"subject": "impact", "weapon": "missile", "need": "HIT", "spare": ["tripod"]}}
   },
   {
-   "id": "T12", "title": "Кафе и станция днём", "from": "chain", "clock": "morning", "siren": true, "minutes": 12,
+   "id": "T12", "title": "Кафе и станция днём", "from": "branch:T11", "clock": "morning", "siren": true, "minutes": 12,
    "stage": [
     {"do": "crowd", "group": "cafe", "at": "c1_cafe", "n": 10, "spread": 10, "roam": 5, "prefix": "Cit"},
     {"do": "crowd", "group": "station", "at": "station_floor", "n": 6, "spread": 5, "roam": 2, "prefix": "Und"},

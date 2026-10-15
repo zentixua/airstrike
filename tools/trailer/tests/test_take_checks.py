@@ -70,41 +70,56 @@ class ServerLagTest(unittest.TestCase):
 
 
 class IcbmFlightTest(unittest.TestCase):
-    def rows(self, positions, flag=1):
-        rows = [{"t": 0, "new": 0, "id": "a", "weapon": "nuke", "bomber": False}]
-        for k, (x, y) in enumerate(positions):
-            rows.append({"t": k, "f": [[0, x, y, 0, 4, flag]]})
-        return rows
+    """МБР против кривой разгона модели: реальная запись (T23 n31, T23b n32) видит путь пачками и с
+    отставанием клиента, поэтому проверяются инварианты пути, а не разности соседних тиков."""
 
-    def ascent(self, a, n=60, y0=100.0):
-        pos, y, v = [], y0, 0.0
-        for _ in range(n):
-            pos.append((0.0, round(y, 2)))
-            y += v
-            v += a
-        return pos
-
-    def check(self, positions, flag=1):
+    def check(self, samples, flag=1):
         root = tempfile.mkdtemp()
-        write(os.path.join(root, "replays", "n1.events.jsonl"), self.rows(positions, flag))
+        rows = [{"t": 0, "new": 0, "id": "a", "weapon": "nuke", "bomber": False}]
+        for t, (x, y, z) in samples:
+            rows.append({"t": t, "f": [[0, x, y, z, 1, flag]]})
+        write(os.path.join(root, "replays", "n1.events.jsonl"), rows)
         return T.icbm_flight(root)
 
-    def test_smooth_ascent_passes(self):
-        # ускорение 0,03 бл/тик² (вертикально), шум округления 0,01
-        self.assertEqual([], self.check(self.ascent(0.03)))
+    def flight(self, standstill=25, ticks=170, pad=100.0, lag=0, jump=0.0, drop=0.0, side=0.0):
+        """Путь записи: стойка на площадке, потом кривая модели с отставанием lag тиков и пачками
+        (4 тика одно место из каждых 6); на 80-м тике полёта — скачок вверх jump, падение drop или сдвиг
+        вбок side (у верного полёта все нули, лёгкий дрейф вбок после наклона — как у модели)."""
+        _, climbs = T._ascent_curves()
+        samples = [(t, (0.0, pad, 0.0)) for t in range(-standstill, 1)]
+        shown = (0.0, pad, 0.0)
+        for k in range(1, ticks + 1):
+            n = max(0, k - lag)
+            if k > 6 and k % 6 < 4:
+                pos = shown                                     # пачка: место держится, потом догоняющий скачок
+            else:
+                drift = 0.25 * max(0, n - T.ICBM_PITCH_TICKS)   # наклон к 85°: ~30 бл вбок за подъём
+                pos = (round(drift, 2), round(pad + climbs[n], 2), 0.0)
+                shown = pos
+            if k == 80:
+                pos = (round(pos[0] + side, 2), round(pos[1] + jump - drop, 2), 0.0)
+            samples.append((k, pos))
+        return samples
 
-    def test_teleport_is_a_jerk(self):
-        jump = self.ascent(0.03, n=40)
-        jump[30] = (0.0, jump[30][1] + 2.0)                  # скачок пути
-        self.assertTrue(any("рывок" in p or "ускорение" in p for p in self.check(jump)))
+    def test_model_flight_with_bursts_and_client_lag_passes(self):
+        self.assertEqual([], self.check(self.flight()), "ровный полёт по кривой")
+        self.assertEqual([], self.check(self.flight(lag=8)), "запись отстаёт на 8 тиков (T23b n32)")
+        self.assertEqual([], self.check(self.flight(lag=11)), "отставание до 11 тиков — предел данных записей")
 
-    def test_too_steep_is_an_acceleration_problem(self):
-        self.assertTrue(any("ускорение" in p for p in self.check(self.ascent(0.09, n=40))))
+    def test_teleport_up_is_a_path_jump(self):
+        self.assertTrue(any("скачок" in p or "обгоняет" in p for p in self.check(self.flight(jump=40.0))))
+
+    def test_sideways_jump_is_a_path_jump(self):
+        self.assertTrue(any("скачок" in p for p in self.check(self.flight(side=40.0))))
+
+    def test_falling_path_is_a_problem(self):
+        self.assertTrue(any("падает" in p for p in self.check(self.flight(drop=10.0))))
+
+    def test_standing_on_the_pad_all_plan_is_a_problem(self):
+        self.assertEqual(1, len(self.check([(t, (0.0, 100.0, 0.0)) for t in range(60)])))
 
     def test_server_only_samples_are_ignored(self):
-        jump = self.ascent(0.03, n=40)
-        jump[30] = (0.0, jump[30][1] + 2.0)
-        self.assertEqual([], self.check(jump, flag=0), "места от пакетов сервера — не разгон сущности")
+        self.assertEqual([], self.check(self.flight(jump=40.0), flag=0), "места от пакетов сервера — не путь сущности")
 
 
 class SirenTest(unittest.TestCase):

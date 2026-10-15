@@ -743,6 +743,18 @@ class ProduceTest(unittest.TestCase):
         self.assertTrue(any("4.6" in p for p in problems))
         self.assertTrue(any("не найден" in p for p in problems))
 
+    def test_check_take_accepts_client_clock_when_server_reads_early(self):
+        # серверное actual отстаёт от клиентского на период синхронизации часов (T13, 15.10):
+        # удар в допуске хотя бы на одних часах — не отказ
+        r = ok_result("A", ["a1"])
+        r["shots"][0]["strikes"] = [{"weapon": "missile", "eta": 1.0, "bound": True,
+                                     "actual": -0.1, "actual_client": 1.0}]
+        self.assertEqual([], [p for p in P.check_take(r, "", {}) if "вместо" in p])
+        r["shots"][0]["strikes"] = [{"weapon": "missile", "eta": 1.0, "bound": True,
+                                     "actual": -0.1, "actual_client": -0.2}]
+        problems = P.check_take(r, "", {})
+        self.assertTrue(any("клиент -0.2" in p for p in problems), "оба часа мимо — отказ с клиентским временем")
+
     def test_searches_pick(self):
         s = {"terrace": {"place": "hit", "probes": ["g", "h"], "glass_broken_min": 0.5, "house_kept_min": 0.97},
              "grad": {"plan": "n41", "mspt_max": 50}}
