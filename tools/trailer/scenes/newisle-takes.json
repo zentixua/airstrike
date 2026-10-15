@@ -307,9 +307,9 @@
     {"plans": ["n26"], "seconds": 6, "camera": "scope", "hud": true, "distant": true, "readyChunks": 26,
      "strikes": [
       {"weapon": "drone", "route": "bridge", "to": "c1_tower_w", "eta": 5.0},
-      {"weapon": "drone", "route": "bridge", "to": {"at": [-220, -10], "above": 0}, "eta": 3.8},
+      {"weapon": "drone", "route": "bridge", "to": [-230, 129, -3], "eta": 3.8},
       {"weapon": "drone", "route": "bridge", "to": {"at": [-236, -30], "above": 0}, "pass": {"at": [-279, 11], "above": 40}, "eta": 4.2},
-      {"weapon": "drone", "route": "bridge", "to": {"at": [-214, -26], "above": 0}, "eta": 4.6}
+      {"weapon": "drone", "route": "bridge", "to": [-231, 137, -15], "eta": 4.6}
      ],
      "cues": [{"at": 0, "do": "scope", "on": true}],
      "end": [{"do": "scope", "on": false}],
