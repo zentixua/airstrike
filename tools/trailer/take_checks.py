@@ -3,7 +3,8 @@
 файлам журналов — провал ведёт к пересъёмке или заливке в монтаже, старая запись без поля — не провал. Только
 системный python3, без numpy.
 
-Запись (папка дубля produce.py, каждый провал — `problems` попытки, пересъёмка запасной камерой):
+Запись (папка дубля produce.py, каждый провал — `problems` попытки, пересъёмка запасной камерой; отставание сервера
+и сирена — только предупреждение попытки (`record_warnings`): пересъёмка их не лечит, их правит монтаж):
 - пуски в один тик: в replays/<план>.events.jsonl два пути восходят (фаза READY→IGNITION/BOOST или новый путь
   впервые в IGNITION) в один и тот же тик — «установки не стреляют в одну миллисекунду»;
 - отставание сервера: у планов с `mspt` (result.json, тик встроенного сервера) худшее среднее 10 тиков подряд
@@ -317,11 +318,15 @@ def flock_in_scope(rec, take):
 
 
 def record_problems(rec, take, result):
-    """Все проверки записи папки дубля: список причин для attempt() конвейера."""
+    """Проверки записи, провал которых лечит пересъёмка: список причин для attempt() конвейера."""
+    return same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take)
+
+
+def record_warnings(rec, take, result):
+    """Проверки записи только в предупреждения (ночь 15.10): отставание сервера и сирена от пересъёмки не уходят —
+    три попытки на дубль жгли ночь, а звук и подёргивание правит монтаж."""
     plans = sorted({p for s in take.get("shots", []) for p in s.get("plans", [])})
-    out = same_tick_launches(rec) + server_lag(result or {}) + icbm_flight(rec) + siren_take(rec, take, plans)
-    out += flock_in_scope(rec, take)
-    return out
+    return server_lag(result or {}) + siren_take(rec, take, plans)
 
 
 # ================================================================ вывод: п. 11-13
@@ -513,6 +518,8 @@ def main(argv=None):
         if not take:
             sys.exit(f"нет дубля {take_id} в {a.scenes}")
         problems = record_problems(a.dir, take, result)
+        for w in record_warnings(a.dir, take, result):
+            print("предупреждение: " + w)
     for p in problems:
         print(p)
     return 1 if problems else 0

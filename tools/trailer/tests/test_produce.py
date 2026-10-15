@@ -406,7 +406,7 @@ class ProduceTest(unittest.TestCase):
 
     def test_soft_check_retakes_then_passes_with_warning_on_last_try(self):
         orig = P.take_checks.record_problems
-        P.take_checks.record_problems = lambda rec, take, result: ["сирена не слышна"] if take["id"] == "A" else []
+        P.take_checks.record_problems = lambda rec, take, result: ["пуски в один тик"] if take["id"] == "A" else []
         try:
             c, m = self.conveyor()
             self.assertEqual(0, c.run(["A"]))
@@ -415,7 +415,28 @@ class ProduceTest(unittest.TestCase):
         tries = c.state["takes"]["A"]["attempts"]
         self.assertEqual("passed", c.state["takes"]["A"]["status"], "мягкая проверка не выбрасывает дубль")
         self.assertEqual(3, len(tries), "пересъёмки, пока попытки есть")
-        self.assertEqual(["сирена не слышна"], tries[-1]["warnings"])
+        self.assertEqual(["пуски в один тик"], tries[-1]["warnings"])
+
+    def test_server_lag_and_siren_warn_without_retakes(self):
+        orig = P.take_checks.record_warnings
+        P.take_checks.record_warnings = lambda rec, take, result: ["n1: сервер 84.0 мс/тик (тики 49..58)",
+                                                                   "n1: сирена не слышна (первый удар в тик 227)"]
+        try:
+            c, m = self.conveyor()
+            self.assertEqual(0, c.run(["A"]))
+        finally:
+            P.take_checks.record_warnings = orig
+        tries = c.state["takes"]["A"]["attempts"]
+        self.assertEqual("passed", c.state["takes"]["A"]["status"])
+        self.assertEqual(1, len(tries), "отставание и сирена пересъёмку не тратят")
+        self.assertEqual(2, len(tries[0]["warnings"]))
+
+    def test_stage_is_the_word_after_stage(self):
+        self.assertEqual("done", P.stage("stage: done\nfails: none; view: running\n"))
+        self.assertEqual("stopped", P.stage("stage: stopped, waiting\ntakes: сняты 1\n"))
+        self.assertEqual("recording", P.stage("stage: recording — T16 попытка 2/3 (камера 1)\n"))
+        self.assertEqual("", P.stage(""))
+        self.assertEqual("", P.stage("takes: сняты 6\nstage: done\n"), "этап — только в первой строке")
 
     def test_requeue_brings_back_a_skipped_take(self):
         c, m = self.conveyor()
@@ -428,6 +449,22 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual("passed", c.state["takes"]["C"]["status"])
         self.assertEqual(1, len(c.state["takes"]["A"]["attempts"]), "снятый не переснимается")
         self.assertFalse(os.path.exists(os.path.join(self.cfg["work"], "requeue.txt")))
+
+    def test_requeue_is_read_at_each_take_boundary(self):
+        c, m = self.conveyor()
+        c.state["takes"]["A"] = {"status": "skipped", "attempts": [{"ok": False, "reason": "пропущен ночью"}]}
+        orig = c.take
+
+        def take(t):
+            st = orig(t)
+            if t == "B":                                   # постановку A починили, пока снимался B
+                with open(os.path.join(self.cfg["work"], "requeue.txt"), "w") as f:
+                    f.write("A\n")
+            return st
+        c.take = take
+        self.assertEqual(0, c.run(["A", "B", "C"]))
+        self.assertEqual("passed", c.state["takes"]["A"]["status"], "без перезапуска: на границе после B")
+        self.assertTrue(os.path.exists(os.path.join(self.cfg["work"], "requeue.txt.done")))
 
     def test_search_and_live_stop_without_a_world(self):
         os.remove(os.path.join(self.master, "level.dat"))
