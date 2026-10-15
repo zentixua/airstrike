@@ -713,9 +713,12 @@ final class Newisle {
         lastLaunchTick = at;
         lastLaunchAt = s.from();
         lastLaunchWeapon = s.weapon();
-        int wait = (int) (at - mc.level.getGameTime());
-        if (wait > 0) war.later(wait, () -> fire(run, i, wait / 20.0));
-        else fire(run, i, 0);
+        // ждать по времени игры: тики клиента под нагрузкой отстают от сервера, и пуск уходил позже записанного delay
+        // (T18 ночью 15.10: 34 тика клиента — 46 тиков игры, 74 — 114)
+        long now = mc.level.getGameTime();
+        if (at <= now) fire(run, i, 0);
+        else war.once(run.name + ": разносчик пусков " + i, () -> mc.level.getGameTime() >= at, 20 * 60,
+                () -> fire(run, i, (mc.level.getGameTime() - now) / 20.0));
     }
 
     /** Тик пуска разносчика: сейчас или остаток зазора после прошлого пуска. Чистая — для юнит-теста. */
