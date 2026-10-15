@@ -4,8 +4,8 @@ English · [Русский](README.ru.md)
 
 ![Cruise missiles dive onto a factory with tall chimneys and explode one after another](docs/media/hero.webp)
 
-A Minecraft 1.21.1 mod for NeoForge that adds modern air strikes and air defense. The weapons are a Shahed-style
-kamikaze drone, a Lancet-style loitering munition, a cruise missile, a Grad-style rocket launcher, a B-2 with
+A Minecraft 1.21.1 mod for NeoForge that adds modern air strikes and air defense. The weapons are the Shahed-136
+kamikaze drone, the Lancet loitering munition, a cruise missile, the Grad rocket launcher, a B-2 with
 a bunker-buster bomb and an ICBM with a nuclear warhead. A surface-to-air missile system shoots down drones, cruise
 missiles and bombers.
 

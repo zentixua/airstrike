@@ -19,7 +19,7 @@ does not fire for other players.
 
 - **RMB (hold)**: binoculars. The reticle shows what is under it and how far away it is. When it locks onto a mob, a
   player or an aircraft, the designator beeps.
-- **Mouse wheel**: weapon (Shahed, Loiter, Missile, MLRS, Bomb, Nuclear).
+- **Mouse wheel**: weapon (Shahed, Lancet, Missile, Grad, Bomb, Nuclear).
 - **LMB**: launch.
 
 The binoculars reach 400 blocks; farther away, strike [from the map](map.md). A nuclear launch follows a 3-second

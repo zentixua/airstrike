@@ -46,7 +46,7 @@ gif  map      0 0 "scale=960:-1:flags=lanczos" 256
 webp scope    0 0
 webp hud      0 0
 webp camera   0 0
-webp loiter   0 104
+webp loiter   0 96    # дальше — вид из глаз после выхода из камеры
 webp sam      0 72    # дальше — один дым пуска
 webp launcher 0 64
 ls -la "$OUT"
