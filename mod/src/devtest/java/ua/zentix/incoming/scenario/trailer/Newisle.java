@@ -435,7 +435,9 @@ final class Newisle {
         }
         for (int i = 0; i < run.strikes.size() && i < run.aims.length; i++) run.aims[i] = run.strikes.get(i).to();
         if (!run.strikes.isEmpty()) {
-            run.schedule = NewisleData.schedule(run.strikes, data.speeds(), explicitWhen);
+            // пусковая встаёт, только если чанк места пуска готов (у клиента он есть — сервер прислал); иначе старт вне мира
+            run.schedule = NewisleData.schedule(run.strikes, data.speeds(), explicitWhen,
+                    f -> mc.level.getChunkSource().hasChunk((int) Math.floor(f.x) >> 4, (int) Math.floor(f.z) >> 4));
             if (run.schedule.waits()) {
                 int ref = run.schedule.reference();
                 launch(run, ref);

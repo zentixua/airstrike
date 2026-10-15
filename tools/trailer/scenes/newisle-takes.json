@@ -205,9 +205,9 @@
    "shots": [
     {"plans": ["n39", "n40"], "offsets": {"n40": 0.5}, "seconds": 7,
      "strikes": [
-      {"weapon": "missile", "from": "c1_far_west", "to": "c1_cafe_opposite", "eta": 1.2},
-      {"weapon": "missile", "from": "c1_far_west", "to": "c1_glass_w", "eta": 3.2},
-      {"weapon": "missile", "from": "c1_far_west", "to": "c1_tower_s", "eta": 4.4}
+      {"weapon": "missile", "route": "far_west", "to": "c1_cafe_opposite", "eta": 1.2},
+      {"weapon": "missile", "route": "far_west", "to": "c1_glass_w", "eta": 3.2},
+      {"weapon": "missile", "route": "far_west", "to": "c1_tower_s", "eta": 4.4}
      ],
      "ready": [{"do": "crowd.flee", "group": "cafe", "to": "c1_metro_in", "stagger": [0, 2]}],
      "probes": [{"name": "cafe_glass", "around": "c1_cafe", "r": 8, "h": 5, "count": "glass"}],

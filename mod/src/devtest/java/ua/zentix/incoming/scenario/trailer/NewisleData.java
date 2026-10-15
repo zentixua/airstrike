@@ -72,7 +72,12 @@ final class NewisleData {
          * (StrikeProjectile.etaTicks), и без неё второй missile T07 уходил по ETA первого на 2 с поздно.
          */
         double flight(Map<String, Double> speeds) {
-            double lag = speeds.getOrDefault(LAG + weapon.getSerializedName(), 0.0);
+            return flight(speeds, true);
+        }
+
+        /** {@code onLauncher} false — старт вне мира (чанк места пуска не готов): сразу на маршевой, задержки старта нет. */
+        double flight(Map<String, Double> speeds, boolean onLauncher) {
+            double lag = onLauncher ? speeds.getOrDefault(LAG + weapon.getSerializedName(), 0.0) : 0;
             if (weapon == WeaponType.ROCKET) {
                 return lag + Ballistics.ticksFor(from, to, LauncherEntity.elevation(WeaponType.ROCKET), RocketEntity.MIN_FLIGHT) / 20.0;
             }
@@ -434,11 +439,17 @@ final class NewisleData {
      * {@code explicitWhen} — момент плана задан сам (тревога, поджиг): пуски — по опорному, начало — по нему.
      */
     static Schedule schedule(List<Strike> strikes, Map<String, Double> speeds, boolean explicitWhen) {
+        return schedule(strikes, speeds, explicitWhen, from -> true);
+    }
+
+    /** {@code onLauncher} — встанет ли пусковая на месте пуска (иначе старт вне мира, без задержки старта). */
+    static Schedule schedule(List<Strike> strikes, Map<String, Double> speeds, boolean explicitWhen,
+                             java.util.function.Predicate<Vec3> onLauncher) {
         int n = strikes.size();
         double[] at = new double[n], flight = new double[n];
         int ref = 0;
         for (int i = 0; i < n; i++) {
-            flight[i] = strikes.get(i).flight(speeds);
+            flight[i] = strikes.get(i).flight(speeds, onLauncher.test(strikes.get(i).from()));
             at[i] = strikes.get(i).eta() - flight[i];
             if (at[i] < at[ref]) ref = i;
         }
