@@ -106,7 +106,7 @@ public final class NuclearGameTests {
     private static Detonation raw(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale) {
         BlockPos g = h.absolutePos(at);
         return new Detonation(IDS.incrementAndGet(), new Vec3(g.getX() + 0.5, g.getY() + hob, g.getZ() + 0.5), g.getY(),
-                yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false);
+                yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false, Detonation.OLD_WAVE);
     }
 
     /**
@@ -1469,7 +1469,7 @@ public final class NuclearGameTests {
         Cow ahead = h.spawn(EntityType.COW, CENTER.east(26));
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 0.1, true,
-                level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false);
+                level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false, Detonation.OLD_WAVE);
         h.assertTrue(d.frontRadius(1) > 10 && d.frontRadius(2) > 26 && d.frontRadius(1) < 26, "фронт не там, где ждёт проверка");
         NuclearEvents.get(level).add(d);
         // как после перезапуска: ядерные очереди мира — с чистого листа, подрыв — из сохранения
@@ -1754,7 +1754,7 @@ public final class NuclearGameTests {
         // наземный подрыв с осадками двумя игровыми часами раньше; корова у эпицентра — в самом следе
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
-                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
+                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true, Detonation.OLD_WAVE);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);
         long start = level.getGameTime();
@@ -1782,7 +1782,7 @@ public final class NuclearGameTests {
         for (int i = 0; i < 2 * MobFallout.PERIOD + 100; i++) h.spawn(EntityType.SHEEP, CENTER.offset(-20 + i % 41, 0, 5 + i / 41));
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
-                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
+                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true, Detonation.OLD_WAVE);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);
         // когда корова получала дозу (тик и прибавка): по двум соседним прибавкам виден обход целиком
@@ -1842,7 +1842,7 @@ public final class NuclearGameTests {
         // забытый подрыв (осадки спали) по-прежнему разрушает чанки, загруженные позже; «Отбой» забывает и его
         NuclearEvents events = NuclearEvents.get(level);
         Detonation old = new Detonation(d.id(), d.burst(), d.groundY(), d.yieldKt(), d.surface(), level.getGameTime() - NuclearEvents.FORGET_AFTER - 1,
-                d.windDir(), d.windSpeed(), d.visibility(), d.seed(), d.scale(), d.fallout());
+                d.windDir(), d.windSpeed(), d.visibility(), d.seed(), d.scale(), d.fallout(), d.wave());
         events.add(old);
         events.prune(level.getGameTime());
         h.assertFalse(events.detonations().contains(old), "старый подрыв не забыт");

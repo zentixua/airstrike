@@ -203,10 +203,10 @@ public final class DhGameTests {
         int wave = 400;
         double ground = level.getMinBuildHeight() + 3, height = 40;
         Vec3 burst = new Vec3(c.getMiddleBlockX() + 0.5, ground + height, c.getMiddleBlockZ() + 0.5);
-        Detonation probe = new Detonation(0, burst, ground, 15, false, 0, 0, 0, 20_000, 7, 0.05f, false);
+        Detonation probe = new Detonation(0, burst, ground, 15, false, 0, 0, 0, 20_000, 7, 0.05f, false, Detonation.OLD_WAVE);
         long now = level.getGameTime();
         Detonation d = new Detonation(NuclearGameTests.IDS.incrementAndGet(), burst, ground, 15, false, now + wave - (long) probe.arrivalTicks(height), 0, 0,
-                20_000, 7, 0.05f, false);
+                20_000, 7, 0.05f, false, Detonation.OLD_WAVE);
         NuclearEvents.get(level).add(d);
         FarLods.request(level, c.toLong(), true);
         h.onEachTick(() -> {

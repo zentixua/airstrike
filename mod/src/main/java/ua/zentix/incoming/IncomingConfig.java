@@ -58,6 +58,7 @@ public final class IncomingConfig {
         public final ModConfigSpec.IntValue nukeDefaultYield;
         public final ModConfigSpec.IntValue nukeMaxYield;
         public final ModConfigSpec.DoubleValue nukeEffectsScale;
+        public final ModConfigSpec.DoubleValue nukeWaveSpeed;
         public final ModConfigSpec.BooleanValue nukeBlockDamage;
         public final ModConfigSpec.BooleanValue nukeFires;
         public final ModConfigSpec.BooleanValue nukeTreeFall;
@@ -173,6 +174,11 @@ public final class IncomingConfig {
                     .translation("incoming.config.nuke_max_yield").defineInRange("max_yield", Loadout.Nuke.MAX_YIELD, 1, Loadout.Nuke.MAX_YIELD);
             nukeEffectsScale = b.comment("Scale of all radii: 1.0 is true to life (1 block = 1 m); lower for small worlds.")
                     .translation("incoming.config.nuke_effects_scale").defineInRange("effects_scale", 1.0, 0.005, 1.0);
+            nukeWaveSpeed = b.comment("Speed of the blast wave and its dust wall away from the fireball, as a share of the speed of sound",
+                            "(1.0 is true to life). Lower gives the server more time to build ruins ahead of the wave and lets players",
+                            "watch the wall roll in. Near the fireball the wave is always true to life; beyond the dust wall only the sound",
+                            "travels on, at the speed of sound.")
+                    .translation("incoming.config.nuke_wave_speed").defineInRange("wave_speed", 0.5, 0.15, 1.0);
             nukeBlockDamage = b.comment("The blast wave destroys buildings and trees. Off: no ruins and no crater.")
                     .translation("incoming.config.nuke_block_damage").define("block_damage", true);
             nukeFires = b.comment("The thermal pulse starts fires.")

@@ -300,6 +300,8 @@
   "incoming.config.nuke_max_yield.tooltip": "A higher yield is lowered to this one. The console offers 1 and 15 kt.",
   "incoming.config.nuke_effects_scale": "Radius scale",
   "incoming.config.nuke_effects_scale.tooltip": "1.0: true to life (1 block = 1 m). Lower for small worlds",
+  "incoming.config.nuke_wave_speed": "Wave speed",
+  "incoming.config.nuke_wave_speed.tooltip": "Speed of the blast wave far from the fireball, as a share of the speed of sound. 1.0: true to life. Lower gives the server more time for ruins",
   "incoming.config.nuke_block_damage": "Blast destroys buildings and trees",
   "incoming.config.nuke_block_damage.tooltip": "Off: the blast wave hurts players and mobs but leaves blocks intact; there are no ruins or crater.",
   "incoming.config.nuke_fires": "Thermal pulse starts fires",
