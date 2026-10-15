@@ -21,8 +21,8 @@ import java.util.Random;
  * <li>взгляд — на то, что происходит: место удара (снаряд влетает в кадр), огненный шар, потом всё больше вперёд по
  * курсу; догоняет цель с запаздыванием рук {@link #LAG}; крен — по боковому ускорению, как у дрона в вираже;</li>
  * <li>цена пути ({@link #cost}) — сумма по тикам окна: камера ближе запаса к земле, домам и кронам или над чанками,
- * которых у клиента нет; в дыму; дым или рельеф на линии взгляда; низ кадра на земле за чанками повтора (как
- * {@code low_out} вывода); удар не на своём расстоянии (мелко или не помещается); скорость и ускорение вне пределов
+ * которых у клиента нет; в дыму; дым или рельеф на линии взгляда; кадр на земле за чанками повтора (доля лучей
+ * сетки всего кадра, как {@code out} вывода); удар не на своём расстоянии (мелко или не помещается); скорость и ускорение вне пределов
  * дрона; взгляд поворачивает так быстро, что дальнее смазывается; дрон летит боком (камера FPV смотрит, куда он летит);
  * снаряд перед ударом не в кадре; удар не виден в первые тики. Другие удары окна в кадре — в плюс;</li>
  * <li>поиск — затравки (проход мимо удара прямо и дугой, разными курсами, сторонами, в стороне и на высоте), лучшие
@@ -74,8 +74,6 @@ final class Pilot {
     static final double ROLL = 35, UP = 35, DOWN = 60, AHEAD = 12;
     /** Крен меняется не быстрее, ° за тик (40°/с): быстрее — путь виляет. */
     static final double ROLL_RATE = 1.5;
-    /** Как далеко низ кадра проверяется на чанки (как {@link FrameLog#LOW_NEAR}); уровень моря ванили. */
-    static final double LOW_NEAR = 128, SEA = 63;
     /** Затравки: курсов, проход через столько тиков после удара; доводится лучших разных. */
     static final int HEADINGS = 12, PASS = 24, SEEDS = 6;
     /** Перекрёстная энтропия: выборка, лучших в ней, шагов; разброс опорных точек вначале и наименьший, блоков. */
@@ -161,28 +159,11 @@ final class Pilot {
         }
 
         /**
-         * Низ кадра (лучи у нижнего края: слева, посередине, справа) на земле за чанками повтора — как {@code low_out}
-         * вывода ({@link FrameLog}); сколько таких лучей.
+         * Доля кадра на земле за чанками повтора — та же функция, что у вывода ({@link FrameOut#share}): сетка лучей
+         * по всему кадру, не только у нижнего края.
          */
-        int lowOut(Cameras.View v) {
-            int out = 0;
-            for (double sx : new double[]{-0.9, 0, 0.9}) {
-                Vec3 d = v.fwd().add(v.right().scale(sx * v.tanX())).add(v.up().scale(-0.95 * v.tanY())).normalize();
-                if (d.y >= 0) continue;
-                double last = SEA;
-                for (double k = 0; k <= LOW_NEAR; k += 4) {
-                    double x = v.eye().x + d.x * k, y = v.eye().y + d.y * k, z = v.eye().z + d.z * k;
-                    // верхний блок столбца, как у вывода (LevelChunk.getHeight), а не место над ним
-                    double g = ground(x, z) - 1;
-                    if (Double.isNaN(g)) {
-                        if (v.eye().y + d.y * LOW_NEAR <= last + 1) out++;
-                        break;
-                    }
-                    last = g;
-                    if (y <= g + 1) break;
-                }
-            }
-            return out;
+        double out(Cameras.View v) {
+            return FrameOut.share(v, this::ground);
         }
     }
 
@@ -535,7 +516,7 @@ final class Pilot {
         public String toString() {
             int n = Math.max(1, samples);
             return String.format(Locale.ROOT, "speed %.2f b/t, height %.1f, closest to the hit %.0f; of %d samples: near ground %d, "
-                            + "off chunks %d, in smoke %d, smoke fills the frame %d, hit hidden by terrain %d, by smoke %d, frame bottom off chunks %d, "
+                            + "off chunks %d, in smoke %d, smoke fills the frame %d, hit hidden by terrain %d, by smoke %d, frame on ground off chunks %d, "
                             + "too fast %d, sideways %d, fast turn %d; hit unseen %d",
                     speed / n, height / n, near, samples, low, out, smoke, ahead, hidden, smoky, lowOut, fast, crab, turn, missed);
         }
@@ -582,8 +563,9 @@ final class Pilot {
             Cameras.View view = view(tr, i);
             double sm = smother(k, view);
             if (sm > SMOTHER_FROM) j += 30 * (sm - SMOTHER_FROM);
+            // кадр в дыму у самой камеры бракует полёт так же, как кадр с землёй за чанками (ступень одна)
             if (sm >= FrameLog.SMOTHERED) {
-                j += 15;
+                j += 60;
                 if (tally != null) tally.ahead++;
             }
             if (smokeOnLine(k, p, q)) {
@@ -601,17 +583,20 @@ final class Pilot {
             double dMin = Math.max(24, 1.5 * main.size()), dMax = Math.max(75, 4.5 * main.size()), dPref = Math.max(32, 2.8 * main.size());
             if (t >= main.t() - 10 && t <= main.t() + Subject.KEY_HOLD) {
                 if (d < dMin) j += 0.05 * (dMin - d) * (dMin - d);
-                if (d > dMax) j += 0.01 * (d - dMax) * (d - dMax);
+                // дальше dMax шар мелок (тесты: 90 блоков) — дороже кадра с дырой за чанками
+                if (d > dMax) j += 0.2 * (d - dMax) * (d - dMax);
                 j += 0.004 * (d - dPref) * (d - dPref);
             } else if (d > 200) {
                 j += 0.002 * (d - 200) * (d - 200);
             } else if (d < dMin * 0.6) {
                 j += 0.05 * (dMin * 0.6 - d) * (dMin * 0.6 - d);
             }
-            // низ кадра за чанками повтора
-            int lo = grid.lowOut(view);
-            if (lo > 0) {
-                j += 5 * lo;
+            // кадр на земле за чанками повтора: доля лучей сетки всего кадра (прежние 5 за каждый из трёх лучей
+            // нижнего края видели только низ кадра и пропускали дыру выше); вес большой: кусок с таким кадром не
+            // публикуется, и почистить кадр дороже, чем выиграть в крабе или дистанции
+            double out = grid.out(view);
+            if (out > 0) {
+                j += 4800 * out;
                 if (tally != null) tally.lowOut++;
             }
             // дрон: скорость, ускорение

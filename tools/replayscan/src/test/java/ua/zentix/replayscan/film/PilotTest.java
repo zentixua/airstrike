@@ -153,9 +153,9 @@ class PilotTest {
         for (Pilot.Flight f : p.plan(2)) {
             Pilot.Track tr = check(p, f);
             int out = 0, n = 0;
-            for (int s = A; s <= B; s += 2, n++) if (p.grid.lowOut(p.view(tr, s - tr.from())) > 0) out++;
-            // вывод не пропускает план, где так больше 2 % кадров
-            assertTrue(out <= n / 50, f.name() + ": frame bottom off chunks in " + out + " of " + n + " samples");
+            for (int s = A; s <= B; s += 2, n++) if (dirty(p.grid.out(p.view(tr, s - tr.from())))) out++;
+            // вывод не пропускает план, где кадров с дырой больше 2 %
+            assertTrue(out <= n / 50, f.name() + ": frames on ground off chunks in " + out + " of " + n + " samples");
         }
     }
 
@@ -173,9 +173,54 @@ class PilotTest {
         for (Pilot.Flight f : p.plan(2)) {
             Pilot.Track tr = check(p, f);
             int out = 0, n = 0;
-            for (int s = A; s <= B; s += 2, n++) if (p.grid.lowOut(p.view(tr, s - tr.from())) > 0) out++;
-            assertTrue(out <= n / 50, f.name() + ": frame bottom off chunks in " + out + " of " + n + " samples");
+            for (int s = A; s <= B; s += 2, n++) if (dirty(p.grid.out(p.view(tr, s - tr.from())))) out++;
+            assertTrue(out <= n / 50, f.name() + ": frames on ground off chunks in " + out + " of " + n + " samples");
         }
+    }
+
+    /** Кадр с видимой дырой за чанками: от трёх лучей сетки (2 % кадра — как порог вывода по кадрам); один-два луча
+     * у горизонта — шум дискретизации сетки на границе чанков: глядя на снаряд, влетающий из-за края, пилот его не
+     * уберёт ничем. */
+    private static boolean dirty(double out) {
+        return out >= 3.0 / (FrameOut.W * FrameOut.H);
+    }
+
+    @Test
+    void frameOutSeesOffChunkGroundAboveTheBottomEdge() {
+        // чанки кончаются в 3 блоках восточнее камеры (как полёт fpv3 по самому краю чанков повтора): дорога под
+        // камерой и у нижнего края кадра есть, справа от неё и выше по кадру — пустота (скриншоты Артёма 15.10);
+        // прежние три луча нижнего края её не видели, сетка по всему кадру — находит
+        Pilot.Terrain t = (x, z) -> x <= 3 ? 64 : Double.NaN;
+        Cameras.View v = Cameras.View.of(Cameras.Pose.look(new Vec3(0, 70, 0), new Vec3(0, 61, -20), FOV), ASPECT);
+        assertEquals(0, oldBottomRays(v, t), "the old bottom-of-frame rays must be blind here");
+        double out = FrameOut.share(v, t::ground);
+        assertTrue(out > 0.02, "grid over the whole frame sees the hole: " + out);
+        // всё в чанках — дыры нет
+        assertEquals(0, FrameOut.share(v, (x, z) -> 64));
+        // лучи над высокой землёй (в чанках) проходят выше и уходят в небо — не «вне»
+        Cameras.View high = Cameras.View.of(Cameras.Pose.look(new Vec3(0, 106, 0), new Vec3(0, 97, -20), FOV), ASPECT);
+        assertEquals(0, FrameOut.share(high, (x, z) -> 100.0));
+    }
+
+    /** Прежняя проверка (до 15.10): три луча у нижнего края кадра — сколько из них на земле за чанками повтора. */
+    private static int oldBottomRays(Cameras.View v, Pilot.Terrain t) {
+        int out = 0;
+        for (double sx : new double[]{-0.9, 0, 0.9}) {
+            Vec3 d = v.fwd().add(v.right().scale(sx * v.tanX())).add(v.up().scale(-0.95 * v.tanY())).normalize();
+            if (d.y >= 0) continue;
+            double last = 63;
+            for (double k = 0; k <= 128; k += 4) {
+                double x = v.eye().x + d.x * k, y = v.eye().y + d.y * k, z = v.eye().z + d.z * k;
+                double g = t.ground((int) Math.floor(x), (int) Math.floor(z)) - 1;
+                if (Double.isNaN(g)) {
+                    if (v.eye().y + d.y * 128 <= last + 1) out++;
+                    break;
+                }
+                last = g;
+                if (y <= g + 1) break;
+            }
+        }
+        return out;
     }
 
     @Test

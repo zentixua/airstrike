@@ -29,7 +29,8 @@ import java.util.UUID;
  * ({@link Smoke}), облаками или туманом у края прорисовки, нарисован ли он (секция сущности построена; снаряд без
  * сущности у клиента рисует Incoming по пути от сервера) и построен ли весь мир у камеры, слышен ли его мотор, видно ли
  * каждое событие в первые 12 тиков; у плана глазами игрока — камера ли это игрок; со своей ли глубиной Distant Horizons
- * рисует LOD ({@link DhDepth}). Лучи и кадр — те же, что у оценки камер ({@link Cameras.View}, {@link Cameras#open},
+ * рисует LOD ({@link DhDepth}); какая доля кадра свободной камеры на земле за чанками повтора ({@link FrameOut}).
+ * Лучи и кадр — те же, что у оценки камер ({@link Cameras.View}, {@link Cameras#open},
  * {@link Cameras#keySeen}). Строка JSON на кадр — {@code qa.jsonl}; итог ({@link #verdict}) — по порогам плана, без
  * просмотра кадров.
  */
@@ -53,6 +54,8 @@ final class FrameLog {
     @Nullable
     private final Cameras.Path path;
     private final Sounds sounds;
+    /** Земля кадра у клиента повтора (NaN — чанка нет) — та же, что у пилота ({@link FrameOut}). */
+    private final FrameOut.Column ground;
     private final Writer out;
     private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld, inside, lowOut, smothered;
     private final int[] keyN, keyOk;
@@ -67,6 +70,10 @@ final class FrameLog {
         this.path = path;
         Minecraft mc = Minecraft.getInstance();
         clouds = Cameras.cloudHeight(plan);
+        ground = (x, z) -> {
+            LevelChunk c = mc.level.getChunkSource().getChunkNow(x >> 4, z >> 4);
+            return c == null ? Double.NaN : c.getHeight(Heightmap.Types.MOTION_BLOCKING, x & 15, z & 15);
+        };
         keyN = new int[s.keys.size()];
         keyOk = new int[s.keys.size()];
         out = Files.newBufferedWriter(dir.resolve("qa.jsonl"), StandardCharsets.UTF_8);
@@ -143,8 +150,9 @@ final class FrameLog {
         boolean built = mc.levelRenderer.hasRenderedAllSections();
         // свободная камера в блоке (путь плана идёт и там, где при оценке чанков ещё не было)
         boolean blocked = pov == null && Cameras.inBlocks(mc.level, eye);
-        // низ кадра свободной камеры — на земле вне чанков повтора
-        boolean low = pov == null && lowOutside(mc, view);
+        // доля кадра свободной камеры на земле за чанками повтора (лучи сетки по всему кадру)
+        double frameOut = pov == null ? FrameOut.share(view, ground) : 0;
+        boolean low = frameOut > 0;
         // кадр свободной камеры почти весь в дыму у самой камеры
         double smother = pov == null ? smoke.smothered(view) : 0;
 
@@ -179,9 +187,9 @@ final class FrameLog {
         }
         try {
             out.write(String.format(Locale.ROOT,
-                    "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"inside\":%b,\"low_out\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
+                    "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"inside\":%b,\"out\":%.4f,\"low_out\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
                             + "\"smother\":%.2f,\"fog\":%b,\"drawn\":%b,\"entity\":%b,\"engine\":%.3f,\"unknown\":%.0f,\"keys\":[%s],\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.2f}\n",
-                    t, built, isPov, blocked, low, in, x, y, share, seen, clear, cloud, smother, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
+                    t, built, isPov, blocked, frameOut, low, in, x, y, share, seen, clear, cloud, smother, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
                     cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -219,39 +227,6 @@ final class FrameLog {
         return -1;
     }
 
-    /** Как далеко от камеры низ кадра ещё проверяется: дальше LOD Distant Horizons в кадре — обычная даль. */
-    static final double LOW_NEAR = 128;
-    /** Уровень моря ванили: высота земли на луче, пока чанков на нём не было. */
-    private static final double SEA = 63;
-
-    /**
-     * Низ кадра (лучи у нижнего края: слева, посередине, справа) встречает землю вне чанков повтора: ближе
-     * {@link #LOW_NEAR} блоков на луче начинается чанк, которого у клиента нет, и луч к {@link #LOW_NEAR} блокам уже у земли
-     * (её высота — последняя по чанкам на луче, без них — уровень моря ванили): там только рельеф Distant Horizons (у моря — дно и
-     * пещеры без воды) или пусто. Луч, который за чанками ещё высоко (длинный объектив вдаль), — обычная даль. Чанки повтора —
-     * только вокруг записавшего.
-     */
-    private static boolean lowOutside(Minecraft mc, Cameras.View v) {
-        for (double sx : new double[]{-0.9, 0, 0.9}) {
-            Vec3 d = v.fwd().add(v.right().scale(sx * v.tanX())).add(v.up().scale(-0.95 * v.tanY())).normalize();
-            if (d.y >= 0) continue;
-            double ground = SEA;
-            for (double k = 0; k <= LOW_NEAR; k += 4) {
-                Vec3 p = v.eye().add(d.scale(k));
-                if (p.y < mc.level.getMinBuildHeight()) break;
-                int bx = Mth.floor(p.x), bz = Mth.floor(p.z);
-                LevelChunk c = mc.level.getChunkSource().getChunkNow(bx >> 4, bz >> 4);
-                if (c == null) {
-                    if (v.eye().y + d.y * LOW_NEAR <= ground + 1) return true;
-                    break;
-                }
-                ground = c.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15);
-                if (p.y <= ground + 1) break;
-            }
-        }
-        return false;
-    }
-
     void close() {
         Minecraft.getInstance().getSoundManager().removeListener(sounds);
         sounds.close();
@@ -270,8 +245,9 @@ final class FrameLog {
      * виден, не в дыму, облаках и тумане, в построенной секции и не мельче порога — не меньше долей плана за всё время
      * и за последнюю секунду; каждое событие видно в первые {@link #KEY_CHECK} тиков (доля событий — по плану);
      * мотор слышен; громкого за кадром не больше, чем в кадре; у плана глазами игрока камера — этот игрок; LOD Distant
-     * Horizons с глубиной мира и свободная камера в блоке — ни в одном кадре; низ кадра свободной камеры на земле вне
-     * чанков повтора — не больше чем в 2 % кадров; кадров в дыму у самой камеры — не больше доли {@code smother} плана.
+     * Horizons с глубиной мира и свободная камера в блоке — ни в одном кадре; земля вне чанков повтора в кадре свободной камеры — не больше
+     * чем в 2 % кадров, и их число вычитается из rank: из не прошедших кандидатов лучший — тот, где таких кадров
+     * меньше; кадров в дыму у самой камеры — не больше доли {@code smother} плана.
      */
     Verdict verdict(boolean isPovShot) {
         Plan.Need need = shot.need();
@@ -300,7 +276,7 @@ final class FrameLog {
         if (!loudOk) why.append(String.format(Locale.ROOT, "loud sounds off screen %d, on screen %d; ", sounds.loudOff, sounds.loudOn));
         if (inside > 0) why.append(String.format(Locale.ROOT, "camera inside blocks in %d of %d frames; ", inside, frames));
         if (lowOut > 0.02 * frames)
-            why.append(String.format(Locale.ROOT, "bottom of the frame on ground outside the replay's chunks in %d of %d frames; ", lowOut, frames));
+            why.append(String.format(Locale.ROOT, "frame on ground outside the replay's chunks in %d of %d frames; ", lowOut, frames));
         if (need.smother() >= 0 && smothered > need.smother() * frames)
             why.append(String.format(Locale.ROOT, "frame covered by smoke at the camera in %d of %d frames; ", smothered, frames));
         if (dhWorld > 0) why.append(String.format(Locale.ROOT, "Distant Horizons LODs drawn with the world's depth in %d of %d frames; ", dhWorld, frames));
@@ -321,7 +297,9 @@ final class FrameLog {
         n.addProperty("low_out", lowOut);
         n.addProperty("smothered", smothered);
         n.addProperty("smoke_columns", smoke.columns());
-        double rank = rReady + approach + nearHit + keys + 0.5 * engine + (loudOk ? 0.5 : 0) + (isPovShot ? povShare : 1);
+        // кадры на земле за чанками вычитаются из rank числом: из кандидатов, не прошедших проверку (например, трёх
+        // полётов пилота), лучший — тот, где таких кадров меньше
+        double rank = rReady + approach + nearHit + keys + 0.5 * engine + (loudOk ? 0.5 : 0) + (isPovShot ? povShare : 1) - lowOut;
         return new Verdict(why.isEmpty(), why.toString().trim(), rank, n);
     }
 }
