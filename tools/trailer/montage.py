@@ -353,7 +353,8 @@ class Piece:
     @property
     def plan_no(self):
         if "plan" in self.spec:
-            return int(self.spec["plan"])
+            p = self.spec["plan"]
+            return int(p) if str(p).isdigit() else str(p)   # Newisle: план — имя («n42»), не номер
         m = re.match(r"p(\d+)", self.take or "")
         return int(m[1]) if m else self.i + 1
 
