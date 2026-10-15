@@ -153,14 +153,15 @@ public final class ScorchGameTests {
         }
         h.assertTrue(levels[0] >= cells[0] * 2.5, "у центра биом не обуглен: " + why);
         h.assertTrue(levels[RINGS - 2] <= cells[RINGS - 2] * 1.5, "у края биом опалён сильно: " + why);
-        // полосы, которые свет не перекрашивает, и биомы под землёй
-        for (int x = 0; x < 64; x += 2) {
+        // полосы, которые свет не перекрашивает, и биомы под землёй; клетки биома у края площадки берут и столбцы за её
+        // стеной (площадка стоит в чанках как придётся) — их земля и биом не те, что у площадки, поэтому от края отступ
+        for (int x = 4; x < 60; x += 2) {
             assertBiome(h, x, 44, Biomes.SNOWY_PLAINS);
             assertBiome(h, x, 51, Biomes.RIVER);
             assertBiome(h, x, 60, Biomes.DESERT);
         }
-        for (int x = 0; x < 64; x += 4) {
-            for (int z = 0; z < 64; z += 4) {
+        for (int x = 4; x < 60; x += 4) {
+            for (int z = 4; z < 60; z += 4) {
                 if (biomeAt(h, x, DEEP, z).hashCode() != deep[x * 64 + z]) h.fail("биом под землёй изменился в " + x + ", " + z + ": " + biomeAt(h, x, DEEP, z));
             }
         }
