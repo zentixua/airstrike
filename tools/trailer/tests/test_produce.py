@@ -431,6 +431,19 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(1, len(tries), "отставание и сирена пересъёмку не тратят")
         self.assertEqual(2, len(tries[0]["warnings"]))
 
+    def test_frame_check_fail_on_last_try_goes_in_with_warning(self):
+        c, m = self.conveyor({("A", "render"): lambda env: {"seconds": 60, "render": {"a1": "FAIL"}}})
+        orig = os.path.isdir
+        P.os.path.isdir = lambda path: path.endswith(os.path.join("frames", "a1")) or orig(path)
+        try:
+            self.assertEqual(0, c.run(["A"]))
+        finally:
+            P.os.path.isdir = orig
+        st = c.state["takes"]["A"]
+        self.assertEqual("passed", st["status"], "выведенный план — в черновик, не заливка")
+        self.assertEqual(3, len(st["attempts"]), "пересъёмки, пока попытки есть")
+        self.assertIn("предупреждение", st["attempts"][-1]["plans"]["a1"][1])
+
     def test_stage_is_the_word_after_stage(self):
         self.assertEqual("done", P.stage("stage: done\nfails: none; view: running\n"))
         self.assertEqual("stopped", P.stage("stage: stopped, waiting\ntakes: сняты 1\n"))

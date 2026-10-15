@@ -633,6 +633,12 @@ class Conveyor:
                     self.say(f"{take}: вывод {p} не прошёл — {'; '.join(problems)}")
                     out[p] = ("FAIL", "; ".join(problems))
                     continue
+            if verdict != "PASS" and last and path and path != "-" and os.path.isdir(os.path.join(path, "frames", p)):
+                # последняя попытка: выведенный план с замечанием проверки кадра — в черновик с предупреждением, а не
+                # дыра заливки (15.10: T12, T13 по три попытки с выводом впустую); правка — по замечаниям Артёма
+                self.say(f"{take}: вывод {p} — последняя попытка, в монтаж с предупреждением: {why}")
+                out[p] = ("PASS", "предупреждение: " + (why or verdict))
+                continue
             out[p] = (verdict, why)
         return out
 
