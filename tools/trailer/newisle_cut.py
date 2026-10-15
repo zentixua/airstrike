@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Монтаж трейлера на Newisle из того, что снял конвейер (produce.py): план монтажа по листу аниматика
-(scenes/newisle-animatic.json) — склейки на местах и длинах листа, дубль плана — прошедший проверку вывод (PASS в
-best.txt) или живая запись; плана нет — чёрная заливка с его именем (черновик показывает дыру; план живого дубля
-Артёма, ещё не снятый, — «утром с Артёмом»). Провал ворот монтажа (cut_checks: интерфейс под кинокаше, повтор
+"""Монтаж трейлера на Newisle из того, что снял конвейер (produce.py): план монтажа по монтажному листу
+(scenes/newisle-90.json — раскадровка на 90 с; другой лист — --sheet) — склейки на местах и длинах листа, дубль
+плана — прошедший проверку вывод (PASS в best.txt) или живая запись; плана нет — чёрная заливка с его именем
+(черновик показывает дыру; план живого дубля Артёма, ещё не снятый, — «утром с Артёмом»). Провал ворот монтажа (cut_checks: интерфейс под кинокаше, повтор
 плана, чат ключа, рост сирены) — правка монтажа, а не дубля: черновик показывает план и печатает причину, чистовой
 отказывается. Сам монтаж —
 montage.py (проверка verdict.py: склейка, которую проверка не пропускает, в черновике становится заливкой).
 
-    python3 tools/trailer/newisle_cut.py --work ПАПКА_РАБОТЫ [--draft | --final] [--music Juggernaut.mp3] [--check]
+    python3 tools/trailer/newisle_cut.py --work ПАПКА_РАБОТЫ [--draft | --final] [--sheet ЛИСТ.json] [--music Juggernaut.mp3]
+                                         [--check]
 
 --draft  — 1280×720, 30 кадров: только прошедшие планы, дыры — заливкой
 --final  — в размере записи: только если прошли все планы листа, иначе отказ со списком
@@ -24,6 +25,7 @@ import cut_checks
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENES = os.path.join(HERE, "scenes")
+SHEET = os.path.join(SCENES, "newisle-90.json")     # монтажный лист по умолчанию
 REPO = os.path.dirname(os.path.dirname(HERE))
 BEAT0, BEAT = 1.924, 0.95999      # сетка трека, как в edit.py
 FAIL_RE = re.compile(r"план (\S+)")
@@ -118,8 +120,9 @@ def plan_of(sheet, dirs, broken=(), music=None, later=(), gated=None):
             p = {"from": k0, "to": k1, "start": c.get("id") or c.get("take")}
             if "gain" in part:
                 p["gain"] = [[k0, round(10 ** (part["gain"] / 20), 3)], [k1, round(10 ** (part["gain"] / 20), 3)]]
-            if "fade" in part:
-                p["fade"] = part["fade"]
+            for key in ("fade", "ring", "grid"):     # спад, хвост после доли обрыва, сетка склеек куска
+                if key in part:
+                    p[key] = part[key]
             pieces.append(p)
         out["music"] = pieces
     return out
@@ -131,12 +134,13 @@ def main(argv=None):
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--draft", action="store_true")
     g.add_argument("--final", action="store_true")
+    ap.add_argument("--sheet", default=SHEET, help="монтажный лист (по умолчанию scenes/newisle-90.json)")
     ap.add_argument("--music")
     ap.add_argument("--check", action="store_true", help="только план монтажа и проверка")
     a = ap.parse_args(argv)
     state = load(os.path.join(a.work, "state.json"))
     takes = load(os.path.join(SCENES, "newisle-takes.json"))
-    sheet = load(os.path.join(SCENES, "newisle-animatic.json"))
+    sheet = load(a.sheet)
     dirs = shot_dirs(state, takes)
     scenario = load(os.path.join(SCENES, "newisle.json")) or {}
     gated = cut_checks.gates(sheet, takes, scenario, dirs, state, REPO)

@@ -1,4 +1,4 @@
-"""Монтаж Newisle (newisle_cut.py): какие папки идут в монтаж и план монтажа по настоящему листу аниматика.
+"""Монтаж Newisle (newisle_cut.py): какие папки идут в монтаж и план монтажа по настоящему монтажному листу.
 
     python3 -m unittest discover -s tools/trailer/tests
 """
@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import newisle_cut as C  # noqa: E402
 
-SHEET = C.load(os.path.join(C.SCENES, "newisle-animatic.json"))
+SHEET = C.load(C.SHEET)
 TAKES = C.load(os.path.join(C.SCENES, "newisle-takes.json"))
 
 
@@ -58,6 +58,22 @@ class NewisleCutTest(unittest.TestCase):
             self.assertIn(piece["start"], ids)
             self.assertLess(piece["from"], piece["to"])
         json.dumps(plan)
+
+    def test_sheet_90_fits_track_and_gates(self):
+        """Лист на 90 с: все планы есть в дублях, длина ролика — 90 с, музыка на ударах трека, ворота монтажа чисты."""
+        known = {p for t in TAKES["takes"] for s in t.get("shots", []) for p in s.get("plans", [])}
+        known |= {p for t in TAKES["takes"] for p in (t.get("cover") or {})}
+        need = [s["plan"] for s in SHEET["shots"] if "plan" in s]
+        self.assertEqual([], [p for p in need if p not in known], "план листа без дубля")
+        self.assertAlmostEqual(90.0, sum(s["dur"] for s in SHEET["shots"]), delta=0.5)
+        plan = C.plan_of(SHEET, {p: f"/r/{p}" for p in need}, music="m.mp3")
+        war, wave = plan["music"]
+        self.assertEqual(("n38", 144, 192, 4, 0.4), (war["start"], war["from"], war["to"], war["grid"], war["ring"]))
+        self.assertEqual(("n47", 204, 4), (wave["start"], wave["from"], wave["grid"]))
+        cut_checks = C.cut_checks
+        self.assertEqual([], cut_checks.letterbox_clash(SHEET, TAKES))
+        self.assertEqual([], cut_checks.duplicates(SHEET))
+        self.assertEqual([], cut_checks.chat_gate(SHEET, TAKES, C.REPO), "строка второго ключа успевает прочитаться")
 
     def test_live_plans_wait_for_artem(self):
         live = C.live_plans(TAKES)

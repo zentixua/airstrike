@@ -73,26 +73,26 @@ class ChatGateTest(unittest.TestCase):
             f.write(options)
         return root
 
-    LINE = "☢ %s asks for the second key: %s at %s, %s. Confirm with %s (%s s left)"    # 17 слов
+    LINE = "☢ %s asks for the second key: %s at %s, %s. Confirm with %s (%s s left)"    # до двоеточия 7 слов
 
     def test_short_cut_and_low_chat_fail(self):
         with tempfile.TemporaryDirectory() as root:
             repo = self.record(self.lang(root, self.LINE))          # chatScale нет — как у игры по умолчанию (1)
             takes = {"takes": [{"id": "T", "shots": [{"plans": ["c1"], "chat": True}]}]}
-            s = sheet([{"plan": "c1", "dur": 4.0}], until=None)
+            s = sheet([{"plan": "c1", "dur": 3.0}], until=None)
             out = CC.chat_gate(s, takes, repo)
             self.assertEqual(2, len(out), out)                      # и короче чтения, и ниже 2,5% высоты
-            self.assertIn("4.0 с < 7.4 с", out[0][1])
+            self.assertIn("3.0 с < 3.9 с", out[0][1])
             self.assertIn("высоты", out[1][1])
 
     def test_long_cut_and_scaled_chat_pass(self):
         with tempfile.TemporaryDirectory() as root:
             repo = self.record(self.lang(root, self.LINE), "guiScale:3\nchatScale:1.5\n")
             takes = {"takes": [{"id": "T", "shots": [{"plans": ["c1"], "chat": True}]}]}
-            s = sheet([{"plan": "c1", "dur": 8.0}], until=None)
+            s = sheet([{"plan": "c1", "dur": 4.0}], until=None)
             self.assertEqual([], CC.chat_gate(s, takes, repo))
-            s = sheet([{"plan": "c1", "dur": 6.0}], until=None)
-            self.assertEqual(1, len(CC.chat_gate(s, takes, repo)))  # 1,5 + 0,35 × 17 = 7,45 с
+            s = sheet([{"plan": "c1", "dur": 3.8}], until=None)
+            self.assertEqual(1, len(CC.chat_gate(s, takes, repo)))  # 1,5 + 0,35 × 7 = 3,95 с
 
     def test_real_record_options(self):
         gui, chat = CC.record_options(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

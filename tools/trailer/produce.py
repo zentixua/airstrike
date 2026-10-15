@@ -806,9 +806,9 @@ class Conveyor:
             raise Stopped(f"монтаж {what} не собрался ({killed or f'код {code}'}): {os.path.join(out, f'cut-{what}.log')}")
 
     def missing_plans(self):
-        """Планы листа аниматика, которых нет среди прошедших (чистовой их ждёт)."""
+        """Планы монтажного листа (newisle_cut.SHEET), которых нет среди прошедших (чистовой их ждёт)."""
         import newisle_cut
-        sheet = load_json(os.path.join(SCENES, "newisle-animatic.json"))
+        sheet = load_json(newisle_cut.SHEET)
         dirs = newisle_cut.shot_dirs(self.state, self.data)
         return [s["plan"] for s in sheet["shots"] if "plan" in s and s["plan"] not in dirs]
 
