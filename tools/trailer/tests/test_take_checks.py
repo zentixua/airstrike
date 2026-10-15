@@ -218,8 +218,16 @@ class AxisTest(unittest.TestCase):
 
     def test_threshold_at_fifteen_degrees(self):
         self.assertEqual([], self.check([0, 14.9, None, 0]))
-        self.assertEqual(1, len(self.check([0, 15.1])))
+        self.assertEqual(1, len(self.check([0, 15.1, 15.1])))
         self.assertEqual([], self.check([None, None]))
+
+    def test_one_tick_of_reversed_motion_is_not_the_nose(self):
+        root = tempfile.mkdtemp()
+        rows = [{"t": 175.667, "axis": 0.9}] + [{"t": 176 + k / 3, "axis": 179.1} for k in range(3)] + [{"t": 177.0, "axis": 1.0}]
+        write(os.path.join(root, "qa.jsonl"), rows)
+        self.assertEqual([], T.axis_fail(root), "ход на тик назад (T06 n51), нос на месте")
+        write(os.path.join(root, "qa.jsonl"), [{"t": 176 + k / 3, "axis": 90.0} for k in range(6)])
+        self.assertEqual(1, len(T.axis_fail(root)), "два тика — уже нос")
 
 
 class ShakeTest(unittest.TestCase):
