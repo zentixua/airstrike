@@ -56,6 +56,11 @@ public final class NuclearWorld {
         return scars;
     }
 
+    /** Место подрыва для руин: готовились к нему — место подготовки ({@link NuclearPrep#planned}), иначе {@code fresh}. */
+    public Detonation planned(Detonation fresh) {
+        return prep.planned(fresh);
+    }
+
     /** Руины заранее: их готовые планы нужны и LOD вдали ({@link FarLods}). */
     NuclearPrep prep() {
         return prep;

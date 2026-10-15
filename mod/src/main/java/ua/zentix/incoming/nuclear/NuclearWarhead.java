@@ -57,7 +57,8 @@ public final class NuclearWarhead {
         // предел мощности — и для ударов из старых сохранений и команд других модов
         yieldKt = Math.min(yieldKt, ua.zentix.incoming.strike.Loadout.Nuke.MAX_YIELD);
         NuclearEvents events = NuclearEvents.get(level);
-        Detonation g = geometry(level, target, yieldKt, airBurst, scale);
+        // готовились к этому подрыву — его место, земля и видимость те же, что у руин заранее
+        Detonation g = NuclearWorld.get(level).planned(geometry(level, target, yieldKt, airBurst, scale));
         Detonation d = new Detonation(events.nextId(), g.burst(), g.groundY(), yieldKt, g.surface(),
                 level.getGameTime(), (float) (level.random.nextDouble() * Math.PI * 2), 5 + level.random.nextFloat() * 10,
                 g.visibility(), level.random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get(),

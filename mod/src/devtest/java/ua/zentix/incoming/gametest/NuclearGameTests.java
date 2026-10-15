@@ -32,6 +32,7 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.NuclearEvents;
 import ua.zentix.incoming.nuclear.NuclearStrikes;
 import ua.zentix.incoming.nuclear.NuclearWarhead;
+import ua.zentix.incoming.nuclear.model.ThermalModel;
 import ua.zentix.incoming.nuclear.model.CraterModel;
 import ua.zentix.incoming.nuclear.model.PromptRadiationModel;
 import ua.zentix.incoming.nuclear.model.Yield;
@@ -1115,7 +1116,8 @@ public final class NuclearGameTests {
     /**
      * Руины заранее: пока летит МБР, чанки тяжёлой зоны готовятся; в момент подрыва их руины встают по плану, каждый
      * чанк — не позже чем через 2 тика после прихода фронта к нему (стекло в 16 блоках, 15 кт в воздухе, масштаб 0.02),
-     * а тикеты подготовки отпускаются. Считающие часы: бюджет не зависит от машины CI.
+     * а тикеты подготовки отпускаются. Подрыв берёт место и видимость подготовки, и когда погода сменилась (руины чанков,
+     * загруженных позже, — по подрыву, и они те же). Считающие часы: бюджет не зависит от машины CI.
      */
     @GameTest(template = "range", timeoutTicks = 900, batch = "nuke_prep", skyAccess = true)
     public static void ruinsPreparedDuringFlightFallWithFront(GameTestHelper h) {
@@ -1144,7 +1146,17 @@ public final class NuclearGameTests {
         long[] glassGone = {-1}, tickAt = {0};
         h.onEachTick(() -> {
             String failure = null;
-            if (!events.scheduled().isEmpty()) plannedBefore[0] = w.plannedChunks();
+            if (!events.scheduled().isEmpty()) {
+                plannedBefore[0] = w.plannedChunks();
+                if (plannedBefore[0] > 0) {
+                    // за полёт пошёл дождь: подрыв всё равно с видимостью, по которой готовились руины
+                    Detonation f = NuclearWarhead.geometry(level, target, 15, true, IncomingConfig.SERVER.nukeEffectsScale.get().floatValue());
+                    float other = (float) (f.visibility() == ThermalModel.VISIBILITY_RAIN ? ThermalModel.VISIBILITY_CLEAR : ThermalModel.VISIBILITY_RAIN);
+                    Detonation rainy = new Detonation(f.id(), f.burst(), f.groundY(), f.yieldKt(), f.surface(), f.gameTime(), f.windDir(), f.windSpeed(),
+                            other, f.seed(), f.scale(), f.fallout(), f.wave());
+                    if (w.planned(rainy).visibility() != f.visibility()) failure = "подрыв не берёт видимость подготовки";
+                }
+            }
             // после подрыва — в темпе игры: квадраты подготовки отпускаются по чтениям с диска и фоновым планам, а они идут
             // по часам; без темпа 850 тиков сервера GameTest кончаются раньше, чем квадраты успевают отпуститься
             else if (tickAt[0] == 0) tickAt[0] = System.nanoTime();
