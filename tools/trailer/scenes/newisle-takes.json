@@ -173,8 +173,8 @@
    "shots": [
     {"plans": ["n17"], "seconds": 6,
      "strikes": [
-      {"weapon": "drone", "from": [-250, 700], "to": [-250, 100, 260], "eta": 4},
-      {"weapon": "drone", "from": [-250, 700], "to": [-250, 100, 260], "eta": 5}
+      {"weapon": "drone", "route": "lake_south", "eta": 4},
+      {"weapon": "drone", "route": "lake_south", "eta": 5}
      ],
      "ready": [{"do": "sam", "at": "c1_sam", "load": 32}],
      "when": {"kind": "interceptor", "at": "c1_sam", "r": 60},
@@ -306,10 +306,10 @@
    "shots": [
     {"plans": ["n26"], "seconds": 6, "camera": "scope", "hud": true, "distant": true, "readyChunks": 26,
      "strikes": [
-      {"weapon": "drone", "route": "bridge", "to": "c1_tower_w", "eta": 3.0},
-      {"weapon": "drone", "route": "bridge", "to": {"at": [-220, -10], "above": 0}, "eta": 3.6},
+      {"weapon": "drone", "route": "bridge", "to": "c1_tower_w", "eta": 5.0},
+      {"weapon": "drone", "route": "bridge", "to": {"at": [-220, -10], "above": 0}, "eta": 3.8},
       {"weapon": "drone", "route": "bridge", "to": {"at": [-236, -30], "above": 0}, "eta": 4.2},
-      {"weapon": "drone", "route": "bridge", "to": {"at": [-214, -26], "above": 0}, "eta": 4.8}
+      {"weapon": "drone", "route": "bridge", "to": {"at": [-214, -26], "above": 0}, "eta": 4.6}
      ],
      "cues": [{"at": 0, "do": "scope", "on": true}],
      "end": [{"do": "scope", "on": false}],
