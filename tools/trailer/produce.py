@@ -687,7 +687,10 @@ class Conveyor:
                 continue
             plans = {}
             if a["ok"] and not chain_only and self.cfg.get("render"):
-                plans = self.render(take, a["rec"], covered(a["result"], t), last=variant >= retries)
+                # запись — один раз: замечание к кадру выведенного плана не повод переснимать события (Артём, 15.10:
+                # «записи есть со всеми событиями, дальше — камеры»); план идёт в черновик с предупреждением, камеру
+                # правит повторный вывод с той же записи. Пересъёмка — только если события не случились или не выведены.
+                plans = self.render(take, a["rec"], covered(a["result"], t), last=True)
                 failed = {p: r for p, r in plans.items() if r[0] != "PASS"}
                 if failed:
                     a["ok"] = False
