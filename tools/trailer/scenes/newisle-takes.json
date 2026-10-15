@@ -293,9 +293,9 @@
    "shots": [
     {"plans": ["n27", "n28"], "offsets": {"n28": 3.0}, "seconds": 8,
      "strikes": [
-      {"weapon": "missile", "from": "north_far", "to": "grid_a", "eta": 1.0},
-      {"weapon": "missile", "from": "north_far", "to": "grid_b", "eta": 2.2},
-      {"weapon": "missile", "from": "north_far", "to": "grid_c", "eta": 3.4}
+      {"weapon": "missile", "route": "north", "to": "grid_a", "eta": 1.0},
+      {"weapon": "missile", "route": "north", "to": "grid_b", "eta": 2.2},
+      {"weapon": "missile", "route": "north", "to": "grid_c", "eta": 3.4}
      ],
      "cover": {"n27": {"subject": "scene"}, "n28": {"subject": "scene"}}}
    ]
@@ -318,7 +318,7 @@
   },
   {
    "id": "T20", "title": "FPV ночью над тёмным городом", "from": "chain", "clock": "night", "siren": true, "minutes": 8,
-   "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
+   "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "strikes": [{"weapon": "missile", "from": [-300, 700], "to": [-135, 52], "eta": 3.0}, {"weapon": "missile", "from": [-600, 700], "to": [-264, 55], "eta": 3.5}], "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
   },
   {
    "id": "T21", "title": "Ковёр «Града» ночью", "from": "chain", "clock": "night", "siren": true, "minutes": 10,
@@ -335,10 +335,10 @@
    "shots": [
     {"plans": ["n44"], "seconds": 8, "live": true, "distant": true, "readyChunks": 26,
      "strikes": [
-      {"weapon": "missile", "from": "north_far", "to": "c1_glass_w", "eta": 0.8},
-      {"weapon": "missile", "from": "north_far", "to": "c1_tower_s", "eta": 1.7},
-      {"weapon": "missile", "from": "north_far", "to": "c1_east", "eta": 2.5},
-      {"weapon": "missile", "from": "north_far", "to": "c1_tower_w", "eta": 3.4}
+      {"weapon": "missile", "route": "north", "to": "c1_glass_w", "eta": 0.8},
+      {"weapon": "missile", "route": "north", "to": "c1_tower_s", "eta": 1.7},
+      {"weapon": "missile", "route": "north", "to": "c1_east", "eta": 2.5},
+      {"weapon": "missile", "route": "north", "to": "c1_tower_w", "eta": 3.4}
      ],
      "watch": {"weapon": "missile", "r": 40}}
    ],
