@@ -375,10 +375,11 @@
     {"do": "hidden", "at": "camera:n32", "look": "silo"}
    ],
    "shots": [
-    {"plans": ["n32"], "seconds": 6, "ready": [{"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 15}],
-     "when": {"kind": "icbm", "above": 190},
+    {"plans": ["n32"], "seconds": 5, "ready": [{"do": "nuke.order", "by": "player", "pad": {"at": [-885, -17]}, "at_place": "gz", "kt": 15}],
+     "when": {"kind": "icbm", "above": 0},
      "cover": {"n32": {"subject": "flight", "weapon": "nuke", "need": "FLIGHT70", "spare": ["tracker"]}}}
-   ]
+   ],
+   "after": [{"do": "nuke.clear"}]
   },
   {
    "id": "T24", "title": "Конец света", "from": "chain", "clock": "night", "siren": true, "minutes": 16,

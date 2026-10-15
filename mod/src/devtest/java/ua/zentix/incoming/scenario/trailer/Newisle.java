@@ -17,6 +17,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -58,8 +59,10 @@ import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Frame;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Strike;
+import ua.zentix.incoming.strike.ChunkTickets;
 import ua.zentix.incoming.strike.WeaponType;
 import ua.zentix.incoming.util.Local;
+import ua.zentix.incoming.util.Terrain;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -995,6 +998,7 @@ final class Newisle {
             case "silo.open" -> () -> lid(false);
             case "silo.close" -> () -> lid(true);
             case "nuke.order" -> () -> nukeOrder(a);
+            case "nuke.clear" -> () -> film.withServer(s -> NuclearStrikes.clear(s.overworld()));
             case "nuke.key" -> () -> PacketDistributor.sendToServer(new C2S.NuclearKey());
             case "salvo" -> () -> {
                 Vec3 to = at(a.get("to"), 0), from = at(a.get("from"), 0);
@@ -1223,7 +1227,10 @@ final class Newisle {
 
     /**
      * Приказ на ядерный удар: бот — строкой чата, как игрок (не оператор: мод ждёт второй ключ рядом); игрок с
-     * {@code pad} — пуск со дна шахты (место «запустившего» — в 30 блоках от неё по курсу 0).
+     * {@code pad} — пуск от места пуска (место «запустившего» — в 30 блоках от него по курсу 0, МБР встаёт позади
+     * него), без него — от шахты, без шахты — пульт. Место пуска без игрока рядом — на тикетах до конца дубля
+     * ({@link #holdPad}): чанк дальше зоны тикания, и не тикающая МБР замирает на старте (у незагруженного чанка
+     * высота стола минимальная: n32 15.10 стартовала с y −55 и не поднималась).
      */
     private void nukeOrder(JsonObject a) {
         Vec3 gz = at(a.get("at_place"), 0);
@@ -1234,13 +1241,45 @@ final class Newisle {
                     War.xyz(gz), kt))), true));
             return;
         }
-        if (silo == null) {
+        if (!a.has("pad") && silo == null) {
             Film.cmd(String.format(Locale.ROOT, "incoming nuke at %s %.0f air", War.xyz(gz), kt));
             return;
         }
-        Vec3 launcher = silo.centre.add(Local.horizontal(0).scale(30));
+        Vec3 pad = a.has("pad") ? at(a.get("pad"), 0) : silo.centre;
+        Vec3 launcher = pad.add(Local.horizontal(0).scale(30));
         UUID owner = mc.player.getUUID();
+        holdPad(pad);
+        film.waitUntil(() -> padReady(pad), 20 * 10);
+        film.run(() -> {
+            if (!padReady(pad)) stop("место пуска МБР не загрузилось: " + block(pad));
+        });
         film.withServer(s -> NuclearStrikes.launchFrom(s.overworld(), gz, kt, true, launcher, 0, owner));
+    }
+
+    /** Чанки мест пуска — снятые в {@link #finish()} тикеты, чтобы чанки тикали до конца дубля. */
+    private final List<ChunkPos> heldPads = new ArrayList<>();
+    /** Владелец тикетов мест пуска ({@link ChunkTickets} — свой, чтобы не снимать чужие). */
+    private static final UUID PAD_TICKETS = UUID.fromString("00000000-0000-4000-8000-5c3a72e00001");
+
+    /** Место пуска и восемь соседей — на тикетах тикания сущностей ({@code ChunkTickets} — как снаряды мода). */
+    private void holdPad(Vec3 pad) {
+        int cx = Mth.floor(pad.x) >> 4, cz = Mth.floor(pad.z) >> 4;
+        film.withServer(s -> {
+            ServerLevel level = s.overworld();
+            for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) {
+                ChunkPos p = new ChunkPos(cx + dx, cz + dz);
+                if (heldPads.contains(p)) continue;
+                ChunkTickets.hold(level, PAD_TICKETS, p.toLong(), true);
+                heldPads.add(p);
+            }
+        });
+    }
+
+    /** Чанк места пуска загружен целиком ({@code Terrain.ready}): у {@code Terrain.height} незагруженного — минимум мира. */
+    private boolean padReady(Vec3 pad) {
+        MinecraftServer s = mc.getSingleplayerServer();
+        int cx = Mth.floor(pad.x) >> 4, cz = Mth.floor(pad.z) >> 4;
+        return s.submit(() -> Terrain.ready(s.overworld(), cx, cz)).join();
     }
 
     // ================================================================ пробы
@@ -1610,6 +1649,8 @@ final class Newisle {
         film.waitUntil(() -> ClientFlights.all().isEmpty(), wait);
         film.waitTicks(60);
         srv(level -> {
+            for (ChunkPos p : heldPads) ChunkTickets.hold(level, PAD_TICKETS, p.toLong(), false);
+            heldPads.clear();
             for (Probe p : probes) p.after = p.measure(level);
         });
         film.run(() -> film.withServer(s -> {
