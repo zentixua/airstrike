@@ -166,6 +166,7 @@
    "id": "T10", "title": "ЗРК и мобильная группа", "from": "chain", "clock": "dawn", "siren": true, "minutes": 12,
    "stage": [
     {"do": "sam", "at": "c1_sam", "load": 0},
+    {"do": "sam.clear", "at": [-530, 296], "r": 40},
     {"do": "gunners", "group": "mg", "at": "mg_group", "n": 4, "spread": 3, "prefix": "Mg", "gun": "pointblank:ak47"},
     {"do": "settle"},
     {"do": "wait", "s": 10}
