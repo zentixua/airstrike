@@ -229,7 +229,7 @@
     {"plans": ["n29c"], "seconds": 4, "cover": {"n29c": {"subject": "impact", "weapon": "missile", "near": "c1_glass_e", "need": "HIT"}}},
     {"plans": ["n29a"], "seconds": 4, "strikes": [{"weapon": "missile", "from": [-900, -300], "to": {"at": [-69, -422], "above": -3}, "eta": 1}],
      "cover": {"n29a": {"subject": "impact", "weapon": "missile", "near": "port_crane", "need": "HIT"}}},
-    {"plans": ["n22"], "seconds": 5, "strikes": [{"weapon": "drone", "from": [-900, -35], "to": {"at": [-68, -35], "above": 0}, "eta": 3}],
+    {"plans": ["n22"], "seconds": 5, "strikes": [{"weapon": "drone", "route": "avenue_west", "eta": 3}],
      "cover": {"n22": {"subject": "impact", "weapon": "drone", "need": "STRIKE"}}}
    ]
   },
