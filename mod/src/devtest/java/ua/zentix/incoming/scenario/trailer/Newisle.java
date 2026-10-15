@@ -604,6 +604,7 @@ final class Newisle {
         final Set<UUID> before = new HashSet<>();
         @Nullable
         UUID id;
+        boolean dropped;
         long gone = -1, nearestTick = -1;
         double nearest = Double.MAX_VALUE;
 
@@ -631,20 +632,41 @@ final class Newisle {
             return flight - (mc.level.getGameTime() - at) / 20.0;
         }
 
+        /** Где цель полёта у клиента бывает от точки приказа: 16 блоков, у неуправляемого — 5 СКО рассеивания (паспорт). */
+        double reach() {
+            return Math.max(16, 5 * strike.weapon().spec().route().sigma(Math.hypot(target.x - strike.from().x, target.z - strike.from().z)));
+        }
+
+        /** Новый, ничей полёт того же оружия у цели. */
+        boolean candidate(ClientFlights.Tracked f) {
+            return !before.contains(f.id) && f.weapon() == strike.weapon() && launched.stream().noneMatch(l -> f.id.equals(l.id))
+                    && Math.hypot(f.target().x - target.x, f.target().z - target.z) < reach();
+        }
+
         void tick() {
             if (id == null) {
+                // свой — первый появившийся (номер ClientFlights): пуски идут по порядку, а цель у клиента — с рассеиванием
+                // (у «Града» СКО — 1 % дальности, ~10 блоков; соседние цели n21 — через 15 блоков)
+                ClientFlights.Tracked pick = null;
                 for (ClientFlights.Tracked f : ClientFlights.all()) {
-                    if (before.contains(f.id) || f.weapon() != strike.weapon()) continue;
-                    if (Math.hypot(f.target().x - target.x, f.target().z - target.z) < 16 && launched.stream().noneMatch(l -> f.id.equals(l.id))) {
-                        id = f.id;
-                        break;
-                    }
+                    if (candidate(f) && (pick == null || f.number < pick.number)) pick = f;
                 }
+                if (pick != null) id = pick.id;
                 return;
             }
             ClientFlights.Tracked f = flight();
             long now = mc.level.getGameTime();
             if (f == null) {
+                // B-2 после сброса уходит из полётов (FlightStatus), его бомба приходит тем же пакетом: удар — она
+                if (gone < 0 && !dropped && strike.weapon() == WeaponType.BUNKER) {
+                    for (ClientFlights.Tracked b : ClientFlights.all()) {
+                        if (candidate(b)) {
+                            id = b.id;
+                            dropped = true;
+                            return;
+                        }
+                    }
+                }
                 if (gone < 0) gone = now;
                 return;
             }
