@@ -755,6 +755,42 @@ class ProduceTest(unittest.TestCase):
         problems = P.check_take(r, "", {})
         self.assertTrue(any("клиент -0.2" in p for p in problems), "оба часа мимо — отказ с клиентским временем")
 
+    def test_check_take_reads_pass_time_from_the_journal(self):
+        # часы постановщика под нагрузкой прыгают на синхронизации времени (T10 на netcup, 15.10: 2.85 с у точки
+        # читались как 6.4) — момент пролёта берётся из events.jsonl (часы реплея, одни у меток и кадров)
+        def rec_with_events(rows):
+            rec = tempfile.mkdtemp()
+            os.makedirs(os.path.join(rec, "replays"))
+            with open(os.path.join(rec, "replays", "a1.events.jsonl"), "w", encoding="utf-8") as f:
+                for r in rows:
+                    f.write(json.dumps(r) + "\n")
+            return rec
+
+        def rows(times_x, mark_t=100):
+            out = [{"t": mark_t, "mark": "plan:a1"}]
+            for t, x in times_x:
+                out.append({"t": t, "f": [[0, x, 100.0, 0.0, 4, 0]]})
+            return out
+
+        take = {"shots": [{"plans": ["a1"], "strikes": [
+            {"weapon": "drone", "pass": {"at": [0, 0], "above": 40}, "eta": 3.0}]}]}
+        strike = {"weapon": "drone", "eta": 3.0, "bound": True, "actual": 6.4}
+        r = ok_result("A", ["a1"])
+        r["shots"][0]["strikes"] = [dict(strike)]
+        # путь у точки (0,0) на тике 160 = 3.0 с от метки 100 — в допуске, вопреки отчёту «6.4»
+        rec = rec_with_events(rows([(140, -40.0), (160, 0.0), (180, 40.0)]))
+        self.assertEqual([], [p for p in P.check_take(r, "", take, rec) if "вместо" in p])
+        # путь опоздал на 3 с — отказ с временем и дистанцией из журнала
+        rec = rec_with_events(rows([(200, -40.0), (220, 0.0), (240, 40.0)]))
+        problems = [p for p in P.check_take(r, "", take, rec) if "вместо" in p]
+        self.assertEqual(1, len(problems))
+        self.assertIn("по журналу", problems[0])
+        self.assertIn("6.0 с", problems[0])
+        # журнала нет (rec без файла) — прежние правила по отчёту
+        rec = rec_with_events([])
+        problems = [p for p in P.check_take(r, "", take, rec) if "вместо" in p]
+        self.assertTrue(any("6.4" in p for p in problems))
+
     def test_searches_pick(self):
         s = {"terrace": {"place": "hit", "probes": ["g", "h"], "glass_broken_min": 0.5, "house_kept_min": 0.97},
              "grad": {"plan": "n41", "mspt_max": 50}}

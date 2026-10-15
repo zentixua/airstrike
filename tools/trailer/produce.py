@@ -584,7 +584,7 @@ class Conveyor:
             return out
         if result.get("status") == "stopped":
             raise Stopped(f"{take}: {result.get('reason')}")
-        problems = check_take(result, read(os.path.join(rec, "record.log")), self.takes[take])
+        problems = check_take(result, read(os.path.join(rec, "record.log")), self.takes[take], rec)
         problems += check_hud(os.path.join(rec, "hud.jsonl"))
         soft = take_checks.record_problems(rec, self.takes[take], result)
         warnings = take_checks.record_warnings(rec, self.takes[take], result) + (soft if last else [])
@@ -921,7 +921,41 @@ def tail_heap(log, pos):
     return pos + len(chunk), pct, said
 
 
-def check_take(result, log, take):
+def pass_actual_events(rec, replay, passes):
+    """Моменты пролёта из журнала повтора: {индекс удара: [(секунды от метки plan, дистанция), …]} — по одному на
+    путь, тик, когда тот ближе всего к точке пролёта по xz. Часы постановщика (getGameTime) под нагрузкой прыгают
+    на синхронизации времени сервера (T10 на netcup, 15.10: 2.85 с у точки читались как 6.4), а журнал пишется на
+    часах реплея — одних у меток, кадров и вывода; до 48 блоков — путь действительно идёт через точку (худший
+    принятый пролёт был в 26)."""
+    out = {}
+    events = os.path.join(rec, "replays", f"{replay}.events.jsonl")
+    if not passes or not os.path.exists(events):
+        return out
+    start, paths = None, {}
+    for line in read(events).splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if start is None and row.get("mark") == f"plan:{replay}":
+            start = row["t"]
+        for f in row.get("f", []):
+            paths.setdefault(f[0], []).append((row["t"], f[1], f[3]))
+    if start is None:
+        return out
+    for i, (x, z) in passes:
+        moments = []
+        for pts in paths.values():
+            after = [(t, (px - x) ** 2 + (pz - z) ** 2) for t, px, pz in pts if t >= start]
+            if after:
+                t, d2 = min(after, key=lambda p: p[1])
+                if d2 <= 48 ** 2:
+                    moments.append(((t - start) / 20.0, d2 ** 0.5))
+        if moments:
+            out[i] = moments
+    return out
+
+
+def check_take(result, log, take, rec=None):
     """Что не так с записью дубля по её итогу и логу: момент плана, удары не в срок, камера в блоках, падение."""
     out = []
     for c in CRASH:
@@ -938,9 +972,19 @@ def check_take(result, log, take):
             out.append(f"{name}: момент не наступил")
         if name in bad_cams:
             out.append(f"{name}: камера в блоках")
-        for k in s.get("strikes", []):
+        spec = next((sh for sh in take.get("shots", []) if sh.get("plans") == s.get("plans")), {})
+        passes = [(i, k["pass"]["at"][:2]) for i, k in enumerate(spec.get("strikes", [])) if "pass" in k]
+        journal = pass_actual_events(rec, name, passes) if rec else {}
+        for i, k in enumerate(s.get("strikes", [])):
             if not k.get("bound"):
                 out.append(f"{name}: удар {k.get('weapon')} не найден у клиента")
+            elif i in journal:
+                # пролёт меряем по журналу повтора: часы постановщика под нагрузкой скачут (T10, 15.10);
+                # несколько ударов с одной точкой — каждый eta находит свой пролёт из журнала
+                near = min(journal[i], key=lambda m: abs(m[0] - k["eta"]))
+                if abs(near[0] - k["eta"]) > ETA_TOLERANCE:
+                    out.append(f"{name}: {k.get('weapon')} в {near[0]:.1f} с вместо {k['eta']:.1f} "
+                               f"(по журналу, ближайший путь в {near[1]:.0f} бл)")
             elif "actual" in k and abs(k["actual"] - k["eta"]) > ETA_TOLERANCE:
                 # расписание пуска и повтор — на часах клиента: под нагрузкой они отстают от серверных
                 # (T13, 15.10: серверное actual на 1.1 с раньше, клиентское — ровно eta) — любой из них в допуске
