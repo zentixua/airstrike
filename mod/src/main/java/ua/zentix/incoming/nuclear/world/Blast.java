@@ -81,7 +81,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         static final int OPAQUE = 1;
         static final int STURDY_UP = 1 << 4, FLAMMABLE = 1 << 5, REPLACEABLE = 1 << 6, SLOW = 1 << 7, SOURCE = 1 << 8,
                 SHAPE_LIGHT = 1 << 9, GRASS = 1 << 10, MOSS = 1 << 11, SAND = 1 << 12, DIRT = 1 << 13, SNOW = 1 << 14,
-                SOUL_BASE = 1 << 15, FIRE = 1 << 16, NO_FLUID = 1 << 17;
+                SOUL_BASE = 1 << 15, FIRE = 1 << 16, NO_FLUID = 1 << 17, PLANT = 1 << 18, SNOW_LAYER = 1 << 19;
 
         boolean is(int flag) {
             return (flags & flag) != 0;
@@ -194,6 +194,12 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         if (st.is(BlockTags.SAND)) flags |= Props.SAND;
         if (st.is(BlockTags.DIRT)) flags |= Props.DIRT;
         if (st.is(Blocks.SNOW_BLOCK)) flags |= Props.SNOW;
+        if (st.is(Blocks.SNOW)) flags |= Props.SNOW_LAYER;
+        // то, что вспышка сжигает над землёй: трава, цветы, кусты, посевы (не листва — она на деревьях; не сухой куст)
+        if (!liquid && !leaves && st.getFluidState().isEmpty() && !st.is(Blocks.DEAD_BUSH) && (st.is(BlockTags.REPLACEABLE_BY_TREES)
+                || st.is(BlockTags.FLOWERS) || st.is(BlockTags.SAPLINGS) || st.is(BlockTags.CROPS))) {
+            flags |= Props.PLANT;
+        }
         if (st.is(BlockTags.SOUL_FIRE_BASE_BLOCKS)) flags |= Props.SOUL_BASE;
         if (st.is(Blocks.FIRE)) flags |= Props.FIRE;
         return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE),

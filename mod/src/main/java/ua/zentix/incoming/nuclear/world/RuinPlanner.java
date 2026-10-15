@@ -18,7 +18,9 @@ import net.minecraft.world.phys.shapes.Shapes;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.model.Fragility;
 import ua.zentix.incoming.nuclear.model.ThermalModel;
+import ua.zentix.incoming.nuclear.model.WorldNoise;
 import ua.zentix.incoming.registry.ModBlocks;
 
 import java.util.ArrayList;
@@ -35,16 +37,33 @@ import java.util.List;
  * вода без дна, навесное без того, на чём висело.</li>
  * </ul>
  * Потом — по земле после руин (верхний опорный блок): завал из щебня, где рухнула постройка (в огненном
- * шаре — ничего), стволы, поваленные от эпицентра, содранный от 8 psi дёрн, свет: выжженная трава, растаявший снег,
- * тринитит и вскипевшая вода в шаре.
+ * шаре — ничего), стволы, поваленные от эпицентра, содранный волной дёрн, свет: гарь, выжженная трава, сгоревшие
+ * растения, растаявший снег, тринитит и вскипевшая вода в шаре, опалённые биомы ({@link ScorchedBiomes}). Где что
+ * случилось — не по порогу, а по кривым поражения с шумом мира ({@link Fragility}): края зон рваные, пятнами.
  * <p>
  * Всё считается по исходным блокам окна чанка (он и 8 соседей; у соседей, чьи руины уже стоят, — их старые блоки),
  * случайное — из хеша координат: план места один и тот же заранее (во время полёта МБР) и в момент подрыва, в каком
  * бы порядке ни шли чанки. Чанк и соседи в радиусе 2 загружены целиком (разломы соседей читают своих соседей).
  */
 public final class RuinPlanner {
-    /** С какого давления волна сдирает дёрн. */
+    /** Давление, при котором волна сдирает дёрн с половины мест (разброс {@link #STRIP_BETA}). */
     static final double STRIP_PSI = 8;
+    /** Свет на земле (кал/см²), при котором у половины мест дёрн выгорает до земли. */
+    static final double BURN_Q = 15;
+    /** Свет, при котором у половины мест остаётся гарь — обугленная подстилка (подзол). */
+    static final double CHAR_Q = 30;
+    /** Свет, при котором половина растений над землёй (трава, цветы, кусты, посевы) сгорает и снег-слой тает. */
+    static final double PLANT_Q = 6;
+    /** Разброс кривых поражения (логнормальный): напор ровнее, гарь — пятнами шире всех. */
+    static final double STRIP_BETA = 0.25, BURN_BETA = 0.35, CHAR_BETA = 0.45, PLANT_BETA = 0.4;
+    /** Доля сгоревших растений, от которых остаётся сухой куст. */
+    static final double DEAD_BUSH = 0.08;
+    /** Слои шума мира: разные последствия — разные пятна. */
+    private static final int LAYER_BURN = 1, LAYER_CHAR = 2, LAYER_STRIP = 3, LAYER_PLANT = 4, LAYER_BIOME = 5;
+    /** Случайность места — шум мира (пятна) и хеш места (зерно): веса при сумме квадратов 1, разброс остаётся 1. */
+    private static final double SMOOTH = 0.8, GRAIN = 0.6;
+    /** Свет на склоне к взрыву — не больше стольких раз от ровной земли; высота взрыва над горизонтом в расчёте — не ниже. */
+    private static final double MAX_INCIDENCE = 2.5, LOW_SUN = 0.1;
     /** Сколько чанков вокруг должны быть загружены целиком для плана. */
     public static final int REACH = 2;
 
@@ -55,7 +74,11 @@ public final class RuinPlanner {
             Blocks.COARSE_DIRT.defaultBlockState(), Blocks.ROOTED_DIRT.defaultBlockState()};
 
     private static final BlockState DIRT = Blocks.DIRT.defaultBlockState(), COARSE_DIRT = Blocks.COARSE_DIRT.defaultBlockState(),
+            PODZOL = Blocks.PODZOL.defaultBlockState(), DEAD_BUSH_STATE = Blocks.DEAD_BUSH.defaultBlockState(),
             WATER = Blocks.WATER.defaultBlockState(), FIRE = Blocks.FIRE.defaultBlockState(), SOUL_FIRE = Blocks.SOUL_FIRE.defaultBlockState();
+    /** Земля, которая под снегом-слоем «заснежена» ({@code snowy}): снег растаял — она без снега. */
+    private static final BlockState[] SNOWY_GROUND = {Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.PODZOL.defaultBlockState(),
+            Blocks.MYCELIUM.defaultBlockState()};
     private static final Direction[] DIRECTIONS = Direction.values();
     /** Грани огня к горючим соседям (как {@code FireBlock.getStateForPlacement}: вниз граней нет). */
     private static final Direction[] FIRE_FACE_DIRS = {Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST, Direction.UP};
@@ -71,7 +94,8 @@ public final class RuinPlanner {
         ownStates = Blast.generation;
         for (BlockState st : STONE_RUBBLE) Blast.ensure(st);
         for (BlockState st : WOOD_RUBBLE) Blast.ensure(st);
-        for (BlockState st : new BlockState[]{AIR, DIRT, COARSE_DIRT, WATER, ModBlocks.TRINITITE.get().defaultBlockState()}) Blast.ensure(st);
+        for (BlockState st : new BlockState[]{AIR, DIRT, COARSE_DIRT, PODZOL, DEAD_BUSH_STATE, WATER, ModBlocks.TRINITITE.get().defaultBlockState()}) Blast.ensure(st);
+        for (BlockState st : SNOWY_GROUND) Blast.ensure(st);
         for (BlockState st : Blocks.FIRE.getStateDefinition().getPossibleStates()) Blast.ensure(st);
         for (BlockState st : Blocks.SOUL_FIRE.getStateDefinition().getPossibleStates()) Blast.ensure(st);
     }
@@ -82,6 +106,21 @@ public final class RuinPlanner {
     static double hash(int x, int y, int z, int salt) {
         int h = Mth.murmurHash3Mixer(Long.hashCode(BlockPos.asLong(x, y, z)) * 31 + salt);
         return (h >>> 8) / (double) (1 << 24);
+    }
+
+    /** Хеш места как нормальная величина ~N(0, 1). */
+    static double grain(int x, int y, int z, int salt) {
+        return Fragility.inverse((hash(x, y, z, salt) * (1 << 24) + 0.5) / (1 << 24));
+    }
+
+    /** Случайность столбца для кривой поражения: шум мира слоя {@code layer} с зерном хеша, ~N(0, 1). */
+    private static double chance(WorldNoise noise, int x, int z, int layer, int salt) {
+        return SMOOTH * noise.at(x + 0.5, z + 0.5, layer) + GRAIN * grain(x, 0, z, salt);
+    }
+
+    /** Кривая поражения места при воздействии {@code effect}; шум считается, только если последствие вообще возможно. */
+    private static boolean struck(double effect, double median, double beta, WorldNoise noise, int x, int z, int layer, int salt) {
+        return Fragility.possible(effect, median, beta) && Fragility.hit(effect, median, beta, chance(noise, x, z, layer, salt));
     }
 
     /** План руин чанка (он и соседи в радиусе {@link #REACH} загружены целиком, поток сервера). */
@@ -211,6 +250,9 @@ public final class RuinPlanner {
                 if (d.psi(Vec3.atCenterOf(m)) < 3 && g.lit(m) >= 10) s.fire(m.getX(), m.getY(), m.getZ(), 1.0);
             }
         }
+        WorldNoise noise = g.ctx().noise;
+        // свет на земле столбцов с учётом склона — для ступеней биома
+        double[] heat = new double[256];
         for (int column = 0; column < 256; column++) {
             int ground = c.ground[column];
             if (ground == Integer.MIN_VALUE) continue;
@@ -219,15 +261,91 @@ public final class RuinPlanner {
             Vec3 at = new Vec3(x + 0.5, ground + 0.5, z + 0.5);
             boolean inFireball = d.surface() && Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8
                     && at.y > d.groundY() - d.fireballRadius();
+            double lit = g.lit(new BlockPos(x, ground, z));
+            double q = lit > 0 ? lit * incidence(c.ground, lx, lz, ground, x, z, d.burst()) : 0;
+            heat[column] = inFireball ? lit : q;
             // рухнувшее оставляет завал при любом давлении (дом падает и ниже 5 psi); в огненном шаре — ничего
             if (blockDamage && !inFireball && c.removed[column] >= 3) rubble(s, lx, ground, lz, x, z, c.removed[column], c.wood[column]);
-            // скоростной напор сдирает дёрн и траву: от 8 psi — голая земля, даже в тени
-            if (blockDamage && groundPsi >= STRIP_PSI) strip(s, lx, ground, lz, x, z);
-            scorch(g, s, lx, ground, lz, x, z, inFireball, groundPsi, fires);
+            if (inFireball) {
+                if (blockDamage) strip(s, lx, ground, lz, x, z);
+                if (lit >= ThermalModel.IGNITE) fireball(s, lx, ground, lz);
+                continue;
+            }
+            boolean stripped = ground(s, noise, lx, ground, lz, x, z, q, groundPsi, blockDamage);
+            plants(s, noise, lx, ground, lz, x, z, q, stripped);
+            if (fires && q >= ThermalModel.IGNITE) fire(s, lx, ground, lz, x, z, q, groundPsi);
         }
         Blast own = c.blast();
         if (own != null) for (int i = 0; i < own.trees().size(); i++) lay(s, own.trees().get(i), own.treeLogs().get(i));
-        return s.finish(g.ctx(), c.fluidTicks.toLongArray());
+        return s.finish(g.ctx(), c.fluidTicks.toLongArray(), biomes(noise, c.ground, heat, x0, z0));
+    }
+
+    /**
+     * Ступени опалённого биома по клеткам 4×4 чанка ({@link ScorchedBiomes}): средний свет на земле клетки и шум мира;
+     * клетки меняются от земли клетки (средней по столбцам: колодец или обрыв в клетке её не уводят вниз) на
+     * {@link ScorchedBiomes#BELOW} вниз. Null — ни одной.
+     */
+    @Nullable
+    private static ScorchedBiomes.Cells biomes(WorldNoise noise, int[] ground, double[] heat, int x0, int z0) {
+        byte[] levels = new byte[16];
+        int[] from = new int[16], tops = new int[16];
+        boolean any = false;
+        for (int qz = 0; qz < 4; qz++) {
+            for (int qx = 0; qx < 4; qx++) {
+                double sum = 0;
+                int n = 0;
+                for (int dz = 0; dz < 4; dz++) {
+                    for (int dx = 0; dx < 4; dx++) {
+                        int column = (qz << 2 | dz) << 4 | qx << 2 | dx;
+                        if (ground[column] == Integer.MIN_VALUE) continue;
+                        sum += heat[column];
+                        tops[n++] = ground[column];
+                    }
+                }
+                if (n == 0 || !Fragility.possible(sum / n, ScorchedBiomes.MEDIAN[0], ScorchedBiomes.BETA)) continue;
+                int level = ScorchedBiomes.level(sum / n, noise.at(x0 + (qx << 2) + 2, z0 + (qz << 2) + 2, LAYER_BIOME));
+                if (level == 0) continue;
+                java.util.Arrays.sort(tops, 0, n);
+                levels[qz << 2 | qx] = (byte) level;
+                from[qz << 2 | qx] = tops[n / 2] - ScorchedBiomes.BELOW;
+                any = true;
+            }
+        }
+        return any ? new ScorchedBiomes.Cells(levels, from) : null;
+    }
+
+    /**
+     * Во сколько раз свет на земле столбца сильнее, чем на ровной земле там же: поток через площадку — косинус угла
+     * между лучом и нормалью (склон к взрыву жжёт сильнее, склон от взрыва — слабее, круче луча — тень), пороги ожогов
+     * — для ровной земли. Нормаль — по земле чанка после руин; перепад к соседу — не больше блока на блок (стена,
+     * завал и ствол склоном не считаются). Ровная земля — ровно 1 при любой высоте взрыва.
+     */
+    static double incidence(int[] ground, int lx, int lz, int h, int x, int z, Vec3 burst) {
+        double gx = slope(ground, lx, lz, h, 1, 0), gz = slope(ground, lx, lz, h, 0, 1);
+        double rx = burst.x - (x + 0.5), ry = burst.y - (h + 1), rz = burst.z - (z + 0.5);
+        double len = Math.sqrt(rx * rx + ry * ry + rz * rz);
+        if (len < 1e-6) return 1;
+        rx /= len;
+        ry /= len;
+        rz /= len;
+        double cos = (-gx * rx + ry - gz * rz) / Math.sqrt(gx * gx + 1 + gz * gz);
+        return Math.min(MAX_INCIDENCE, (Math.max(0, cos) + LOW_SUN) / Math.max(ry + LOW_SUN, LOW_SUN));
+    }
+
+    /** Уклон земли вдоль оси ({@code dx, dz}): средний перепад к соседям в чанке, каждый не больше блока на блок. */
+    private static double slope(int[] ground, int lx, int lz, int h, int dx, int dz) {
+        double sum = 0;
+        int n = 0;
+        int ax = lx + dx, az = lz + dz, bx = lx - dx, bz = lz - dz;
+        if (ax < 16 && az < 16 && ground[az << 4 | ax] != Integer.MIN_VALUE) {
+            sum += Mth.clamp(ground[az << 4 | ax] - h, -1, 1);
+            n++;
+        }
+        if (bx >= 0 && bz >= 0 && ground[bz << 4 | bx] != Integer.MIN_VALUE) {
+            sum += Mth.clamp(h - ground[bz << 4 | bx], -1, 1);
+            n++;
+        }
+        return n == 0 ? 0 : sum / n;
     }
 
     /** Завал на месте рухнувшей постройки: высота — по тому, сколько рухнуло, материал — по тому, из чего. */
@@ -241,6 +359,7 @@ public final class RuinPlanner {
         }
     }
 
+    /** Скоростной напор содрал дёрн и траву: голая земля. */
     private static void strip(Sections s, int lx, int ground, int lz, int x, int z) {
         Blast.Props p = s.props(lx, ground, lz);
         if (p.is(Blast.Props.GRASS) || p.is(Blast.Props.MOSS)) {
@@ -248,28 +367,70 @@ public final class RuinPlanner {
         }
     }
 
-    /** Световой импульс на верхнем блоке грунта: пожары, выгоревшая трава, растаявший снег, тринитит у шара. */
-    private static void scorch(RuinContext.Grid g, Sections s, int lx, int ground, int lz, int x, int z, boolean inFireball,
-                               double groundPsi, boolean fires) {
-        double q = g.lit(new BlockPos(x, ground, z));
-        if (q < ThermalModel.IGNITE) return;
+    /** Внутри огненного шара у земли: песок сплавляется, вода вскипает. */
+    private static void fireball(Sections s, int lx, int ground, int lz) {
+        if (s.props(lx, ground, lz).is(Blast.Props.SAND)) s.set(lx, ground, lz, ModBlocks.TRINITITE.get().defaultBlockState());
+        for (int i = 1; i <= 3 && ground + i < s.maxY; i++) {
+            if (!s.props(lx, ground + i, lz).is(Blast.Props.SOURCE)) break;
+            s.set(lx, ground + i, lz, AIR);
+        }
+    }
+
+    /**
+     * Верхний блок грунта: напор сдирает дёрн (голая земля, даже в тени), свет выжигает траву до земли, а там, где он
+     * сильнее всего, оставляет гарь пятнами; снег тает. Каждое — кривой поражения со своим шумом мира.
+     *
+     * @return дёрн содран напором (с ним — и растения над ним)
+     */
+    private static boolean ground(Sections s, WorldNoise noise, int lx, int ground, int lz, int x, int z, double q, double psi, boolean blockDamage) {
         Blast.Props p = s.props(lx, ground, lz);
-        if (inFireball) {
-            // внутри огненного шара у земли: песок сплавляется, вода вскипает
-            if (p.is(Blast.Props.SAND)) s.set(lx, ground, lz, ModBlocks.TRINITITE.get().defaultBlockState());
-            for (int i = 1; i <= 3 && ground + i < s.maxY; i++) {
-                if (!s.props(lx, ground + i, lz).is(Blast.Props.SOURCE)) break;
-                s.set(lx, ground + i, lz, AIR);
-            }
+        if (p.is(Blast.Props.SNOW)) {
+            if (struck(q, BURN_Q, BURN_BETA, noise, x, z, LAYER_BURN, 5)) s.set(lx, ground, lz, WATER);
+            return false;
+        }
+        if (!p.is(Blast.Props.GRASS) && !p.is(Blast.Props.MOSS)) return false;
+        if (blockDamage && struck(psi, STRIP_PSI, STRIP_BETA, noise, x, z, LAYER_STRIP, 3)) {
+            strip(s, lx, ground, lz, x, z);
+            return true;
+        }
+        if (struck(q, CHAR_Q, CHAR_BETA, noise, x, z, LAYER_CHAR, 7)) {
+            s.set(lx, ground, lz, PODZOL);
+        } else if (struck(q, BURN_Q, BURN_BETA, noise, x, z, LAYER_BURN, 5)) {
+            s.set(lx, ground, lz, hash(x, ground, z, 5) < 0.5 ? COARSE_DIRT : DIRT);
+        }
+        return false;
+    }
+
+    /**
+     * Над землёй: трава, цветы, кусты и посевы сгорают (от части остаётся сухой куст) или уходят с содранным дёрном,
+     * снег-слой тает — под ним земля больше не «заснежена». Случайность — больше зерно места, чем пятна: трава горит
+     * клочьями.
+     */
+    private static void plants(Sections s, WorldNoise noise, int lx, int ground, int lz, int x, int z, double q, boolean stripped) {
+        int y = ground + 1;
+        if (y >= s.maxY) return;
+        Blast.Props p = s.props(lx, y, lz);
+        boolean plant = p.is(Blast.Props.PLANT), snow = p.is(Blast.Props.SNOW_LAYER);
+        if (!plant && !snow) return;
+        if (!stripped && !(Fragility.possible(q, PLANT_Q, PLANT_BETA)
+                && Fragility.hit(q, PLANT_Q, PLANT_BETA, 0.5 * noise.at(x + 0.5, z + 0.5, LAYER_PLANT) + 0.87 * grain(x, y, z, 41)))) return;
+        if (snow) {
+            s.set(lx, y, lz, AIR);
+            BlockState under = s.get(lx, ground, lz);
+            for (BlockState st : SNOWY_GROUND) if (under.getBlock() == st.getBlock()) s.set(lx, ground, lz, st);
             return;
         }
-        if (q >= 15) {
-            if (p.is(Blast.Props.GRASS)) s.set(lx, ground, lz, hash(x, ground, z, 5) < 0.5 ? COARSE_DIRT : DIRT);
-            if (p.is(Blast.Props.SNOW)) s.set(lx, ground, lz, WATER);
-        }
-        if (!fires || ground + 1 >= s.maxY) return;
-        // волна гасит часть огня там, где давление ≥ 2 psi
-        double chance = Math.min(1, q / 20) * (groundPsi >= 2 ? 0.5 : 1);
+        // двойная трава и высокие цветы: верхняя половина уходит с нижней
+        if (y + 1 < s.maxY && s.props(lx, y + 1, lz).is(Blast.Props.PLANT)) s.set(lx, y + 1, lz, AIR);
+        Blast.Props under = s.props(lx, ground, lz);
+        boolean bush = !stripped && hash(x, y, z, 43) < DEAD_BUSH && (under.is(Blast.Props.DIRT) || under.is(Blast.Props.SAND));
+        s.set(lx, y, lz, bush ? DEAD_BUSH_STATE : AIR);
+    }
+
+    /** Пожар на земле, где свет поджёг горючее (вероятность растёт со светом), а волна сбила огонь не везде (≥ 2 psi). */
+    private static void fire(Sections s, int lx, int ground, int lz, int x, int z, double q, double psi) {
+        if (ground + 1 >= s.maxY) return;
+        double chance = Math.min(1, q / 20) * (psi >= 2 ? 0.5 : 1);
         Blast.Props now = s.props(lx, ground, lz);
         if (s.get(lx, ground + 1, lz).isAir() && (now.is(Blast.Props.FLAMMABLE) || now.is(Blast.Props.DIRT))) s.fire(x, ground + 1, z, chance);
     }
@@ -386,7 +547,7 @@ public final class RuinPlanner {
             return null;
         }
 
-        RuinPlan finish(RuinContext ctx, long[] fluidTicks) {
+        RuinPlan finish(RuinContext ctx, long[] fluidTicks, @Nullable ScorchedBiomes.Cells biomes) {
             // места без повторов, по секциям
             int[] cells = changed.toIntArray();
             java.util.Arrays.sort(cells);
@@ -407,7 +568,7 @@ public final class RuinPlanner {
                 fireStates.add(fire);
             }
             ChunkPos pos = new ChunkPos(chunkX, chunkZ);
-            if (n == 0 && fireCells.isEmpty() && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(ctx);
+            if (n == 0 && fireCells.isEmpty() && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(ctx, biomes);
             // верх каждого столбца после руин: ниже него убранный или новый блок меняет свет не только как источник неба
             int[] topChanged = new int[256];
             java.util.Arrays.fill(topChanged, Integer.MIN_VALUE);
@@ -460,10 +621,10 @@ public final class RuinPlanner {
                 if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Ruins of chunk " + pos + ": more than " + RuinPlan.MAX_STATES + " states");
                 fireOut[k] = fireCells.getInt(k) | idx << RuinPlan.STATE_SHIFT;
             }
-            if (kept == 0 && fireOut.length == 0 && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(ctx);
+            if (kept == 0 && fireOut.length == 0 && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(ctx, biomes);
             return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), java.util.Arrays.copyOf(olds, kept), fireOut, heights,
                     lightAt.toLongArray(), shot.prints.clone(), shot.normalPrints(view),
-                    outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState, ctx, fluidTicks);
+                    outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState, ctx, fluidTicks, biomes);
         }
 
         /**

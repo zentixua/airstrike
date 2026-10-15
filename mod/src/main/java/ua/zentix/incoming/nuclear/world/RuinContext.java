@@ -46,7 +46,11 @@ final class RuinContext {
 
     RuinContext(Detonation d) {
         this.d = d;
+        this.noise = new ua.zentix.incoming.nuclear.model.WorldNoise(d.seed(), d.scale());
     }
+
+    /** Шум мира подрыва для кривых поражения ({@code RuinPlanner}): пятна выгоревшей травы, гари, ступеней биома. */
+    final ua.zentix.incoming.nuclear.model.WorldNoise noise;
 
     @Nullable
     Applied applied(long chunk) {

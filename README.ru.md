@@ -78,4 +78,4 @@ cd mod
 Автор мода ZentixUA. Incoming — свободное ПО под лицензией GNU GPL версии 3 ([LICENSE](LICENSE)): его можно
 использовать, менять и распространять, в том числе в сборках, под той же лицензией и вместе с исходным кодом. Звуки
 сделаны из записей Freesound под CC0 и CC BY 4.0, авторы — в [SOUND-CREDITS.md](SOUND-CREDITS.md). В jar вшита
-библиотека sable-companion (MIT).
+библиотека sable-companion (MIT) и копия FastNoiseLite Джордана Пека (MIT).
