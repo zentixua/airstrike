@@ -92,10 +92,10 @@
     {"plans": ["n07"], "seconds": 6, "camera": "player", "hud": true, "when": {"kind": "none"},
      "cues": [
       {"at": 0.0, "do": "map.open", "target": "c1_core"},
-      {"at": 0.3, "do": "map.route", "route": "desert_hook"},
-      {"at": 1.6, "do": "map.route", "route": "gorge"},
-      {"at": 2.9, "do": "map.route", "route": "bridge"},
-      {"at": 4.2, "do": "map.route", "route": "east_lake"}
+      {"at": 0.2, "do": "map.route", "route": "desert_hook"},
+      {"at": 0.6, "do": "map.route", "route": "gorge"},
+      {"at": 1.0, "do": "map.route", "route": "bridge"},
+      {"at": 1.4, "do": "map.route", "route": "east_lake"}
      ],
      "end": [{"do": "map.close"}]}
    ]
@@ -416,6 +416,23 @@
      "cover": {"n35": {"subject": "nuke", "need": "NUKE"}}}
    ],
    "after": [{"do": "crowd.remove", "group": "desert"}]
+  },
+  {
+   "id": "T25", "title": "Финал: прохожий на крыше Города 2 бежит от волны", "from": "branch:T22", "clock": "night", "siren": true, "minutes": 12,
+   "artem": {"mark": "camera:n35b", "stand": [-740.5, 656.5], "look": "c1_core",
+    "wear": {"head": "minecraft:leather_helmet[dyed_color={rgb:3878703}]", "chest": "minecraft:leather_chestplate[dyed_color={rgb:4936480}]"},
+    "hints": ["Ночь, крыша Города 2. Встань у края крыши лицом к озеру и Городу 1.", "Нажми Enter — начнём.", "Смотри на Город 1: будет вспышка, потом через озеро пойдёт волна. Стой и смотри, пока на экране не появится «Беги»."]},
+   "stage": [
+    {"do": "silo.build", "at": "silo", "depth": 30, "size": 5},
+    {"do": "silo.open"},
+    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 15},
+    {"do": "wait", "s": 2}
+   ],
+   "shots": [
+    {"plans": ["n35b"], "seconds": 7, "when": {"kind": "front", "at": {"at": [-740.5, 656.5], "above": 0}, "lead": 4.3},
+     "cues": [{"at": 2.9, "do": "artem.cue", "hint": "Беги! Развернись и беги прочь от края, мимо камеры.", "to": [-747, 664]}],
+     "cover": {"n35b": {"subject": "nuke", "need": "NUKE"}}}
+   ]
   }
  ],
  "searches": {

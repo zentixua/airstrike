@@ -317,16 +317,19 @@ final class Newisle {
 
     /**
      * Дубль с Артёмом: вживую он сам в кадре (творческий режим — урона нет), подсказки на экране, начало — по Enter; без
-     * него на слепом прогоне — бот на его месте; в цепочке (удары без записи) — никого.
+     * него на слепом прогоне — бот на его месте; в цепочке (удары без записи) — никого. {@code wear} — одежда роли (слот →
+     * предмет): прохожего в финале играет Артём со своим скином, и без другой одежды его путали бы с человеком на террасе.
      */
     private void artem(JsonObject a) {
         JsonElement stand = a.get("stand"), look = a.get("look");
         String item = a.has("item") ? a.get("item").getAsString() : null;
         boolean boat = a.has("boat") && a.get("boat").getAsBoolean();
+        JsonObject wear = a.has("wear") ? a.getAsJsonObject("wear") : null;
         List<String> lines = new ArrayList<>();
         for (JsonElement h : a.getAsJsonArray("hints")) lines.add(h.getAsString());
         if (live) {
             war.actor(() -> feet(stand), () -> at(look, 0), item);
+            if (wear != null) dress(wear, () -> mc.player.getGameProfile().getName());
             if (boat) boatFor(stand, () -> mc.player.getGameProfile().getName());
             film.run(() -> {
                 hints = lines;
@@ -351,8 +354,17 @@ final class Newisle {
                 if (item != null) film.cast().command("item replace entity Artem weapon.mainhand with " + item);
                 film.cast().act("Artem", War.one(Cast.lookAt(at(look, 0))), true);
             }));
+            if (wear != null) dress(wear, () -> "Artem");
             if (boat) boatFor(stand, () -> "Artem");
         }
+    }
+
+    /** Одежда роли: {@code wear} — слот брони ({@code head}, {@code chest}, …) → предмет, как в {@code /item}. */
+    private void dress(JsonObject wear, java.util.function.Supplier<String> who) {
+        film.run(() -> film.withServer(s -> {
+            for (var e : wear.entrySet())
+                film.cast().command("item replace entity " + who.get() + " armor." + e.getKey() + " with " + e.getValue().getAsString());
+        }));
     }
 
     /** Лодка у места и {@code rider} в ней. */
@@ -1087,6 +1099,18 @@ final class Newisle {
                 Cursor.show(new double[]{mc.getWindow().getGuiScaledWidth() * 0.7, mc.getWindow().getGuiScaledHeight() * 0.75});
             };
             case "map.route" -> () -> mapRoute(a.get("route").getAsString());
+            // знак Артёму в живом дубле — новая строка подсказки поверх игры (в повтор не пишется); на слепом прогоне бот
+            // на его месте сам делает то, что строка просит: бежит к {@code to}
+            case "artem.cue" -> () -> {
+                if (live) {
+                    hints = List.of(a.get("hint").getAsString());
+                    hintFrom = 0;
+                    hintTo = 1;
+                } else if (standin && a.has("to")) {
+                    Vec3 to = feet(a.get("to"));
+                    film.withServer(s -> film.cast().act("Artem", War.one(Cast.walkTo(to.x, to.z, true)), true));
+                }
+            };
             case "map.close" -> () -> {
                 Cursor.hide();
                 mc.setScreen(null);

@@ -119,7 +119,7 @@ final class NewisleData {
             "crowd.follow", "crowd.remove", "launchers.fire", "launcher.redstone", "sam", "sam.clear", "gunners.fire", "gunners.stop",
             "fight.arm", "fight.start", "fight.stop", "fight.remove", "silo.open", "silo.close", "nuke.order", "nuke.clear", "nuke.key",
             "salvo", "scope",
-            "map.open", "map.route", "map.close", "retarget");
+            "map.open", "map.route", "map.close", "retarget", "artem.cue");
     /** Действия сцены — шагами (ждут, ставят людей и постройки): только в {@code stage} и {@code after} дубля. */
     static final java.util.Set<String> STEPS = java.util.Set.of("wait", "settle", "flights.wait", "crowd", "gunners", "fight",
             "launchers", "silo.build", "commander", "player", "hidden", "boat", "airship", "grid.node", "station.wire");
