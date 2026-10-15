@@ -1,6 +1,6 @@
 {
  "about": "Дубли трейлера на Newisle для постановщика (mod/src/devtest/.../trailer/Newisle.java) и конвейера (tools/trailer/produce.py). Дубль — одна запись на одной копии мира: время суток и погода стоят весь дубль, планы — по порядку истории, после дубля мир сохраняется снимком, следующий дубль цепочки (`from: chain`) идёт на копии этого снимка. `intact` — копия нетронутого мастера (живые дубли Артёма); `branch:<дубль>` — копия снимка после того дубля, дальше цепочка эту копию не берёт (МБР из шахты). У дубля с `artem` два прогона: живой (Артём в игре, копия мастера) и цепочный (удары без записи). План — запись повтора (`shots`); несколько планов на одном повторе — `plans` с `offsets` (секунда окна, где начинается план; камеры ставит вывод после записи). Удары — из newisle.json (`strikes` плана, `eta` — секунда плана), `strikes` здесь заменяет их для постановки: `route` — путь из `routes` (пуск — с начала пути, точки `via`), `pass` — точка пролёта: `eta` — когда снаряд у неё, а не удар. Точки — как в newisle.json: [x, z] (верх колонки + 2), [x, y, z], {at, above}, {at, ground}, имя места; у людей и пусковых [x, z] — ноги на верху колонки. Действия (`do`) — Newisle.java (Actions); `stage` идёт до планов, `ready` — когда камера плана готова, `cues` — на секундах плана, `end` — в конце плана, `after` — после планов. `minutes` — оценка записи до первого замера (конвейер считает сроки по замерам).",
- "clock": {"night": 20000, "dawn": 23500, "morning": 1000, "day": 4000, "afternoon": 8000, "sunset": 12300, "dusk": 13000},
+ "clock": {"night": 20000, "dawn": 23500, "dawn_late": 23800, "morning": 1000, "day": 4000, "afternoon": 8000, "sunset": 12300, "dusk": 13000},
  "limits": {"retries": 2, "stall_seconds": 600, "heap_share": 0.95, "take_factor": 2.0, "night_hours": 9.5, "disk_floor_gb": 4, "ram_floor_gb": 3, "client_gb": 10, "pause_minutes": 30, "flights_wait_s": 120, "launch_lag": {"missile": 2.2}},
  "smoke": ["T02", "T04", "T24"],
  "places": {
@@ -122,14 +122,14 @@
    "after": [{"do": "crowd.remove", "group": "crew"}]
   },
   {
-   "id": "T07", "title": "Первый свет: ущелье", "from": "branch:T06", "clock": "dawn", "siren": true, "minutes": 10,
+   "id": "T07", "title": "Первый свет: ущелье", "from": "branch:T06", "clock": "dawn_late", "siren": true, "minutes": 10,
    "shots": [
     {"plans": ["n11"], "seconds": 7,
      "strikes": [
       {"weapon": "missile", "route": "gorge", "pass": {"at": [-1004, -79], "ground": 25}, "eta": 1.6},
       {"weapon": "missile", "route": "gorge", "pass": {"at": [-1004, -79], "ground": 25}, "eta": 2.4}
      ],
-     "cover": {"n11": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD", "spare": ["own35"]}}},
+     "cover": {"n11": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD", "spare": ["own35"], "brightness": 60}}},
     {"plans": ["n25"], "seconds": 5, "camera": "onboard", "hud": true,
      "stage_player": {"at": {"at": [-1004, -79], "ground": 40}, "look": "c1_tower_w"},
      "strikes": [{"weapon": "missile", "route": "gorge", "eta": 0}],
