@@ -156,8 +156,8 @@
    "shots": [
     {"plans": ["n02"], "seconds": 6,
      "strikes": [
-      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-190, 400], "above": 10}, "eta": 3.0},
-      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-190, 400], "above": 10}, "eta": 4.0}
+      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-124, 268], "above": 10}, "eta": 3.0},
+      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-124, 268], "above": 10}, "eta": 4.0}
      ],
      "cover": {"n02": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD"}}}
    ]
@@ -165,7 +165,7 @@
   {
    "id": "T10", "title": "ЗРК и мобильная группа", "from": "chain", "clock": "dawn", "siren": true, "minutes": 12,
    "stage": [
-    {"do": "sam", "at": "c1_sam", "load": 32},
+    {"do": "sam", "at": "c1_sam", "load": 0},
     {"do": "gunners", "group": "mg", "at": "mg_group", "n": 4, "spread": 3, "prefix": "Mg", "gun": "pointblank:ak47"},
     {"do": "settle"},
     {"do": "wait", "s": 10}
@@ -173,9 +173,10 @@
    "shots": [
     {"plans": ["n17"], "seconds": 6,
      "strikes": [
-      {"weapon": "drone", "route": "bridge", "to": [-250, 100, 260], "eta": 4},
-      {"weapon": "drone", "route": "bridge", "to": [-250, 100, 260], "eta": 5}
+      {"weapon": "drone", "from": [-250, 700], "to": [-250, 100, 260], "eta": 4},
+      {"weapon": "drone", "from": [-250, 700], "to": [-250, 100, 260], "eta": 5}
      ],
+     "ready": [{"do": "sam", "at": "c1_sam", "load": 32}],
      "when": {"kind": "interceptor", "at": "c1_sam", "r": 60},
      "cover": {"n17": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"]}}},
     {"plans": ["n46"], "seconds": 7,
