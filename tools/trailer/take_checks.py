@@ -45,6 +45,8 @@ import math
 import os
 import sys
 
+import takes
+
 READY, IGNITION, BOOST = 0, 1, 2          # FlightPhase (порядковый номер)
 ENTITY_FLAG = 1                            # в строках `f`: место от сущности, не от пакетов сервера
 MSPT_RUN, MSPT_MAX, MSPT_WINDOW = 10, 50.0, 2.0
@@ -245,35 +247,43 @@ def icbm_flight(rec):
 
 
 def siren_take(rec, take, plans):
-    """Сирена дубля (у включённых): слышана до первого удара (не меньше 2 с) и в сумме не меньше 6 с."""
+    """Сирена дубля (у включённых): слышана до первого удара (не меньше 2 с) и в сумме не меньше 6 с — как услышит
+    монтаж: сыгранные клиентом вывода (timeline.jsonl кандидата) плюс поставленные монтажом (сирена до окна вывода
+    повтором не играется, ставит takes.siren_sfx_for)."""
     if not take.get("siren", True):
         return []      # первый удар без тревоги: siren: false — сирены в мире нет
-    impacts, heard = {}, []
-    for plan in plans:
-        sounds = os.path.join(rec, "replays", f"{plan}.sounds.jsonl")
-        if not os.path.exists(sounds):
-            continue
-        events = os.path.join(rec, "replays", f"{plan}.events.jsonl")
-        flights, _ = read_events(events) if os.path.exists(events) else ([], False)
-        at = sorted(f.impact for f in flights if f.impact is not None)
-        if at:
-            impacts[plan] = at[0]
-        for r in _jsonl(sounds):
-            if r.get("trigger") == "siren" and r.get("heard"):
-                heard.append((plan, r["t"]))
     out = []
-    if impacts:
-        first_plan = min(impacts, key=lambda p: (plans.index(p) if p in plans else 0, impacts[p]))
-        t0 = impacts[first_plan]
-        before = [h for h in heard if h[0] == first_plan and h[1] <= t0 - SIREN_BEFORE_S * 20]
-        if not before:
-            early = [h for h in heard if h[0] == first_plan and h[1] < t0]
-            out.append(f"{first_plan}: сирена {'позднее 2 с до удара' if early else 'не слышна'} "
-                       f"(первый удар в тик {t0})")
-    total = _siren_seconds(os.path.join(rec, "timeline.jsonl"))
-    if heard and total < SIREN_TOTAL_S:
-        out.append(f"сирена слышна {total:.1f} с из {SIREN_TOTAL_S:.0f}")
+    for plan in plans:
+        d = _pass_candidate(rec, plan)
+        if not d:
+            continue
+        tk = takes.load_take(plan, d)
+        extra = takes.siren_sfx_for(plan, d)
+        impacts = sorted(f.impact for j in (tk.journal, tk.record_journal) if j
+                         for f in j.flights if f.impact is not None)
+        heard = [s.t for s in tk.sounds if s.event == SIREN_EVENT] + [e["t"] / 20.0 for e in extra]
+        if impacts:
+            t0 = tk.sec(impacts[0])
+            if not any(t <= t0 - SIREN_BEFORE_S for t in heard):
+                out.append(f"{plan}: сирена {'позднее 2 с до удара' if any(t < t0 for t in heard) else 'не слышна'} "
+                           f"(первый удар на {t0:.1f} с)")
+        total = takes.siren_seconds(tk, extra)
+        if heard and total < SIREN_TOTAL_S:
+            out.append(f"сирена слышна {total:.1f} с из {SIREN_TOTAL_S:.0f}")
     return out
+
+
+def _pass_candidate(rec, plan):
+    """Папка кандидата вывода плана, прошедшего проверку (render/best.txt, PASS); нет — None."""
+    best = os.path.join(rec, "render", "best.txt")
+    if not os.path.exists(best):
+        return None
+    with open(best, encoding="utf-8") as f:
+        for line in f:
+            parts = line.split(maxsplit=3)
+            if len(parts) >= 3 and parts[0] == plan and parts[2] == "PASS" and parts[1] != "-":
+                return os.path.join(rec, "render", plan, parts[1])
+    return None
 
 
 def _siren_seconds(timeline):

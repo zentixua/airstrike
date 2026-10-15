@@ -108,36 +108,48 @@ class IcbmFlightTest(unittest.TestCase):
 
 
 class SirenTest(unittest.TestCase):
-    def rec(self, triggers, timeline, plan="n1"):
+    """Сирена дубля — как услышит монтаж: клиент вывода (timeline.jsonl кандидата) плюс поставленная монтажом."""
+
+    def rec(self, sounds, marks=(), plan="n1"):
         root = tempfile.mkdtemp()
-        write(os.path.join(root, "replays", f"{plan}.sounds.jsonl"), triggers)
-        write(os.path.join(root, "replays", f"{plan}.events.jsonl"),
-              [{"t": 200, "new": 0, "id": "a", "weapon": "drone", "bomber": False},
-               {"t": 200, "impact": 0, "pos": [1, 2, 3]}])
-        write(os.path.join(root, "timeline.jsonl"), timeline)
+        d = os.path.join(root, "render", plan, "cam-a")
+        rows = [{"type": "shot", "shot": plan, "speed": 1.0}]
+        for k in range(20 * 60):
+            rows.append({"type": "frame", "shot": plan, "k": k, "t": k / 3.0, "cam": [0, 70, 0, 0, 0]})
+        rows += list(sounds)
+        write(os.path.join(d, "timeline.jsonl"), rows)
+        events = [{"t": t, "mark": what} for t, what in marks]
+        events += [{"t": 200, "new": 0, "id": "a", "weapon": "drone", "bomber": False},
+                   {"t": 200, "impact": 0, "pos": [1, 2, 3]}]
+        write(os.path.join(d, f"{plan}.events.jsonl"), events)
+        with open(os.path.join(root, "render", "best.txt"), "w") as f:   # best.txt — сырой текст, не JSON
+            f.write(f"{plan} cam-a PASS x\n")
         return root
 
+    @staticmethod
+    def siren(t, stop=None, plan="n1", sid=1):
+        rows = [{"type": "sound", "shot": plan, "t": t, "id": sid, "event": "incoming:siren",
+                 "file": "incoming:sounds/siren.ogg", "pos": [1, 80, 3], "volume": 16.0, "pitch": 1.0,
+                 "range": 256.0, "relative": False, "linear": True, "loop": False}]
+        if stop is not None:
+            rows.append({"type": "stop", "shot": plan, "t": stop, "id": sid})
+        return rows
+
     def test_heard_early_enough_and_long_enough(self):
-        r = self.rec([{"t": 40, "trigger": "siren", "heard": True}],
-                     [{"type": "sound", "shot": "n1", "t": 40, "id": 1, "event": "incoming:siren"},
-                      {"type": "stop", "shot": "n1", "t": 40 + 20 * 8, "id": 1}])
+        r = self.rec(self.siren(40, 40 + 20 * 8))
         self.assertEqual([], T.siren_take(r, {"siren": True}, ["n1"]))
 
     def test_late_siren_is_a_problem(self):
-        r = self.rec([{"t": 195, "trigger": "siren", "heard": True}],
-                     [{"type": "sound", "shot": "n1", "t": 195, "id": 1, "event": "incoming:siren"},
-                      {"type": "stop", "shot": "n1", "t": 195 + 20 * 8, "id": 1}])
+        r = self.rec(self.siren(195, 195 + 20 * 8))
         self.assertTrue(any("сирена" in p for p in T.siren_take(r, {"siren": True}, ["n1"])))
 
     def test_silent_take_is_fine_and_short_siren_is_not(self):
-        r = self.rec([{"t": 40, "trigger": "siren", "heard": True}],
-                     [{"type": "sound", "shot": "n1", "t": 40, "id": 1, "event": "incoming:siren"},
-                      {"type": "stop", "shot": "n1", "t": 40 + 20 * 3, "id": 1}])
+        r = self.rec(self.siren(40, 40 + 20 * 3))
         self.assertEqual([], T.siren_take(r, {"siren": False}, ["n1"]))
         self.assertTrue(any("из 6" in p for p in T.siren_take(r, {"siren": True}, ["n1"])))
 
     def test_unheard_siren_is_not_enough(self):
-        r = self.rec([{"t": 40, "trigger": "siren", "heard": False}], [])
+        r = self.rec([])
         self.assertTrue(any("не слышна" in p for p in T.siren_take(r, {"siren": True}, ["n1"])))
 
 
