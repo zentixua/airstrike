@@ -56,8 +56,11 @@ final class FrameLog {
     private final Sounds sounds;
     /** Земля кадра у клиента повтора (NaN — чанка нет) — та же, что у пилота ({@link FrameOut}). */
     private final FrameOut.Column ground;
+    /** Дыра в мире в точках лучей «вне» по глубине DH; null — DH нет. */
+    @Nullable
+    private final DhHole hole;
     private final Writer out;
-    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld, inside, lowOut, smothered;
+    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld, inside, lowOut, holed, smothered;
     private final int[] keyN, keyOk;
     private int entityId = -1;
 
@@ -76,6 +79,7 @@ final class FrameLog {
         };
         keyN = new int[s.keys.size()];
         keyOk = new int[s.keys.size()];
+        hole = DhHole.create();
         out = Files.newBufferedWriter(dir.resolve("qa.jsonl"), StandardCharsets.UTF_8);
         sounds = new Sounds(dir.resolve("sounds.jsonl"), plan.loud(), plan.engine(), Export::exportTick);
         mc.getSoundManager().addListener(sounds);
@@ -150,9 +154,15 @@ final class FrameLog {
         boolean built = mc.levelRenderer.hasRenderedAllSections();
         // свободная камера в блоке (путь плана идёт и там, где при оценке чанков ещё не было)
         boolean blocked = pov == null && Cameras.inBlocks(mc.level, eye);
-        // доля кадра свободной камеры на земле за чанками повтора (лучи сетки по всему кадру)
-        double frameOut = pov == null ? FrameOut.share(view, ground) : 0;
-        boolean low = frameOut > 0;
+        // доля кадра свободной камеры на земле за чанками повтора (лучи сетки по всему кадру) и доля лучей «вне»,
+        // где DH не нарисовал землю на ожидаемом расстоянии (дыра в мире: сквозь неё видно пещеры LOD или ничего)
+        double[] frameHole = {0};
+        double frameOut = pov == null ? FrameOut.share(view, ground, hole == null ? null
+                : (sx, sy, d, expected) -> {
+                    if (hole.ray(sx, sy, expected)) frameHole[0]++;
+                }) : 0;
+        if (hole != null) hole.fit();
+        boolean low = frameOut > 0, holedFrame = frameHole[0] > 0;
         // кадр свободной камеры почти весь в дыму у самой камеры
         double smother = pov == null ? smoke.smothered(view) : 0;
 
@@ -174,6 +184,7 @@ final class FrameLog {
         if (dh < 0) dhWorld++;
         if (blocked) inside++;
         if (low) lowOut++;
+        if (holedFrame) holed++;
         if (smother >= SMOTHERED) smothered++;
         if (aim != null && before) {
             boolean good = in && seen >= 0.4 && clear >= 0.5 && !cloud && !fog && (drawn || ready <= 0) && share >= shot.need().share();
@@ -187,9 +198,9 @@ final class FrameLog {
         }
         try {
             out.write(String.format(Locale.ROOT,
-                    "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"inside\":%b,\"out\":%.4f,\"low_out\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
+                    "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"inside\":%b,\"out\":%.4f,\"hole\":%.4f,\"low_out\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
                             + "\"smother\":%.2f,\"fog\":%b,\"drawn\":%b,\"entity\":%b,\"engine\":%.3f,\"unknown\":%.0f,\"keys\":[%s],\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.2f}\n",
-                    t, built, isPov, blocked, frameOut, low, in, x, y, share, seen, clear, cloud, smother, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
+                    t, built, isPov, blocked, frameOut, frameHole[0] / (FrameOut.W * FrameOut.H), low, in, x, y, share, seen, clear, cloud, smother, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
                     cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -245,8 +256,9 @@ final class FrameLog {
      * виден, не в дыму, облаках и тумане, в построенной секции и не мельче порога — не меньше долей плана за всё время
      * и за последнюю секунду; каждое событие видно в первые {@link #KEY_CHECK} тиков (доля событий — по плану);
      * мотор слышен; громкого за кадром не больше, чем в кадре; у плана глазами игрока камера — этот игрок; LOD Distant
-     * Horizons с глубиной мира и свободная камера в блоке — ни в одном кадре; земля вне чанков повтора в кадре свободной камеры — не больше
-     * чем в 2 % кадров, и их число вычитается из rank: из не прошедших кандидатов лучший — тот, где таких кадров
+     * Horizons с глубиной мира и свободная камера в блоке — ни в одном кадре; земля вне чанков повтора в кадре свободной
+     * камеры — не больше чем в 2 % кадров, дыра в мире (DH не нарисовал землю, где она должна быть, — видно пещеры
+     * LOD или пустоту) — тоже, и числа этих кадров вычитаются из rank: из не прошедших кандидатов лучший — где их
      * меньше; кадров в дыму у самой камеры — не больше доли {@code smother} плана.
      */
     Verdict verdict(boolean isPovShot) {
@@ -277,6 +289,8 @@ final class FrameLog {
         if (inside > 0) why.append(String.format(Locale.ROOT, "camera inside blocks in %d of %d frames; ", inside, frames));
         if (lowOut > 0.02 * frames)
             why.append(String.format(Locale.ROOT, "frame on ground outside the replay's chunks in %d of %d frames; ", lowOut, frames));
+        if (holed > 0.02 * frames)
+            why.append(String.format(Locale.ROOT, "hole in the world (no Distant Horizons ground where it must be) in %d of %d frames; ", holed, frames));
         if (need.smother() >= 0 && smothered > need.smother() * frames)
             why.append(String.format(Locale.ROOT, "frame covered by smoke at the camera in %d of %d frames; ", smothered, frames));
         if (dhWorld > 0) why.append(String.format(Locale.ROOT, "Distant Horizons LODs drawn with the world's depth in %d of %d frames; ", dhWorld, frames));
@@ -295,11 +309,12 @@ final class FrameLog {
         if (DH) n.addProperty("dh_world", dhWorld);
         n.addProperty("inside", inside);
         n.addProperty("low_out", lowOut);
+        if (hole != null) n.addProperty("hole", holed);
         n.addProperty("smothered", smothered);
         n.addProperty("smoke_columns", smoke.columns());
-        // кадры на земле за чанками вычитаются из rank числом: из кандидатов, не прошедших проверку (например, трёх
-        // полётов пилота), лучший — тот, где таких кадров меньше
-        double rank = rReady + approach + nearHit + keys + 0.5 * engine + (loudOk ? 0.5 : 0) + (isPovShot ? povShare : 1) - lowOut;
+        // кадры на земле за чанками и кадры с дырой в мире вычитаются из rank числом: из кандидатов, не прошедших
+        // проверку (например, трёх полётов пилота), лучший — тот, где таких кадров меньше
+        double rank = rReady + approach + nearHit + keys + 0.5 * engine + (loudOk ? 0.5 : 0) + (isPovShot ? povShare : 1) - lowOut - holed;
         return new Verdict(why.isEmpty(), why.toString().trim(), rank, n);
     }
 }

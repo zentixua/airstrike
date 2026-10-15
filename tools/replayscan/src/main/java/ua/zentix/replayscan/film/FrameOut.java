@@ -30,8 +30,21 @@ final class FrameOut {
         double ground(int x, int z);
     }
 
+    /**
+     * Луч «вне» ({@link #share} с приёмником): его место в кадре (доли полукадра, с креном), направление и ожидаемая
+     * дальность земли — где луч на высоте последней известной земли.
+     */
+    interface OutRay {
+        void out(double sx, double sy, Vec3 d, double expected);
+    }
+
     /** Доля лучей сетки кадра «вне» — на земле за чанками повтора. */
     static double share(Cameras.View v, Column col) {
+        return share(v, col, null);
+    }
+
+    /** То же с приёмником лучей «вне» — что нарисовал там Distant Horizons, знает вывод ({@link DhHole}). */
+    static double share(Cameras.View v, Column col, OutRay sink) {
         int out = 0;
         for (int i = 0; i < W; i++) {
             double sx = -1 + 2.0 * i / (W - 1);
@@ -44,7 +57,10 @@ final class FrameOut {
                     Vec3 p = v.eye().add(d.scale(k));
                     double g = col.ground(Mth.floor(p.x), Mth.floor(p.z));
                     if (Double.isNaN(g)) {
-                        if (v.eye().y + d.y * LOW_NEAR <= last + 1) out++;
+                        if (v.eye().y + d.y * LOW_NEAR <= last + 1) {
+                            out++;
+                            if (sink != null) sink.out(sx, sy, d, (v.eye().y - (last + 1)) / -d.y);
+                        }
                         break;
                     }
                     last = g;
