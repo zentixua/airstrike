@@ -422,9 +422,17 @@ final class Rig {
         }
     }
 
-    /** Оценка кандидата по журналу и миру до вывода. */
-    record Score(double total, double approach, double atKey, double after, double size, double smoke, boolean free, String why) {
-        static final Score REJECT = new Score(-1, 0, 0, 0, 0, 0, false, "");
+    /**
+     * Оценка кандидата по журналу и миру до вывода; доли — те же, что у проверки кадров ({@link FrameQa#verdict}):
+     * подлёт, последняя секунда до удара ({@code near}), удар.
+     */
+    record Score(double total, double approach, double near, double atKey, double after, double size, double smoke, boolean free, String why) {
+        static final Score REJECT = new Score(-1, 0, 0, 0, 0, 0, 0, false, "");
+
+        /** По данным записи проверку кадров пройдёт: доли не ниже нормы плана (дым журнала грубее дыма кадра — не в счёт). */
+        boolean likely(Coverage.Need need) {
+            return free && approach >= need.approach() && near >= need.near() && atKey >= need.key();
+        }
     }
 
     /** Тип камеры: из объекта и окна — кандидаты. */
@@ -720,7 +728,7 @@ final class Rig {
         private final double minShare;
         /** Тики образцов, которые ждут мира. */
         private final java.util.ArrayDeque<Integer> pending = new java.util.ArrayDeque<>();
-        private int n, ok, keyN, keyOk, afterN, afterOk, smokeHits;
+        private int n, ok, nearN, nearOk, keyN, keyOk, afterN, afterOk, smokeHits;
         private double sizeSum;
         private boolean inBlocks, outside;
         /** Где камера впервые в блоках: тик, место, блок — в причину оценки. */
@@ -794,8 +802,14 @@ final class Rig {
             if (smoky) smokeHits++;
             if (s.key < 0 || t < s.key) {
                 n++;
-                if (seen && share >= minShare && !smoky) ok++;
+                boolean good = seen && share >= minShare && !smoky;
+                if (good) ok++;
                 sizeSum += share;
+                // последняя секунда до удара — как у проверки кадров
+                if (s.key >= 0 && t >= s.key - 20) {
+                    nearN++;
+                    if (good) nearOk++;
+                }
             } else if (t <= s.key + 12) {
                 keyN++;
                 if (seen && !smoky) keyOk++;
@@ -808,6 +822,7 @@ final class Rig {
 
         Score score() {
             double approach = n == 0 ? 1 : (double) ok / n;
+            double near = nearN == 0 ? 1 : (double) nearOk / nearN;
             double atKey = keyN == 0 ? 1 : (double) keyOk / keyN;
             double after = afterN == 0 ? 1 : (double) afterOk / afterN;
             double meanShare = n == 0 ? 0 : sizeSum / n;
@@ -817,7 +832,7 @@ final class Rig {
             if (outside) why.append(" камера вне мира повтора;");
             if (!rejected() && atKey < 0.5) why.append(" удар не виден;");
             double total = rejected() ? -1 : approach * 0.45 + atKey * 0.35 + after * 0.1 + Math.min(1, meanShare / 0.06) * 0.1 - smoke * 0.3;
-            return new Score(total, approach, atKey, after, meanShare, smoke, !rejected(), why.toString().trim());
+            return new Score(total, approach, near, atKey, after, meanShare, smoke, !rejected(), why.toString().trim());
         }
     }
 

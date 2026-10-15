@@ -39,7 +39,10 @@ import java.util.stream.Stream;
  * журнал ({@link EventLog}), находит объект и окно, ставит камеры-кандидаты ({@link Rig}) и оценивает их по миру повтора,
  * лучшие (кроме тех, что поворачивают быстрее {@link #TURN_MAX}) по очереди выводит Flashback по ключевым кадрам (кадр на
  * тик, PNG) с проверкой каждого кадра ({@link FrameQa});
- * первый кандидат, прошедший проверку, — план; не прошёл ни один — в отчёте лучший с причинами. Перед выводом зритель
+ * первый кандидат, прошедший проверку, — план; не прошёл ни один — в отчёте лучший с причинами. Проверка кадров — по
+ * данным игры, не по пикселям, поэтому кандидат сперва идёт пробой в малом размере ({@code INCOMING_FILM_PROBE}, по
+ * умолчанию четверть кадра по стороне, {@code 0} — без пробы): в полном размере выводится только прошедший пробу, а не
+ * прошёл ни один — лучший из них (черновик монтажа берёт его с пометкой FAIL). Перед выводом зритель
  * повтора проходит путь камеры (секции мира строятся там, куда камера посмотрит) и стоит в её начале, пока мир не
  * построен.
  * <p>
@@ -83,6 +86,8 @@ public final class ReplayFilm {
     private final Minecraft mc = Minecraft.getInstance();
     private final Path root, replays, out;
     private final int width, height, tries, hold;
+    /** Размер пробы кандидата ({@code INCOMING_FILM_PROBE}); 0 — без пробы, кандидаты сразу в полном размере. */
+    private final int probeWidth, probeHeight;
     /** Только кандидаты с такими именами (INCOMING_FILM_CAMERA), null — все. */
     private final @Nullable java.util.regex.Pattern cameraFilter;
     /** Журналы записаны до очереди мест мода (film-war2 и раньше): место снаряда в кадре — {@link Shown}. */
@@ -137,6 +142,19 @@ public final class ReplayFilm {
     @Nullable
     private EventLog shown;
     private Path candDir;
+    /** Вывод кандидата — MOV без потерь ({@link FrameUnpack}), а не PNG Flashback; задание вывода — ради его счётчиков. */
+    private boolean mov;
+    @Nullable
+    private Object job;
+    /** Кандидат идёт пробой: малый кадр, только ради проверки; полный размер — тому, кто её прошёл ({@link #passed}). */
+    private boolean probing;
+    /** Прошёл пробу: следующий вывод — он же в полном размере. */
+    @Nullable
+    private Scored passed;
+    /** Пробу не прошёл никто: лучший из них выводится в полном размере для черновика ({@link #fallback}). */
+    private boolean fallback;
+    /** У {@link #bestTry} кадры полного размера (выведен целиком, а не только пробой). */
+    private boolean bestFull;
     private final ArrayDeque<Pose> walk = new ArrayDeque<>();
     private Pose standing;
     private int poseAt, stepped, reachedAt;
@@ -165,6 +183,16 @@ public final class ReplayFilm {
         width = Integer.parseInt(size[0]);
         height = Integer.parseInt(size[1]);
         tries = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_TRIES", "3"));
+        // проба: тот же вывод с той же проверкой кадров (она по данным игры, без пикселей), кадр вчетверо меньше по стороне;
+        // размер — не окна (film.sh: окно вдвое меньше кадра), иначе LOD DH легли бы глубиной мира (DhFrameDepth)
+        String probe = System.getenv().getOrDefault("INCOMING_FILM_PROBE", (width / 8 * 2) + "x" + (height / 8 * 2));
+        if (probe.equals("0") || probe.isBlank()) {
+            probeWidth = probeHeight = 0;
+        } else {
+            String[] ps = probe.split("x");
+            probeWidth = Integer.parseInt(ps[0]);
+            probeHeight = Integer.parseInt(ps[1]);
+        }
         // правка одного плана другой камерой: имена кандидатов (регулярное выражение, список — render/<план>/candidates.txt)
         String camera = System.getenv("INCOMING_FILM_CAMERA");
         cameraFilter = camera == null || camera.isBlank() ? null : java.util.regex.Pattern.compile(camera);
@@ -454,7 +482,7 @@ public final class ReplayFilm {
                 } else if (!built() && ticks - reachedAt < POSE_MAX) {
                     return;
                 }
-                if (FrameQa.DH && !DhFrameDepth.recreatedBy(width, height)) {
+                if (FrameQa.DH && !DhFrameDepth.recreatedBy(outWidth(), outHeight())) {
                     // текстуры LOD DH ещё размера вывода: вывод их не пересоздаст, и Iris оставит LOD глубину мира
                     if (waited() < DH_WAIT) return;
                     String why = "текстуры LOD DH размера вывода: DH не нарисовал LOD в окне за " + DH_WAIT + " тиков";
@@ -466,7 +494,12 @@ public final class ReplayFilm {
                 export();
             }
             case EXPORTING -> {
-                if (FlashbackApi.exporting() || !FlashbackApi.jobs().isEmpty()) return;
+                if (FlashbackApi.exporting() || !FlashbackApi.jobs().isEmpty()) {
+                    // вывод тикает клиент изнутри своего задания: счётчики — у задания, пока оно есть
+                    Object j = FlashbackApi.job();
+                    if (j != null) job = j;
+                    return;
+                }
                 done();
             }
             default -> {
@@ -507,6 +540,9 @@ public final class ReplayFilm {
         FlashbackApi.seek(subject.key >= 0 ? Math.max(a, subject.key - 5) : a);
         bestTry = null;
         bestVerdict = null;
+        bestFull = false;
+        passed = null;
+        fallback = false;
     }
 
     /**
@@ -588,13 +624,17 @@ public final class ReplayFilm {
         }
         tallies.clear();
         target = null;
-        // камера сценария — первой (её задумали для плана), дальше — по оценке
-        all.sort(Comparator.comparing((Scored s) -> !(s.c.designed() && s.score.total() > 0)).thenComparingDouble(s -> -s.score.total()));
+        // первыми — кто по данным записи проверку кадров пройдёт (ночь 15.10: все 43 отказа из 83 выводов данные
+        // предсказали до вывода, а камеру сценария выводили первой и с нулевым ударом); среди них — камера сценария (её
+        // задумали для плана), дальше — по оценке
+        Coverage.Need need = spec.need();
+        all.sort(Comparator.comparing((Scored s) -> !s.score.likely(need))
+                .thenComparing(s -> !(s.c.designed() && s.score.total() > 0)).thenComparingDouble(s -> -s.score.total()));
         StringBuilder sb = new StringBuilder();
         for (Scored s : all) {
-            sb.append(String.format(Locale.ROOT, "\n  %-36s %.3f (подлёт %.2f, удар %.2f, после %.2f, размер %.3f, дым %.2f, поворот %.0f°/с%s) %s", s.c.name(),
-                    s.score.total(), s.score.approach(), s.score.atKey(), s.score.after(), s.score.size(), s.score.smoke(), s.turn,
-                    s.turn > TURN_MAX ? " — не выводится" : "", s.score.why()));
+            sb.append(String.format(Locale.ROOT, "\n  %-36s %.3f (подлёт %.2f, удар %.2f, после %.2f, в последнюю секунду %.2f, размер %.3f, дым %.2f, поворот %.0f°/с%s)%s %s",
+                    s.c.name(), s.score.total(), s.score.approach(), s.score.atKey(), s.score.after(), s.score.near(), s.score.size(), s.score.smoke(), s.turn,
+                    s.turn > TURN_MAX ? " — не выводится" : "", s.score.likely(need) ? " снимет" : "", s.score.why()));
         }
         Incoming.LOG.info("SCENARIO film solve {}: {} candidates{}", spec.shot(), all.size(), sb);
         // все оценённые камеры плана — для правки по замечанию другой камерой (INCOMING_FILM_CAMERA)
@@ -605,7 +645,24 @@ public final class ReplayFilm {
             Incoming.LOG.warn("SCENARIO film {}: candidates.txt не записан: {}", spec.shot(), e.toString());
         }
         candidates.clear();
-        all.stream().filter(Scored::exportable).limit(tries).forEach(candidates::add);
+        // камера «как есть» (-raw) — запасная той же камеры с руками оператора: если та уже в очереди, итог у них один
+        // (ночь 15.10: 14 отказов из 43 — такие пары)
+        java.util.Set<String> queued = new java.util.HashSet<>();
+        for (Scored s : all) {
+            if (candidates.size() >= tries) break;
+            if (!s.exportable()) continue;
+            String name = s.c.name();
+            if (name.endsWith("-raw") && queued.contains(name.substring(0, name.length() - 4))) continue;
+            candidates.add(s);
+            queued.add(name);
+        }
+        if (!candidates.isEmpty() && !candidates.peekFirst().score.likely(need)) {
+            // данные записи говорят, что ни одна камера план не снимет: удар или подлёт не виден ни с одного места —
+            // это постановка, а не камера; пробы всё же идут (данные бывают строже кадров), лучший — в черновик с пометкой
+            Scored top = candidates.peekFirst();
+            Incoming.LOG.warn(String.format(Locale.ROOT, "SCENARIO film staging %s: по данным записи ни одна камера не снимет план — лучшая %s: подлёт %.2f (нужно %.2f), в последнюю секунду %.2f (%.2f), удар %.2f (%.2f) %s",
+                    spec.shot(), top.c.name(), top.score.approach(), need.approach(), top.score.near(), need.near(), top.score.atKey(), need.key(), top.score.why()).trim());
+        }
         if (candidates.isEmpty()) {
             Scored top = all.isEmpty() ? null : all.get(0);
             // с оценкой выше нуля есть, но все поворачивают быстрее предела: лучшая из них — по тому же порядку
@@ -624,7 +681,20 @@ public final class ReplayFilm {
 
     /** Следующий кандидат: пройти его путь (секции мира строятся), потом вывод. */
     private void nextCandidate() {
-        current = candidates.poll();
+        if (passed != null) {
+            current = passed;
+            passed = null;
+            probing = false;
+        } else {
+            current = candidates.poll();
+            probing = probeWidth > 0;
+        }
+        if (current == null && bestTry != null && !bestFull && !fallback) {
+            // пробу не прошёл никто: лучший — в полном размере, черновик монтажа возьмёт его с пометкой
+            fallback = true;
+            current = bestTry;
+            probing = false;
+        }
         if (current == null) {
             // ни один не прошёл: в монтаж — лучший из выведенных, с причинами в отчёте
             if (bestTry != null) {
@@ -654,7 +724,16 @@ public final class ReplayFilm {
         standing = current.c.path().at(a);
         poseAt = ticks + SEEK_SETTLE;  // перемотка: мир повтора приходит заново
         go(State.WALKING);
-        Incoming.LOG.info("SCENARIO film candidate {} {} score {}", spec.shot(), current.c.name(), String.format(Locale.ROOT, "%.3f", current.score.total()));
+        Incoming.LOG.info("SCENARIO film candidate {} {} score {}{}", spec.shot(), current.c.name(), String.format(Locale.ROOT, "%.3f", current.score.total()),
+                probing ? " — проба " + probeWidth + "x" + probeHeight : fallback ? " — лучший из не прошедших пробу" : "");
+    }
+
+    private int outWidth() {
+        return probing ? probeWidth : width;
+    }
+
+    private int outHeight() {
+        return probing ? probeHeight : height;
     }
 
     /** Мир у камеры построен; без проверки мира ({@link FrameQa#READY} = 0, облако) не ждём его. */
@@ -680,12 +759,12 @@ public final class ReplayFilm {
         mc.player.setDeltaMovement(Vec3.ZERO);
     }
 
-    /** Задание вывода: ключевые кадры камеры и угла на каждый тик окна, кадры PNG, проверка каждого кадра. */
+    /** Задание вывода: ключевые кадры камеры и угла на каждый тик окна, кадры (MOV или PNG), проверка каждого кадра. */
     private void export() {
         try {
             deleteTree(candDir);
             Path frames = candDir.resolve("frames").resolve(spec.shot());
-            Files.createDirectories(frames);
+            if (!probing) Files.createDirectories(frames);
             Path stateFile = candDir.resolve("state.json");
             Files.writeString(stateFile, editorState(current.c.path(), a, b), StandardCharsets.UTF_8);
             Pose p0 = current.c.path().at(a);
@@ -693,9 +772,9 @@ public final class ReplayFilm {
             if (subject.key >= 0) marks.add(new EventLog.Mark(subject.key, "impact"));
             // вывод пересоздаёт кадр игры в размер вывода; в том же размере Iris оставляет LOD DH глубину мира (DhFrameDepth)
             var main = mc.getMainRenderTarget();
-            if (FrameQa.DH && main.width == width && main.height == height) {
-                Incoming.LOG.error("SCENARIO film failed: окно {}x{} — размер вывода, LOD DH лягут поверх ближнего мира (окно — INCOMING_WINDOW, film.sh render)",
-                        width, height);
+            if (FrameQa.DH && main.width == outWidth() && main.height == outHeight()) {
+                Incoming.LOG.error("SCENARIO film failed: окно {}x{} — размер вывода, LOD DH лягут поверх ближнего мира (окно — INCOMING_WINDOW, film.sh render; проба — INCOMING_FILM_PROBE)",
+                        outWidth(), outHeight());
                 Runtime.getRuntime().halt(3);
             }
             qa = new FrameQa(subject, candDir, spec.shot(), a, marks);
@@ -705,8 +784,13 @@ public final class ReplayFilm {
             // волна трясёт камеру моделью мода (давление у камеры), её Operator не повторяет
             IncomingConfig.CLIENT.cameraShake.set(data.nukes.isEmpty() ? 0.0 : 1.0);
             flawless(true);
-            FlashbackApi.queuePng(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
-                    a, b, FPS, frames);
+            mov = FrameUnpack.enabled(out);
+            job = null;
+            // кадры пробы не нужны никому: они рядом и уходят после проверки
+            Path to = probing ? (mov ? candDir.resolve("probe.mov") : Files.createDirectories(candDir.resolve("probe")))
+                    : mov ? candDir.resolve("frames.mov") : frames;
+            FlashbackApi.queue(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()},
+                    outWidth(), outHeight(), a, b, FPS, to, mov);
             go(State.EXPORTING);
             // люди у камеры у клиента повтора: статисты плана должны быть в мире повтора
             String people = mc.level.players().stream().filter(pl -> pl.position().distanceTo(p0.pos()) < 128)
@@ -726,21 +810,73 @@ public final class ReplayFilm {
         qa.close();
         FrameQa q = qa;
         qa = null;
-        int frames = renumber(candDir.resolve("frames").resolve(spec.shot()));
+        Incoming.LOG.info("SCENARIO film export stats {} {} ({} {}x{}): {}", spec.shot(), current.c.name(), mov ? "mov" : "png",
+                outWidth(), outHeight(), job == null ? "задания не видел" : FlashbackApi.stats(job));
+        if (probing) {
+            probed(q);
+            return;
+        }
+        Path dir = candDir.resolve("frames").resolve(spec.shot());
+        int frames;
+        if (mov) {
+            Path file = candDir.resolve("frames.mov");
+            frames = job == null ? -1 : FlashbackApi.writtenFrames(job);
+            if (!Files.isRegularFile(file) || frames == 0) {
+                // тот же кандидат ещё раз, кадрами PNG
+                FrameUnpack.disable("Flashback не записал " + file);
+                passed = current;
+                nextCandidate();
+                return;
+            }
+            FrameUnpack.submit(file, dir, frames, spec.shot() + " " + current.c.name());
+        } else {
+            frames = renumber(dir);
+        }
         FrameQa.Verdict v = q.verdict(spec.minShare(), spec.need(), current.c.close());
         Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film verdict %s %s: %s, %d frames (%d checked): мир %.2f, подлёт %.2f, перед ударом %.2f, удар %.2f, мотор %.2f, в дыму %.2f %s",
                 spec.shot(), current.c.name(), v.pass() ? "PASS" : "FAIL", frames, q.frames().size(), v.ready(), v.approach(), v.nearHit(), v.atKey(),
                 v.engine(), v.smoky(), v.why()));
-        report(current, v, v.why());
-        if (bestTry == null || rank(v) > rank(bestVerdict)) {
+        report(current, v, v.why(), false);
+        if (bestTry == null || rank(v) > rank(bestVerdict) || fallback) {
             bestTry = current;
             bestVerdict = v;
+            bestFull = true;
         }
         if (v.pass()) {
             best.add(spec.shot() + " " + candDir + " PASS");
             writeBest();
             next();
             return;
+        }
+        nextCandidate();
+    }
+
+    /**
+     * Проба кончилась: тот же итог проверки, что у полного вывода (проверка по данным игры, размер кадра в ней — только
+     * доли). Прошла — следующий вывод этого кандидата в полном размере; нет — следующий кандидат.
+     */
+    private void probed(FrameQa q) {
+        FrameQa.Verdict v = q.verdict(spec.minShare(), spec.need(), current.c.close());
+        Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film probe %s %s: %s, %d checked: мир %.2f, подлёт %.2f, перед ударом %.2f, удар %.2f, мотор %.2f, в дыму %.2f %s",
+                spec.shot(), current.c.name(), v.pass() ? "PASS" : "FAIL", q.frames().size(), v.ready(), v.approach(), v.nearHit(), v.atKey(),
+                v.engine(), v.smoky(), v.why()));
+        try {
+            if (mov && !Files.isRegularFile(candDir.resolve("probe.mov"))) FrameUnpack.disable("Flashback не записал " + candDir.resolve("probe.mov"));
+            Files.deleteIfExists(candDir.resolve("probe.mov"));
+            deleteTree(candDir.resolve("probe"));
+        } catch (IOException ex) {
+            throw new UncheckedIOException(ex);
+        }
+        if (v.pass()) {
+            passed = current;
+            nextCandidate();
+            return;
+        }
+        report(current, v, v.why(), true);
+        if (bestTry == null || rank(v) > rank(bestVerdict)) {
+            bestTry = current;
+            bestVerdict = v;
+            bestFull = false;
         }
         nextCandidate();
     }
@@ -868,8 +1004,14 @@ public final class ReplayFilm {
     private String lastWhy = "";
 
     private void report(@Nullable Scored c, @Nullable FrameQa.Verdict v, String why) {
+        report(c, v, why, false);
+    }
+
+    /** Строка итога в {@code report.jsonl}; {@code probe} — итог пробы (кадров полного размера у кандидата нет). */
+    private void report(@Nullable Scored c, @Nullable FrameQa.Verdict v, String why, boolean probe) {
         lastWhy = why;
         JsonObject o = new JsonObject();
+        if (probe) o.addProperty("probe", true);
         o.addProperty("shot", spec.shot());
         o.addProperty("run", run);
         o.addProperty("replay", spec.replay());
@@ -926,6 +1068,8 @@ public final class ReplayFilm {
             }
             jfr = null;
         }
+        // кадры MOV раскладываются в фоне: монтаж и проверки дубля возьмут PNG, когда клиент выйдет
+        FrameUnpack.awaitAll();
         writeBest();
         Incoming.LOG.info("SCENARIO film done: {}", best);
         Incoming.LOG.info("SCENARIO done");

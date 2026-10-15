@@ -5,6 +5,7 @@ import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ChunkTrackingView;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.StructureTags;
@@ -936,13 +937,19 @@ abstract class Film {
      * первый план в свежем мире иначе снимал бы деревню на «острове» над пустотой; видео с борта — вся прорисовка (ракета
      * смотрит за деревню). Остальным хватает 4: пока ждём дальние, снаряд уже долетает, и план удара снимался бы без удара.
      */
-    /** Чанки в {@code chunks} от камеры (не дальше прорисовки без двух) у клиента; {@code render} — и секции построены. */
+    /**
+     * Чанки в {@code chunks} от камеры (не дальше прорисовки без двух) у клиента; {@code render} — и секции построены.
+     * Круг, а не квадрат: сервер шлёт игроку чанки кругом прорисовки ({@code ChunkTrackingView}), и углы квадрата в
+     * прорисовку без двух не приходят никогда — повтор ждал их до срока подготовки, 60 с на каждый план (ночь 15.10:
+     * 78 подготовок из 78, половина времени записи).
+     */
     boolean worldReady(int chunks, boolean render) {
         var cam = mc.gameRenderer.getMainCamera().getPosition();
         int cx = Mth.floor(cam.x) >> 4, cz = Mth.floor(cam.z) >> 4;
         int r = Math.max(4, Math.min(chunks, mc.options.getEffectiveRenderDistance() - 2));
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
+                if (!ChunkTrackingView.isWithinDistance(cx, cz, r, cx + dx, cz + dz, false)) continue;
                 if (!mc.level.getChunkSource().hasChunk(cx + dx, cz + dz)) return false;
             }
         }

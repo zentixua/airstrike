@@ -190,10 +190,11 @@ final class FlashbackApi {
     /**
      * Задание вывода в очередь и запуск очереди — как кнопки «Add to queue» и «Start» окна вывода Flashback. Камера и
      * поле зрения — из состояния редактора {@code state} (JSON, как его хранит Flashback); кадры — PNG
-     * {@code dir/00001.png…} (кадр k — тик {@code start + (k−1)·20/fps}). Без GUI, случайные числа частиц одинаковые
+     * {@code out/00001.png…} (кадр k — тик {@code start + (k−1)·20/fps}) или, с {@code mov}, видео QuickTime RLE без
+     * потерь в файл {@code out} (кадры раскладывает {@link FrameUnpack}). Без GUI, случайные числа частиц одинаковые
      * в каждом выводе.
      */
-    static void queuePng(String name, Path state, double[] camera, int width, int height, int start, int end, double fps, Path dir) {
+    static void queue(String name, Path state, double[] camera, int width, int height, int start, int end, double fps, Path out, boolean mov) {
         // PNG кадров Flashback пишет stb_image_write в одном потоке (zlib 8 и перебор фильтров) — узкое место вывода
         // при простаивающей видеокарте; уровень 5 и фильтр 2 дают те же пиксели (без потерь) на 30 % быстрее, +3 % места
         org.lwjgl.stb.STBImageWrite.stbi_write_png_compression_level.put(0, 5);
@@ -206,13 +207,70 @@ final class FlashbackApi {
                     .orElseThrow(() -> new NoSuchMethodException("ExportSettings(23)"));
             Object job = ctor.newInstance(name, editor, new net.minecraft.world.phys.Vec3(camera[0], camera[1], camera[2]),
                     (float) camera[3], (float) camera[4], width, height, start, end, fps, true,
-                    constant("combo_options.VideoContainer", "PNG_SEQUENCE"), constant("combo_options.VideoCodec", "H264"),
-                    "libx264", 0, false, false, true, false, false, constant("combo_options.AudioCodec", "AAC"), dir, "%05d");
+                    constant("combo_options.VideoContainer", mov ? "MOV" : "PNG_SEQUENCE"),
+                    constant("combo_options.VideoCodec", mov ? "QUICK_TIME" : "H264"), mov ? "qtrle" : "libx264",
+                    0, false, false, true, false, false, constant("combo_options.AudioCodec", "AAC"), out, "%05d");
             jobs().add(job);
             c("exporting.ExportJobQueue").getField("drainingQueue").setBoolean(null, true);
         } catch (ReflectiveOperationException e) {
             throw fail("ExportSettings", e);
         }
+    }
+
+    /** У ffmpeg Flashback есть кодировщик QuickTime RLE (без него задание MOV упало бы посреди тика клиента). */
+    static boolean qtrle() {
+        try {
+            Object codec = constant("combo_options.VideoCodec", "QUICK_TIME");
+            String[] encoders = (String[]) codec.getClass().getMethod("getEncoders").invoke(codec);
+            return Arrays.asList(encoders).contains("qtrle");
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** Задание вывода, которое идёт (его счётчики — {@link #stats}), или null. */
+    @org.jetbrains.annotations.Nullable
+    static Object job() {
+        try {
+            return c("Flashback").getField("EXPORT_JOB").get(null);
+        } catch (ReflectiveOperationException e) {
+            throw fail("EXPORT_JOB", e);
+        }
+    }
+
+    /** Кадров, записанных заданием {@code job} (-1 — не прочиталось). */
+    static int writtenFrames(Object job) {
+        try {
+            return (int) field(job, "writtenFrames");
+        } catch (ReflectiveOperationException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * Куда ушло время задания (счётчики самого {@code ExportJob}): тики сервера и клиента, отрисовка, ожидание кадра с
+     * видеокарты, сдача кадра писателю (при полной очереди писателя — ожидание кодирования) и всё время с начала вывода.
+     */
+    static String stats(Object job) {
+        try {
+            int frames = (int) field(job, "writtenFrames");
+            long wall = System.currentTimeMillis() - (long) field(job, "renderStartTime");
+            StringBuilder b = new StringBuilder(String.format(java.util.Locale.ROOT, "%d кадров за %.1f с", frames, wall / 1e3));
+            for (String[] k : new String[][]{{"renderTimeNanos", "отрисовка"}, {"encodeTimeNanos", "сдача писателю"},
+                    {"downloadTimeNanos", "кадр с видеокарты"}, {"clientTickTimeNanos", "тики клиента"}, {"serverTickTimeNanos", "тики сервера"}}) {
+                long ns = (long) field(job, k[0]);
+                b.append(String.format(java.util.Locale.ROOT, ", %s %.1f с (%.0f мс/кадр)", k[1], ns / 1e9, frames > 0 ? ns / 1e6 / frames : 0.0));
+            }
+            return b.toString();
+        } catch (ReflectiveOperationException e) {
+            return "счётчики не прочитались: " + e;
+        }
+    }
+
+    private static Object field(Object o, String name) throws ReflectiveOperationException {
+        Field f = o.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(o);
     }
 
     private static Object constant(String type, String name) throws ClassNotFoundException {
