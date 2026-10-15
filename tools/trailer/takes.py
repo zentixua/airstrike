@@ -18,6 +18,7 @@ k/60 с, тик журнала записи (тик повтора) — `a + 20�
   не получил (он слышит только то, что сервер слал игроку записи), а `edit.load_recording` кладёт их в план.
 """
 import bisect
+import glob
 import json
 import math
 import os
@@ -766,6 +767,136 @@ def world_sfx_for(name, folder):
         print(f"  {name}: звуков мира, которых не было у клиента повтора, — {len(out)} "
               f"({', '.join(f'{k} {n}' for k, n in sorted(kinds.items()))})")
     return out
+
+
+# ---------------------------------------------------------------- сирена монтажом
+
+SIREN_EVENT = "incoming:siren"
+SIREN_FILE = "incoming:sounds/siren.ogg"
+SIREN_MAX_S = 26.5          # длина записи сирены у клиента (и память повторов, Alerts.SIREN_MEMORY / 20)
+SIREN_VOLUME, SIREN_RANGE = 16.0, 256.0
+SIREN_EMITTERS = {          # Alerts.siren: две сирены по стороны «города» от цели, чуть разного тона
+    "missile": ((125, 15, -65, 1.0), (-95, 15, 115, 0.97)),
+    "air_raid": ((115, 15, 80, 1.0), (-130, 15, -70, 0.97)),
+}
+MISSILE_SIREN_WEAPONS = ("missile", "rocket")
+_SIREN_PLANS = {}
+
+
+def siren_plans():
+    """План → звучит ли сирена (newisle-takes.json: `siren` и живые дубли Артёма); файла нет — пусто (не Newisle)."""
+    if not _SIREN_PLANS:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scenes", "newisle-takes.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return {}
+        for t in data.get("takes", []):
+            on = t.get("siren", True) and "artem" not in t
+            for s in t.get("shots", []):
+                for p in s.get("plans", []):
+                    _SIREN_PLANS[p] = on
+            for p in (t.get("cover") or {}):        # дубль-обложка цепочки: планов в shots нет
+                _SIREN_PLANS[p] = on
+    return _SIREN_PLANS
+
+
+def siren_sfx_for(name, folder):
+    """Крючок edit.load_recording: сирена плана name звуком монтажа. Игра играет её у цели сама (S2C.Siren, звук
+    собирает клиент), но повтор у окна вывода играет пакет только внутри окна: сработавшая до окна сирена в звуке
+    вывода молчит, хотя отметка тревоги в журнале есть. Ставим как игра (Alerts.siren: два излучателя у первого
+    удара, вход в середину записи с истинного начала — render_sfx играет срез), если клиент вывода её не сыграл.
+    Война в разгар (тревоги за весь дубль не было — пакеты до записи): сирена звучит с начала окна."""
+    if not siren_plans().get(name) or "/render" not in os.path.abspath(folder):
+        return []
+    take = load_take(name, os.path.abspath(folder))
+    if take.live or (take.journal is None and take.record_journal is None):
+        return []
+    if any(getattr(s, "event", "") == SIREN_EVENT for s in take.sounds):
+        return []      # клиент вывода сам играл сирену в окне — она уже в монтаже
+    marks = sorted({t for j in (take.journal, take.record_journal) if j for t, what in j.marks if what == "siren"})
+    if not marks and not _take_had_siren(folder):
+        # войны в разгар: сирена ни разу не пришла за весь дубль (пакеты до записи) — звучит с начала окна
+        return _siren_entries(take, [take.a], _siren_kind(take), "начала окна")
+    end = take.duration
+    fired, last = [], None      # память клиента: тревога в 26,5 с — только надпись, звука второй нет
+    for m in marks:
+        if last is not None and (m - last) / TPS < SIREN_MAX_S:
+            continue
+        last = m
+        if -SIREN_MAX_S < take.sec(m) < end:
+            fired.append(m)
+    if not fired:
+        return []
+    return _siren_entries(take, fired, _siren_kind(take), "первого удара")
+
+
+def siren_seconds(take, extra=()):
+    """Секунды сирены в окне дубля — то, что слышит монтаж: сыгранные клиентом вывода (take.sounds) и поставленные
+    монтажом (записи siren_sfx_for). Проверка роста сирены (cut_checks) меряет этой же суммой."""
+    end = take.duration
+    total = 0.0
+    for s in take.sounds:
+        if s.event != SIREN_EVENT:
+            continue
+        stop = s.stop if s.stop is not None else s.t + SIREN_MAX_S
+        total += max(0.0, min(end, stop, s.t + SIREN_MAX_S) - max(0.0, s.t))
+    for e in extra:
+        t0 = e["t"] / TPS
+        total += max(0.0, min(end, t0 + SIREN_MAX_S) - max(0.0, t0))
+    return total
+
+
+def _siren_entries(take, ticks, kind, where):
+    """Две сирены (Alerts.siren) у цели — записями render_sfx: вход в середину записи, если тревога до окна."""
+    center = _siren_center(take, ticks[0])
+    out = []
+    for m in ticks:
+        for j, (dx, dy, dz, pitch) in enumerate(SIREN_EMITTERS[kind]):
+            out.append({"id": f"siren{m}-{j}", "t": m - take.a, "event": SIREN_EVENT, "file": SIREN_FILE,
+                        "pos": [center[0] + dx, center[1] + dy, center[2] + dz], "volume": SIREN_VOLUME,
+                        "pitch": pitch, "range": SIREN_RANGE, "relative": False, "linear": True, "loop": False})
+    at = ", ".join(f"{take.sec(m):+.1f} с" for m in ticks)
+    print(f"  {take.name}: сирена монтажом ({kind}) у {where} — тревоги на {at}")
+    return out
+
+
+def _take_had_siren(folder):
+    """Была ли тревога хоть в одном плане дубля (запись до /render): была — план без своей молчит под общей."""
+    rec = os.path.abspath(folder).split("/render")[0]
+    for path in glob.glob(os.path.join(rec, "replays", "*.events.jsonl")):
+        for r in read_jsonl(path):
+            if r.get("mark") == "siren":
+                return True
+    return False
+
+
+def _siren_kind(take):
+    """Вид тревоги по оружию первого удара (ракетная/воздушная); удара нет — ракетная."""
+    for j in (take.journal, take.record_journal):
+        if not j:
+            continue
+        impacts = sorted((f.impact, f.weapon) for f in j.flights if f.impact is not None)
+        if impacts:
+            return "missile" if impacts[0][1] in MISSILE_SIREN_WEAPONS else "air_raid"
+    return "missile"
+
+
+def _siren_center(take, mark):
+    """Место сирены: цель — первый удар плана (как у игры: пакет у цели); удара в журнале нет — место игрока записи
+    в отметку (пакет тревоги приходил ему, цель ближе 350 блоков)."""
+    for j in (take.journal, take.record_journal):
+        if j:
+            impacts = sorted((f.impact, f.impact_pos) for f in j.flights
+                             if f.impact is not None and f.impact_pos)
+            if impacts:
+                return impacts[0][1]
+            if j.recorder:
+                t = min(j.recorder, key=lambda k: abs(k - mark))
+                return tuple(j.recorder[t])
+    cam = take.cam_at(0)
+    return cam[:3] if cam else (0.0, 0.0, 0.0)
 
 
 def missing_triggers(take):

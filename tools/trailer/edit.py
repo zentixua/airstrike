@@ -301,6 +301,7 @@ def load_recording(rec=REC):
     for s in shots.values():
         s.keys = sorted(s.frames)
         s.sounds += takes.world_sfx_for(s.name, rec)  # звуки мира, которых сервер не слал игроку записи
+        s.sounds += takes.siren_sfx_for(s.name, rec)  # сирена до окна вывода — повтор её не играет, ставит монтаж
     return {n: s for n, s in shots.items() if s.frames}
 
 

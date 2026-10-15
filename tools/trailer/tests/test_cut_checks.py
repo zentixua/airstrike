@@ -101,32 +101,35 @@ class ChatGateTest(unittest.TestCase):
 
 
 class SirenGateTest(unittest.TestCase):
-    def state_rec(self, root, take_id, seconds):
-        rec = os.path.join(root, take_id)
-        os.makedirs(rec, exist_ok=True)
-        with open(os.path.join(rec, "timeline.jsonl"), "w") as f:
-            f.write(json.dumps({"type": "sound", "shot": "x", "t": 0, "id": 1, "event": "incoming:siren"}) + "\n")
-            f.write(json.dumps({"type": "stop", "shot": "x", "t": 20 * seconds, "id": 1}) + "\n")
-        return rec
+    """Рост сирены меряется по кандидату вывода плана (dirs): сыгранное клиентом плюс поставленное монтажом."""
+
+    @staticmethod
+    def render_dir(root, plan, siren_t_s, stop_s, seconds=30.0):
+        d = os.path.join(root, "render", plan, "cam")
+        os.makedirs(d, exist_ok=True)
+        rows = [{"type": "shot", "shot": plan, "speed": 1.0}]
+        for k in range(int(seconds * 60)):
+            rows.append({"type": "frame", "shot": plan, "k": k, "t": k / 3.0, "cam": [0, 70, 0, 0, 0]})
+        rows.append({"type": "sound", "shot": plan, "t": siren_t_s * 20, "id": 1, "event": "incoming:siren",
+                     "file": "incoming:sounds/siren.ogg", "pos": [0, 80, 0], "volume": 16.0, "pitch": 1.0,
+                     "range": 256.0, "relative": False, "linear": True, "loop": False})
+        rows.append({"type": "stop", "shot": plan, "t": stop_s * 20, "id": 1})
+        with open(os.path.join(d, "timeline.jsonl"), "w") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        return d
 
     def test_louder_history_with_quieter_take_clashes(self):
         with tempfile.TemporaryDirectory() as root:
-            state = {"takes": {
-                "T1": {"status": "passed", "attempts": [{"ok": True, "rec": self.state_rec(root, "T1", 10)}]},
-                "T2": {"status": "passed", "attempts": [{"ok": True, "rec": self.state_rec(root, "T2", 4)}]},
-            }}
-            out = CC.siren_gate(TAKES, SCENARIO, state, {"b1": "/r"})
+            dirs = {"a1": self.render_dir(root, "a1", 0, 10), "b1": self.render_dir(root, "b1", 0, 4)}
+            out = CC.siren_gate(TAKES, SCENARIO, {}, dirs)
             self.assertEqual(["b1"], [p for p, _ in out], out)
             self.assertIn("4.0 с против 10.0 с", out[0][1])
 
     def test_growing_or_equal_siren_is_fine_and_silent_takes_are_not_compared(self):
         with tempfile.TemporaryDirectory() as root:
-            state = {"takes": {
-                "T1": {"status": "passed", "attempts": [{"ok": True, "rec": self.state_rec(root, "T1", 5)}]},
-                "T2": {"status": "passed", "attempts": [{"ok": True, "rec": self.state_rec(root, "T2", 12)}]},
-                "T3": {"status": "passed", "attempts": [{"ok": True, "rec": self.state_rec(root, "T3", 1)}]},
-            }}
-            self.assertEqual([], CC.siren_gate(TAKES, SCENARIO, state, {"b1": "/r"}))
+            dirs = {"a1": self.render_dir(root, "a1", 0, 5), "b1": self.render_dir(root, "b1", 0, 12)}
+            self.assertEqual([], CC.siren_gate(TAKES, SCENARIO, {}, dirs))
 
 
 class GuiFitsFrameTest(unittest.TestCase):

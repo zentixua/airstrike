@@ -25,6 +25,7 @@ import os
 import re
 
 import take_checks
+import takes as trailer_takes
 
 CHAT_KEY = "incoming.nuke.key.prompt"
 CHAT_BASE_S, WORD_S, CHAT_MIN_S = 1.5, 0.35, 3.5
@@ -155,16 +156,21 @@ def strikes_count(take, scenario):
 
 
 def siren_gate(takes, scenario, state, dirs):
-    """Сирена не падает там, где история наращивает: следующий дубль пускает больше — слышно не меньше."""
+    """Сирена не падает там, где история наращивает: следующий дубль пускает больше — слышно не меньше. Меряем то,
+    что звучит в монтаже: сирены клиента вывода (кандидат плана в dirs) плюс поставленные монтажом (takes.siren_sfx_for
+    — сработавшая до окна вывода сирена повтором не играется)."""
     by_id = {t["id"]: t for t in takes["takes"]}
     measured = {}
     for t in takes["takes"]:
         if not t.get("siren", True) or "artem" in t:
             continue
-        st = state.get("takes", {}).get(t["id"], {})
-        ok = [a for a in st.get("attempts", []) if a.get("ok") and st.get("status") == "passed"]
-        if ok and ok[-1].get("rec"):
-            measured[t["id"]] = take_checks._siren_seconds(os.path.join(ok[-1]["rec"], "timeline.jsonl"))
+        plans = [p for s in t.get("shots", []) for p in s.get("plans", []) if p in dirs]
+        got = 0.0
+        for p in plans:
+            take = trailer_takes.load_take(p, dirs[p])
+            got += trailer_takes.siren_seconds(take, trailer_takes.siren_sfx_for(p, dirs[p]))
+        if plans:
+            measured[t["id"]] = got
     order = [i for i in by_id if i in measured]
     out = []
     for prev, take in zip(order, order[1:]):
