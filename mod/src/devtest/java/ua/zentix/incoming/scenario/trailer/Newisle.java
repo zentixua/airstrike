@@ -57,9 +57,11 @@ import ua.zentix.incoming.nuclear.world.HeapWatch;
 import ua.zentix.incoming.registry.ModBlocks;
 import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
+import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Frame;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Strike;
 import ua.zentix.incoming.strike.ChunkTickets;
+import ua.zentix.incoming.strike.StrikeWorld;
 import ua.zentix.incoming.strike.WeaponType;
 import ua.zentix.incoming.util.Local;
 import ua.zentix.incoming.util.Terrain;
@@ -126,7 +128,8 @@ final class Newisle {
     private final Map<String, WeaponType> rackWeapon = new HashMap<>();
     private final Set<String> creative = new LinkedHashSet<>(), bots = new LinkedHashSet<>();
     private final List<Probe> probes = new ArrayList<>();
-    private final List<Launched> launched = new ArrayList<>();
+    // пишется потоком клиента (пуск), читается потоком сервера каждый тик (watchStrikes)
+    private final List<Launched> launched = new java.util.concurrent.CopyOnWriteArrayList<>();
     @Nullable
     private Silo silo;
     private List<String> hints = List.of();
@@ -200,6 +203,54 @@ final class Newisle {
     private void serverTickEnd(net.neoforged.neoforge.event.tick.ServerTickEvent.Post e) {
         double ms = (System.nanoTime() - tickStartNanos) / 1e6;
         serverTickMs.put(e.getServer().overworld().getGameTime(), Math.round(ms * 10) / 10.0);
+        watchStrikes(e.getServer());
+    }
+
+    /** Первый тик сервера, когда каждый его снаряд появился: по нему удары записи привязываются к снарядам. */
+    private final Map<UUID, Long> serverSeen = new HashMap<>();
+
+    /**
+     * Удары записи у сервера, в его тиках: привязка — новый снаряд того же оружия у цели (в пределах 5 СКО рассеивания),
+     * первым появившимся после пуска; полёт кончился (снаряда нет или он убран) — тик удара. B-2 не смотрим: его удар —
+     * бомба после сброса, у сервера это другой снаряд (остаётся клиентская привязка из {@code ClientFlights}).
+     */
+    private void watchStrikes(MinecraftServer server) {
+        if (launched.isEmpty()) return;
+        long now = server.overworld().getGameTime();
+        Map<UUID, StrikeProjectile> live = new HashMap<>();
+        for (ServerLevel level : server.getAllLevels()) {
+            for (StrikeProjectile p : StrikeWorld.projectiles(level)) live.put(p.getUUID(), p);
+        }
+        for (Map.Entry<UUID, StrikeProjectile> e : live.entrySet()) serverSeen.merge(e.getKey(), now, Math::min);
+        for (Launched l : launched) {
+            if (l.strike.weapon() == WeaponType.BUNKER) continue;
+            if (l.watchFrom == -2) l.watchFrom = now;
+            if (l.serverId == null) {
+                StrikeProjectile pick = null;
+                for (Map.Entry<UUID, StrikeProjectile> e : live.entrySet()) {
+                    StrikeProjectile p = e.getValue();
+                    Long seen = serverSeen.get(e.getKey());
+                    // появился после пуска: раньше — это чей-то прошлый полёт
+                    if (seen == null || seen < l.watchFrom || p.isRemoved()) continue;
+                    if (p.weapon() != l.strike.weapon()) continue;
+                    Vec3 aim = p.aimPoint();
+                    if (Math.hypot(aim.x - l.target.x, aim.z - l.target.z) >= l.reach()) continue;
+                    UUID mine = e.getKey();
+                    if (launched.stream().anyMatch(o -> mine.equals(o.serverId))) continue;
+                    if (pick == null || seen < serverSeen.get(pick.getUUID())) pick = p;
+                }
+                if (pick != null) {
+                    l.serverId = pick.getUUID();
+                    l.firstSeenServer = serverSeen.get(pick.getUUID());
+                }
+                continue;
+            }
+            if (l.goneServer < 0) {
+                StrikeProjectile p = live.get(l.serverId);
+                if (p == null || p.isRemoved()) l.goneServer = now;
+            }
+        }
+        serverSeen.keySet().retainAll(live.keySet());
     }
 
     /**
@@ -331,6 +382,8 @@ final class Newisle {
         final Vec3[] aims;
         boolean moment = true, whenSeen;
         long startTick = -1;
+        // тот же старт по часам сервера: клиентские штампы под нагрузкой ударов отстают от него (T21, ночь 15.10)
+        volatile long startServer = -1;
 
         Run(JsonObject shot) {
             this.shot = shot;
@@ -393,6 +446,7 @@ final class Newisle {
         }
         shot.cue(0, () -> {
             run.startTick = mc.level.getGameTime();
+            film.withServer(sv -> run.startServer = sv.overworld().getGameTime());
             run.moment = moment == null || run.whenSeen;
             if (!run.moment) warn(run.name + ": момент не наступил, записано как есть");
             for (String p : run.plans) {
@@ -540,7 +594,7 @@ final class Newisle {
         o.addProperty("moment", run.moment);
         o.addProperty("selected", selected(run.name));
         JsonArray st = new JsonArray();
-        for (Launched l : run.mine) st.add(l.report(run.startTick));
+        for (Launched l : run.mine) st.add(l.report(run.startTick, run.startServer));
         o.add("strikes", st);
         // сервер под отставание дёргает цели (Артём, 14.10): миллисекунды на тик от начала плана до конца
         // (startTick — та же база, что actual ударов; тик с временем игры t — тик, кончившийся в t)
@@ -612,6 +666,12 @@ final class Newisle {
         boolean dropped;
         long gone = -1, nearestTick = -1;
         double nearest = Double.MAX_VALUE;
+        // тот же снаряд у сервера: его полёты уходят из списка ровно на тике удара, а часы клиента под нагрузкой
+        // ковра отстают от сервера на тик синхронизации времени (T21, ночь 15.10: три полёта «пропали» у клиента
+        // разом на 1 с раньше своих ударов) — время удара меряем по тикам сервера
+        @Nullable
+        volatile UUID serverId;
+        volatile long watchFrom = -2, firstSeenServer = -1, goneServer = -1;
 
         Launched(int index, Strike strike, double flight, double after, double delay) {
             this.index = index;
@@ -685,21 +745,25 @@ final class Newisle {
             }
         }
 
-        JsonObject report(long start) {
+        JsonObject report(long start, long startServer) {
             JsonObject o = new JsonObject();
             o.addProperty("weapon", strike.weapon().getSerializedName());
             // удар сдвинут разносчиком пусков: eta — с задержкой, иначе проверка срока (±1 с) его провалит
             o.addProperty("eta", strike.eta() + delay);
             o.addProperty("delay", delay);
             o.addProperty("pass", strike.pass() != null);
-            o.addProperty("bound", id != null);
+            o.addProperty("bound", id != null || serverId != null);
             o.addProperty("flight", flight);
-            if (start >= 0) {
+            if (startServer >= 0 && serverId != null) {
+                // часы сервера: пущен — когда снаряд появился у него, удар — когда полёт кончился
+                if (firstSeenServer >= 0) o.addProperty("launched", (firstSeenServer - startServer) / 20.0);
+                if (goneServer >= 0) o.addProperty("actual", (goneServer - startServer) / 20.0);
+            } else if (start >= 0) {
                 o.addProperty("launched", (at - start) / 20.0);
                 long moment = strike.pass() != null ? nearestTick : gone;
                 if (moment >= 0) o.addProperty("actual", (moment - start) / 20.0);
-                if (strike.pass() != null && nearest < Double.MAX_VALUE) o.addProperty("pass_distance", nearest);
             }
+            if (strike.pass() != null && nearest < Double.MAX_VALUE) o.addProperty("pass_distance", nearest);
             return o;
         }
     }
