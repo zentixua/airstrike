@@ -624,13 +624,17 @@ public final class ReplayFilm {
         }
         tallies.clear();
         target = null;
-        // камера сценария — первой (её задумали для плана), дальше — по оценке
-        all.sort(Comparator.comparing((Scored s) -> !(s.c.designed() && s.score.total() > 0)).thenComparingDouble(s -> -s.score.total()));
+        // первыми — кто по данным записи проверку кадров пройдёт (ночь 15.10: все 43 отказа из 83 выводов данные
+        // предсказали до вывода, а камеру сценария выводили первой и с нулевым ударом); среди них — камера сценария (её
+        // задумали для плана), дальше — по оценке
+        Coverage.Need need = spec.need();
+        all.sort(Comparator.comparing((Scored s) -> !s.score.likely(need))
+                .thenComparing(s -> !(s.c.designed() && s.score.total() > 0)).thenComparingDouble(s -> -s.score.total()));
         StringBuilder sb = new StringBuilder();
         for (Scored s : all) {
-            sb.append(String.format(Locale.ROOT, "\n  %-36s %.3f (подлёт %.2f, удар %.2f, после %.2f, размер %.3f, дым %.2f, поворот %.0f°/с%s) %s", s.c.name(),
-                    s.score.total(), s.score.approach(), s.score.atKey(), s.score.after(), s.score.size(), s.score.smoke(), s.turn,
-                    s.turn > TURN_MAX ? " — не выводится" : "", s.score.why()));
+            sb.append(String.format(Locale.ROOT, "\n  %-36s %.3f (подлёт %.2f, удар %.2f, после %.2f, в последнюю секунду %.2f, размер %.3f, дым %.2f, поворот %.0f°/с%s)%s %s",
+                    s.c.name(), s.score.total(), s.score.approach(), s.score.atKey(), s.score.after(), s.score.near(), s.score.size(), s.score.smoke(), s.turn,
+                    s.turn > TURN_MAX ? " — не выводится" : "", s.score.likely(need) ? " снимет" : "", s.score.why()));
         }
         Incoming.LOG.info("SCENARIO film solve {}: {} candidates{}", spec.shot(), all.size(), sb);
         // все оценённые камеры плана — для правки по замечанию другой камерой (INCOMING_FILM_CAMERA)
@@ -641,7 +645,24 @@ public final class ReplayFilm {
             Incoming.LOG.warn("SCENARIO film {}: candidates.txt не записан: {}", spec.shot(), e.toString());
         }
         candidates.clear();
-        all.stream().filter(Scored::exportable).limit(tries).forEach(candidates::add);
+        // камера «как есть» (-raw) — запасная той же камеры с руками оператора: если та уже в очереди, итог у них один
+        // (ночь 15.10: 14 отказов из 43 — такие пары)
+        java.util.Set<String> queued = new java.util.HashSet<>();
+        for (Scored s : all) {
+            if (candidates.size() >= tries) break;
+            if (!s.exportable()) continue;
+            String name = s.c.name();
+            if (name.endsWith("-raw") && queued.contains(name.substring(0, name.length() - 4))) continue;
+            candidates.add(s);
+            queued.add(name);
+        }
+        if (!candidates.isEmpty() && !candidates.peekFirst().score.likely(need)) {
+            // данные записи говорят, что ни одна камера план не снимет: удар или подлёт не виден ни с одного места —
+            // это постановка, а не камера; пробы всё же идут (данные бывают строже кадров), лучший — в черновик с пометкой
+            Scored top = candidates.peekFirst();
+            Incoming.LOG.warn(String.format(Locale.ROOT, "SCENARIO film staging %s: по данным записи ни одна камера не снимет план — лучшая %s: подлёт %.2f (нужно %.2f), в последнюю секунду %.2f (%.2f), удар %.2f (%.2f) %s",
+                    spec.shot(), top.c.name(), top.score.approach(), need.approach(), top.score.near(), need.near(), top.score.atKey(), need.key(), top.score.why()).trim());
+        }
         if (candidates.isEmpty()) {
             Scored top = all.isEmpty() ? null : all.get(0);
             // с оценкой выше нуля есть, но все поворачивают быстрее предела: лучшая из них — по тому же порядку
