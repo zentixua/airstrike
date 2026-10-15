@@ -22,6 +22,8 @@ import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.Yield;
 import ua.zentix.incoming.nuclear.world.ColumnScar;
+import ua.zentix.incoming.nuclear.world.RuinPlan;
+import ua.zentix.incoming.nuclear.world.RuinPlanner;
 
 import java.util.Locale;
 
@@ -172,6 +174,29 @@ public final class ScorchGameTests {
         LevelChunk chunk = level.getChunkAt(h.absolutePos(new BlockPos(2, 11, 32)));
         String saved = net.minecraft.world.level.chunk.storage.ChunkSerializer.write(level, chunk).toString();
         h.assertTrue(saved.contains(CHARRED.location().toString()), "в данных чанка нет обугленного биома");
+        h.succeed();
+    }
+
+    /**
+     * След света — свойство местности, а не подрыва: руины заранее строятся по месту подрыва без его сида
+     * ({@code NuclearWarhead.geometry}), а чанк, загруженный после того, как руины подготовки забыты, — по самому
+     * подрыву; пятна и биомы у них одни и те же, иначе на границе таких чанков след обрывался бы прямой.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_scorch_seed", skyAccess = true)
+    public static void scorchSameForAnySeed(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        double scale = 0.0182;
+        Detonation d = NuclearGameTests.detonation(h, GROUND_ZERO, Yield.optimalBurstHeight(15) * scale, 15, (float) scale);
+        Detonation other = new Detonation(NuclearGameTests.IDS.incrementAndGet(), d.burst(), d.groundY(), d.yieldKt(), d.surface(),
+                d.gameTime(), d.windDir(), d.windSpeed(), d.visibility(), d.seed() * 31 + 12345, d.scale(), d.fallout(), d.wave());
+        int changed = 0;
+        for (LevelChunk chunk : NuclearGameTests.chunks(h)) {
+            RuinPlan a = RuinPlanner.plan(level, d, chunk), b = RuinPlanner.plan(level, other, chunk);
+            String diff = b.differs(a);
+            if (diff != null) h.fail("чанк " + chunk.getPos() + ": след другого сида не тот (другой | этот; y — от низа мира): " + diff);
+            changed += a.changedBlocks();
+        }
+        h.assertTrue(changed > 0, "след не лёг");
         h.succeed();
     }
 

@@ -44,9 +44,14 @@ final class RuinContext {
      */
     record Applied(@Nullable RuinPlan plan, short[] motion) {}
 
-    RuinContext(Detonation d) {
+    /**
+     * Руины подрыва в мире {@code level}. Шум мира — от зерна мира, а не подрыва: пятна — свойство местности, и план
+     * заранее (по месту подрыва без его сида, {@code NuclearWarhead.geometry}) совпадает с планом по самому подрыву —
+     * у чанка, загруженного, когда руины подготовки уже забыты, или после перезапуска.
+     */
+    RuinContext(net.minecraft.server.level.ServerLevel level, Detonation d) {
         this.d = d;
-        this.noise = new ua.zentix.incoming.nuclear.model.WorldNoise(d.seed(), d.scale());
+        this.noise = new ua.zentix.incoming.nuclear.model.WorldNoise(level.getSeed(), d.scale());
         this.ruinRadius = d.ruinRadius();
     }
 

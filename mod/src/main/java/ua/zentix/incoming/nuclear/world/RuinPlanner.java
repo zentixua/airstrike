@@ -138,7 +138,7 @@ public final class RuinPlanner {
 
     /** План руин чанка (он и соседи в радиусе {@link #REACH} загружены целиком, поток сервера). */
     public static RuinPlan plan(ServerLevel level, Detonation d, LevelChunk chunk) {
-        return plan(level, NuclearWorld.get(level).ruins(d, level.getGameTime()), chunk);
+        return plan(level, NuclearWorld.get(level).ruins(level, d, level.getGameTime()), chunk);
     }
 
     /**
@@ -146,7 +146,7 @@ public final class RuinPlanner {
      * сервера ждёт задачу). Одинаковые планы обоими путями — фоновый решатель не читает мир.
      */
     public static RuinPlan planFresh(ServerLevel level, Detonation d, LevelChunk chunk, boolean background) {
-        RuinContext ctx = new RuinContext(d);
+        RuinContext ctx = new RuinContext(level, d);
         if (!background) return plan(level, ctx, chunk);
         if (!ctx.submit(level, chunk)) throw new IllegalStateException("ruin background threads busy");
         return await(level, ctx, chunk);
@@ -162,7 +162,7 @@ public final class RuinPlanner {
 
     /** То же, а записанное — каким оно лежит на диске ({@code onDisk}: например, чанк мира 1.17 после обновления). */
     public static RuinPlan planFromDisk(ServerLevel level, Detonation d, LevelChunk chunk, java.util.function.UnaryOperator<net.minecraft.nbt.CompoundTag> onDisk) {
-        RuinContext ctx = new RuinContext(d);
+        RuinContext ctx = new RuinContext(level, d);
         ChunkPos c = chunk.getPos();
         for (int dx = -REACH; dx <= REACH; dx++) {
             for (int dz = -REACH; dz <= REACH; dz++) {
@@ -184,7 +184,7 @@ public final class RuinPlanner {
      * массив. {@code window}: [0] соседей прочитано с диска, [1] из них нет на диске целыми.
      */
     public static RuinPlan planWithWindow(ServerLevel level, Detonation d, LevelChunk chunk, int[] window) {
-        RuinContext ctx = new RuinContext(d);
+        RuinContext ctx = new RuinContext(level, d);
         long until = System.nanoTime() + 60_000_000_000L;
         while (ctx.requestWindow(level, chunk.getPos()) > 0) {
             if (System.nanoTime() > until) throw new IllegalStateException("window neighbours not read from disk within a minute");
@@ -212,7 +212,7 @@ public final class RuinPlanner {
      * ({@link #blastsReady}).
      */
     public static long[] timedParts(ServerLevel level, Detonation d, LevelChunk chunk) {
-        RuinContext ctx = NuclearWorld.get(level).ruins(d, level.getGameTime());
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, level.getGameTime());
         RuinContext.Grid g = ctx.grid(level, chunk.getPos(), false);
         long t0 = System.nanoTime();
         Collapse c = Collapse.solve(g);
@@ -226,7 +226,7 @@ public final class RuinPlanner {
      * единица работы), план — следующей.
      */
     public static boolean blastsReady(ServerLevel level, Detonation d, LevelChunk chunk) {
-        return blastsReady(level, NuclearWorld.get(level).ruins(d, level.getGameTime()), chunk);
+        return blastsReady(level, NuclearWorld.get(level).ruins(level, d, level.getGameTime()), chunk);
     }
 
     static boolean blastsReady(ServerLevel level, RuinContext ctx, LevelChunk chunk) {
@@ -286,11 +286,12 @@ public final class RuinPlanner {
             }
             boolean stripped = ground(s, noise, lx, ground, lz, x, z, q, groundPsi, blockDamage);
             plants(s, noise, lx, ground, lz, x, z, q, stripped);
-            snowy(s, lx, ground, lz);
             if (fires && q >= ThermalModel.IGNITE) fire(s, lx, ground, lz, x, z, q, groundPsi);
         }
         Blast own = c.blast();
         if (own != null) for (int i = 0; i < own.trees().size(); i++) lay(s, own.trees().get(i), own.treeLogs().get(i));
+        // после всего, что ложится на землю (завал, стволы)
+        for (int column = 0; column < 256; column++) if (c.ground[column] != Integer.MIN_VALUE) snowy(s, column & 15, c.ground[column], column >> 4);
         return s.finish(g.ctx(), c.fluidTicks.toLongArray(), biomes(noise, c.ground, heat, x0, z0));
     }
 
@@ -452,18 +453,16 @@ public final class RuinPlanner {
     }
 
     /**
-     * Земля «заснежена» ({@code snowy}: белые бока у дёрна), пока над ней снег, как у {@code SnowyDirtBlock}: снежный
-     * слой сдуло волной или растопило светом (над землёй воздух) — бока зелёные, выгоревший под уцелевшим снегом —
-     * снова белые. Остальное над землёй (рыхлый снег, растения) {@code snowy} не трогает.
+     * Земля «заснежена» ({@code snowy}: белые бока у дёрна), только пока над ней снег, как у {@code SnowyDirtBlock}:
+     * снежный слой сдуло волной, растопило светом или накрыло стволом — бока зелёные, выгоревший под уцелевшим снегом —
+     * снова белые. Только там, где план менял землю или место над ней: остальной мир — как был.
      */
     private static void snowy(Sections s, int lx, int ground, int lz) {
-        if (ground + 1 >= s.maxY) return;
+        if (ground + 1 >= s.maxY || !s.touched(lx, ground, lz) && !s.touched(lx, ground + 1, lz)) return;
         BlockState under = s.get(lx, ground, lz);
         if (!under.hasProperty(BlockStateProperties.SNOWY)) return;
-        Blast.Props above = s.props(lx, ground + 1, lz);
-        boolean snowy = under.getValue(BlockStateProperties.SNOWY);
-        boolean now = snowy ? !s.get(lx, ground + 1, lz).isAir() : above.is(Blast.Props.SNOW_LAYER) || above.is(Blast.Props.SNOW);
-        if (now == snowy) return;
+        boolean now = s.props(lx, ground + 1, lz).is(Blast.Props.SNOWY_TOP);
+        if (under.getValue(BlockStateProperties.SNOWY) == now) return;
         for (BlockState st : SNOWY_GROUND) if (under.getBlock() == st.getBlock()) s.set(lx, ground, lz, st.setValue(BlockStateProperties.SNOWY, now));
     }
 
@@ -538,6 +537,11 @@ public final class RuinPlanner {
 
         Blast.Props props(int lx, int y, int lz) {
             return view.get(get(lx, y, lz));
+        }
+
+        /** Менял ли план это место. */
+        boolean touched(int lx, int y, int lz) {
+            return y >= minY && y < maxY && changes.containsKey(key(lx, y, lz));
         }
 
         void set(int lx, int y, int lz, BlockState state) {

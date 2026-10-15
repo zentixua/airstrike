@@ -66,9 +66,9 @@ public final class NuclearWorld {
     }
 
     /** Руины подрыва по всем чанкам: общие у подготовки заранее (после подрыва), очереди и проверок. */
-    RuinContext ruins(Detonation d, long now) {
+    RuinContext ruins(ServerLevel level, Detonation d, long now) {
         RuinContext ctx = ruins.get(d.id());
-        if (ctx == null) ruins.put(d.id(), ctx = new RuinContext(d));
+        if (ctx == null) ruins.put(d.id(), ctx = new RuinContext(level, d));
         ctx.used = now;
         return ctx;
     }

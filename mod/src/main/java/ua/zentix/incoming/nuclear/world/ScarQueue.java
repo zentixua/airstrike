@@ -675,7 +675,7 @@ public final class ScarQueue {
                 continue;
             }
             // план в работе — ждём; готов или задачи уже нет (план забрала подготовка руин или задачу бросили) — в очередь
-            RuinContext ctx = NuclearWorld.get(level).ruins(job.events.get(job.event), now);
+            RuinContext ctx = NuclearWorld.get(level).ruins(level, job.events.get(job.event), now);
             if (ctx.running(job.chunk) && !ctx.done(job.chunk)) continue;
             it.remove();
             job.ready = true;
@@ -767,7 +767,7 @@ public final class ScarQueue {
             return AGAIN;
         }
         long t0 = System.nanoTime();
-        RuinContext ctx = NuclearWorld.get(level).ruins(d, level.getGameTime());
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, level.getGameTime());
         Parked kept = parked.get(key);
         if (kept != null && kept.detonation() == d.id()) {
             plan = kept.plan();
@@ -892,7 +892,7 @@ public final class ScarQueue {
         ChunkPos pos = new ChunkPos(job.chunk);
         LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
         Detonation d = job.events.get(job.event);
-        RuinContext ctx = NuclearWorld.get(level).ruins(d, now);
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, now);
         boolean ready = hasPlan(d.id(), job.chunk), background = background(ctx, job.chunk);
         if (chunk == null) {
             // сам ниже полной загрузки (край видимости): разрушим, когда поднимется

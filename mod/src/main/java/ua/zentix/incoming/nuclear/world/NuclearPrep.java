@@ -355,7 +355,7 @@ public final class NuclearPrep {
             p.geometry = NuclearWarhead.geometry(level, s.surface() ? NuclearWarhead.surfaceAt(level, s.target()) : s.target(), s.yieldKt(), s.airBurst(),
                     IncomingConfig.SERVER.nukeEffectsScale.get().floatValue());
             layout(p);
-            p.ruins = new RuinContext(p.geometry);
+            p.ruins = new RuinContext(level, p.geometry);
         }
         long now = level.getGameTime();
         if (now >= p.nextRefresh) {
