@@ -460,6 +460,21 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual("PASS", c.state["takes"]["A"]["attempts"][-1]["plans"]["a1"][0], "вывод из той же записи")
         self.assertEqual(1, len(c.state["takes"]["A"]["attempts"]), "без пересъёмки")
 
+    def test_requeued_take_keeps_its_old_world_as_chain_input(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A"]))
+        c.state["takes"]["A"] = {"status": "skipped", "snapshot": "nw-A-a0", "kept": "nw-A-a0",
+                                 "attempts": [{"ok": False, "reason": "пропущен ночью"}]}
+        c.state["chain"] = "nw-A-a0"                           # пропущенный дубль оставил цепочке свой мир
+        c.save()
+        with open(os.path.join(self.cfg["work"], "requeue.txt"), "w") as f:
+            f.write("A\n")
+        self.assertEqual(0, c.run(["A"]))
+        src, dst = m.copies[-1]
+        self.assertEqual(os.path.join(self.cfg["saves"], "nw-A-a0"), src)
+        self.assertEqual("nw-A-a0r1", os.path.basename(dst), "копия не поверх своего входа")
+        self.assertEqual("passed", c.state["takes"]["A"]["status"])
+
     def test_requeue_is_read_at_each_take_boundary(self):
         c, m = self.conveyor()
         c.state["takes"]["A"] = {"status": "skipped", "attempts": [{"ok": False, "reason": "пропущен ночью"}]}

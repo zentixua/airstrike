@@ -402,6 +402,18 @@ class Conveyor:
         snap = self.state.get("chain")
         return os.path.join(self.saves, snap) if snap else self.master
 
+    def world_name(self, take, n, src):
+        """Имя копии мира попытки: nw-<дубль>-a<n>, а занятое входом или снимком — с суффиксом r1, r2… Дубль снова в
+        очереди начинает попытки с a0, а его прежний мир a0 бывает входом цепочки: копия поверх себя стёрла вход (15.10)."""
+        used = {os.path.basename(src), self.state.get("chain")}
+        for st in self.state["takes"].values():
+            used |= {st.get("snapshot"), st.get("kept"), st.get("before")}
+        name, k = f"nw-{take}-a{n}", 0
+        while name in used:
+            k += 1
+            name = f"nw-{take}-a{n}r{k}"
+        return name
+
     def copy_world(self, src, name):
         dst = self.guard.check(os.path.join(self.saves, name), "копия мира в")
         if os.path.exists(dst):
@@ -540,7 +552,7 @@ class Conveyor:
         self.current = f"{take} попытка {n + 1}/{int(self.limits['retries']) + 1} (камера {variant})"
         self.current_take = take
         self.wait_resources(self.world_gb())
-        world = self.copy_world(src, f"nw-{take}-a{n}")
+        world = self.copy_world(src, self.world_name(take, n, src))
         rec = self.guard.check(os.path.join(self.work, "takes", take, f"a{n}"), "запись в")
         if os.path.exists(rec):
             self.remove(rec)
