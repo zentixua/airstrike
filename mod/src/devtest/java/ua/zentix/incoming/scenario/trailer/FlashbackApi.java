@@ -194,6 +194,10 @@ final class FlashbackApi {
      * в каждом выводе.
      */
     static void queuePng(String name, Path state, double[] camera, int width, int height, int start, int end, double fps, Path dir) {
+        // PNG кадров Flashback пишет stb_image_write в одном потоке (zlib 8 и перебор фильтров) — узкое место вывода
+        // при простаивающей видеокарте; уровень 5 и фильтр 2 дают те же пиксели (без потерь) на 30 % быстрее, +3 % места
+        org.lwjgl.stb.STBImageWrite.stbi_write_png_compression_level.put(0, 5);
+        org.lwjgl.stb.STBImageWrite.stbi_write_force_png_filter.put(0, 2);
         try {
             Object editor = c("state.EditorState").getMethod("load", Path.class).invoke(null, state);
             if (editor == null) throw new IllegalStateException("состояние редактора не прочиталось: " + state);
