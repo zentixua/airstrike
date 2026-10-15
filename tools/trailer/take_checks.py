@@ -9,10 +9,17 @@
   впервые в IGNITION) в один и тот же тик — «установки не стреляют в одну миллисекунду»;
 - отставание сервера: у планов с `mspt` (result.json, тик встроенного сервера) худшее среднее 10 тиков подряд
   в окне события ([удар−2 с, удар+2 с] каждого actual; без ударов — весь план) выше 50 мс — «цели дёргаются»;
-- полёт МБР: пути оружия nuke по местам от сущности (флаг 1 в строках `f`) — ускорение ≤ 0,05 блока/тик² (~2 g;
-  сама ступень на видимом разгоне даёт до 0,043: a(t) = T/(m₀−ṁ·t) − g, к уходу из мира ~7 с) и рывок без
-  всплеска: |Δa| ≤ 0,01 за тик — модель даёт ~3·10⁻⁵ (WeaponSpec.Ascent: da/dt = T·ṁ/m(t)²), шум округления
-  0,01 блока после сглаживания на 9 тиков ~2·10⁻³; скачок пути (телепорт) даёт на порядок больше;
+- полёт МБР: пути оружия nuke по местам от сущности (флаг 1 в строках `f`) — против кривой разгона нынешней
+  модели (WeaponSpec.NUKE.Ascent, Minuteman III: a(t) = T/(m₀−ṁ·t) − g даёт на видимом подъёме — ~8,5 с до
+  ухода за потолок мира — ускорение до 0,044 бл/тик² и скорость до ~7 бл/тик). Запись видит путь глазами
+  клиента под нагрузкой: места приходят пачками и с отставанием до ~11 тиков (заморозка нескольких тиков →
+  догоняющий скачок, T23 n31 и T23b n32), поэтому разности соседних тиков — шум сэмплинга, а не разгон, и
+  меряются инварианты: путь с первого движения не обгоняет кривую, выровненную по запуску из отвесной фазы
+  (первые 60 тиков, Ascent.pitchOverTick), больше чем на 2 тика прогноза клиента (ArrivalQueue.MAX_DEBT);
+  средняя скорость между сменами места ≤ 5-кратной модельной (догоняющие пачки дают до ~2×); высота не
+  падает (подъём отвесный, 85°). Предстартовая стойка на площадке (сущность стоит с IGNITION, пока её чанк
+  не тикает, — и до окна плана) — не полёт и не меряется. Равномерно более крутой или более поздний разгон
+  при таких данных от сдвига запуска неотличим — не проверяется; ловится скачок пути (телепорт).
 - сирена дубля: у дублей с включённой сиреной (`siren: true` в newisle-takes.json; `false` — первый удар без
   тревоги) записывающий игрок слышит её (timeline.jsonl, входящий:siren) не меньше чем за 2 с до первого удара
   дубля (sounds.jsonl: триггер siren с heard) и в сумме не меньше 6 с;
@@ -51,7 +58,12 @@ import takes
 READY, IGNITION, BOOST = 0, 1, 2          # FlightPhase (порядковый номер)
 ENTITY_FLAG = 1                            # в строках `f`: место от сущности, не от пакетов сервера
 MSPT_RUN, MSPT_MAX, MSPT_WINDOW = 10, 50.0, 2.0
-ICBM_WEAPONS, ICBM_MAX_A, ICBM_MAX_JERK, ICBM_SMOOTH = ("nuke", "icbm"), 0.05, 0.01, 9
+ICBM_WEAPONS = ("nuke", "icbm")
+# Разгон МБР — числа паспорта WeaponSpec.NUKE: Ascent (тяга 903 700 Н, стартовая масса 36 030 кг, топливо
+# 20 780 кг за 61 с) и Airframe.cruiseSpeed 25 бл/тик; блок = метр, тик = 0,05 с (Ascent.step).
+ICBM_ASCENT, ICBM_TOP_SPEED = (903_700, 36_030, 20_780, 61.0), 25.0
+ICBM_PITCH_TICKS, ICBM_LEAD_TICKS, ICBM_LAG_TICKS, ICBM_BURST = 60, 2, 12, 5.0
+ICBM_ROUND = 0.01                               # места в журнале округлены до 0,01 блока
 SIREN_EVENT, SIREN_BEFORE_S, SIREN_TOTAL_S, SIREN_MAX_S = "incoming:siren", 2.0, 6.0, 26.5
 FLOCK_MIN, FLOCK_SHARE = 6, 0.6
 TURN_MAX, AXIS_MAX = 120.0, 15.0
@@ -193,13 +205,81 @@ def server_lag(result):
     return out
 
 
-def _smooth(v, n):
-    return [sum(v[max(0, i - n // 2):i - n // 2 + n]) / len(v[max(0, i - n // 2):i - n // 2 + n]) for i in range(len(v))]
+def _ascent_curves():
+    """Кривые разгона МБР по тикам: (скорость, подъём) от старта — как IcbmEntity.serverTick копит Ascent.step."""
+    thrust, mass, propellant, burn = ICBM_ASCENT
+    speeds, climbs, v, c = [0.0], [0.0], 0.0, 0.0
+    for n in range(1, 500):
+        t = min((n - 1) / 20.0, burn)
+        v = min(ICBM_TOP_SPEED, v + (thrust / (mass - propellant / burn * t) - 9.81) / 400)
+        c += v
+        speeds.append(v)
+        climbs.append(c)
+    return speeds, climbs
+
+
+def _ascent_tick(climbs, climb):
+    """Тик, на котором кривая подъёма проходит высоту (обратная к кривой)."""
+    if climb <= 0:
+        return 0
+    lo, hi = 0, len(climbs) - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if climbs[mid] < climb:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+def _icbm_flight_problems(plan, samples, speeds, climbs):
+    """Инварианты одного полёта МБР по местам от сущности; окно — с первого движения (стойка на площадке —
+    сущность стоит с IGNITION, пока её чанк не тикает, — не полёт). Первая же причина — в журнал проблем."""
+    if not samples:
+        return []                                # мест от сущности нет (только пакеты сервера) — не повод
+    moving = [(t, p) for k, (t, p) in enumerate(samples) if k and p != samples[k - 1][1]]
+    if not moving:
+        return [f"{plan}: МБР стоит на площадке весь план (не взлетела)"]
+    start = samples[0][1]
+    window = [(t, p) for t, p in samples if t >= moving[0][0]]
+    # запуск по кривой: место пути — самое раннее, какое допускает разгон (клиент не обгоняет сервер больше
+    # тика прогноза). Ровнять — по отвесной фазе (до наклона к 85°, Ascent.pitchOverTick, и отставание записи):
+    # место после неё не имеет права оказаться выше кривой — иначе телепорт вверх
+    implied = [(t - _ascent_tick(climbs, p[1] - start[1]), t) for t, p in window]
+    earliest = min(t for t, _ in implied)
+    launch = min(t for t, k in implied if k - earliest <= ICBM_PITCH_TICKS + ICBM_LAG_TICKS)
+    for t, p in window:
+        n = int(t - launch)
+        if n > ICBM_PITCH_TICKS + ICBM_LAG_TICKS and n < len(climbs) and \
+                p[1] - start[1] > climbs[n] + ICBM_LEAD_TICKS * speeds[n] + 5 * ICBM_ROUND:
+            return [f"{plan}: МБР обгоняет разгон на {p[1] - start[1] - climbs[n]:.0f} бл в тик {t} "
+                    f"(кривая даёт {climbs[n]:.0f} бл)"]
+    # средняя скорость между сменами места: заморозка и догоняющий скачок — одна пачка, скорость в ней ≈
+    # истинная; заметно больше модельной — скачок пути (в любую сторону)
+    runs = []
+    for t, p in window:
+        if runs and runs[-1][2] == p:
+            runs[-1][1] = t
+        else:
+            runs.append([t, t, p])
+    for a, b in zip(runs, runs[1:]):
+        n = max(0, min(int((a[0] + b[0]) / 2 - launch), len(speeds) - 1))
+        speed = math.dist(a[2], b[2]) / (b[0] - a[0])
+        if speed > ICBM_BURST * speeds[n] + 10 * ICBM_ROUND:
+            return [f"{plan}: МБР скачок пути {speed:.1f} бл/тик между тиками {a[1]} и {b[0]} "
+                    f"(разгон даёт {ICBM_BURST:.0f}×{speeds[n]:.1f})"]
+    # подъём отвесный (85°): высота не падает
+    for (t0, p0), (t1, p1) in zip(window, window[1:]):
+        if p1[1] < p0[1] - 2 * ICBM_ROUND:
+            return [f"{plan}: МБР падает с {p0[1]:.1f} до {p1[1]:.1f} между тиками {t0} и {t1}"]
+    return []
 
 
 def icbm_flight(rec):
-    """МБР: ускорение ≤ 0,05 блока/тик² и плавность (без всплеска рывка) по местам от сущности."""
+    """МБР: путь сущности против кривой разгона модели (WeaponSpec.NUKE.Ascent) — телепорт и скачок пути
+    ловятся, пачечная запись с отставанием клиента — нет (T23 n31, T23b n32)."""
     out = []
+    speeds, climbs = _ascent_curves()
     replays = os.path.join(rec, "replays")
     for name in sorted(os.listdir(replays)) if os.path.isdir(replays) else []:
         if not name.endswith(".events.jsonl"):
@@ -207,43 +287,8 @@ def icbm_flight(rec):
         plan = name[:-len(".events.jsonl")]
         flights, _ = read_events(os.path.join(replays, name))
         for f in flights:
-            if f.weapon not in ICBM_WEAPONS:
-                continue
-            samples = f.samples()
-            # скорости между соседними местами от сущности; дырка дальше 5 тиков — не соседние
-            vels = []
-            for k in range(len(samples) - 1):
-                (t0, p0), (t1, p1) = samples[k], samples[k + 1]
-                if 0 < t1 - t0 <= 5:
-                    vels.append(([(p1[j] - p0[j]) / (t1 - t0) for j in range(3)], t1))
-            # ускорения между соседними скоростями — тоже без разрывов
-            segs, cur = [], []
-            for k in range(len(vels) - 1):
-                dt = vels[k + 1][1] - vels[k][1]
-                if not 0 < dt <= 5:
-                    if len(cur) >= ICBM_SMOOTH:
-                        segs.append(cur)
-                    cur = []
-                    continue
-                cur.append(([(vels[k + 1][0][j] - vels[k][0][j]) / dt for j in range(3)], vels[k + 1][1]))
-            if len(cur) >= ICBM_SMOOTH:
-                segs.append(cur)
-            for seg in segs:
-                # сглаживание по компонентам: шум округления 0,01 блока не должен читать скачки
-                vectors = [s[0] for s in seg]
-                acc = [[_smooth(list(comp), ICBM_SMOOTH)[k] for comp in zip(*vectors)] for k in range(len(vectors))]
-                ticks = [s[1] for s in seg]
-                for k, a in enumerate(acc):
-                    if max(abs(x) for x in a) > ICBM_MAX_A:
-                        out.append(f"{plan}: МБР ускорение {max(abs(x) for x in a):.3f} бл/тик² в тик {ticks[k]} "
-                                   f"(предел {ICBM_MAX_A})")
-                        break
-                for k in range(1, len(acc)):
-                    dt = max(1, ticks[k] - ticks[k - 1])
-                    jerk = max(abs(acc[k][j] - acc[k - 1][j]) for j in range(3)) / dt
-                    if jerk > ICBM_MAX_JERK:
-                        out.append(f"{plan}: МБР рывок {jerk:.3f} бл/тик² за тик около {ticks[k]} (предел {ICBM_MAX_JERK})")
-                        break
+            if f.weapon in ICBM_WEAPONS:
+                out += _icbm_flight_problems(plan, f.samples(), speeds, climbs)
     return out
 
 
