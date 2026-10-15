@@ -884,7 +884,7 @@
   {
    "id": "T10",
    "title": "ЗРК и мобильная группа",
-   "from": "chain",
+   "from": "branch:T09",
    "clock": "dawn",
    "siren": true,
    "minutes": 12,
@@ -1014,7 +1014,10 @@
       "n46": {
        "subject": "flight",
        "weapon": "drone",
-       "need": "OVERHEAD"
+       "need": "OVERHEAD",
+       "spare": [
+        "tripod"
+       ]
       }
      }
     }
@@ -1061,7 +1064,7 @@
   {
    "id": "T12",
    "title": "Кафе и станция днём",
-   "from": "chain",
+   "from": "branch:T11",
    "clock": "morning",
    "siren": true,
    "minutes": 12,
