@@ -16,7 +16,7 @@
   "loiter_circle": [-230, 330],
   "airship_at": [-530, 330],
   "grid_a": [-200, -40],
-  "grid_b": [-120, -80],
+  "grid_b": [-126, -145],
   "grid_c": [-60, -130],
   "gz": {"at": [-167, -4], "above": 0},
   "c1_far_west": [-1500, -60],
@@ -294,7 +294,7 @@
     {"plans": ["n27", "n28"], "offsets": {"n28": 3.0}, "seconds": 8,
      "strikes": [
       {"weapon": "missile", "route": "far_west", "to": "grid_a", "eta": 1.0},
-      {"weapon": "missile", "route": "far_west", "to": "grid_b", "eta": 2.2},
+      {"weapon": "missile", "route": "north", "to": "grid_b", "eta": 2.2},
       {"weapon": "missile", "route": "north", "to": "grid_c", "eta": 3.4}
      ],
      "cover": {"n27": {"subject": "scene"}, "n28": {"subject": "scene"}}}
