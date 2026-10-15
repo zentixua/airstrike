@@ -26,7 +26,7 @@
  "takes": [
   {
    "id": "T01", "title": "Ночь, Город 1 спит", "from": "chain", "clock": "night", "siren": false, "minutes": 6,
-   "shots": [{"plans": ["n48"], "seconds": 7}]
+   "shots": [{"plans": ["n48"], "seconds": 7, "cover": {"n48": {"subject": "scene"}}}]
   },
   {
    "id": "T02", "title": "Пустынный городок, ракеты над крышами", "from": "chain", "clock": "night", "siren": false, "minutes": 10,
