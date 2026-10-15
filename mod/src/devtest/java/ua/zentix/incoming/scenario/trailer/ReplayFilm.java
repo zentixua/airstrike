@@ -137,6 +137,10 @@ public final class ReplayFilm {
     @Nullable
     private EventLog shown;
     private Path candDir;
+    /** Вывод кандидата — MOV без потерь ({@link FrameUnpack}), а не PNG Flashback; задание вывода — ради его счётчиков. */
+    private boolean mov;
+    @Nullable
+    private Object job;
     private final ArrayDeque<Pose> walk = new ArrayDeque<>();
     private Pose standing;
     private int poseAt, stepped, reachedAt;
@@ -466,7 +470,12 @@ public final class ReplayFilm {
                 export();
             }
             case EXPORTING -> {
-                if (FlashbackApi.exporting() || !FlashbackApi.jobs().isEmpty()) return;
+                if (FlashbackApi.exporting() || !FlashbackApi.jobs().isEmpty()) {
+                    // вывод тикает клиент изнутри своего задания: счётчики — у задания, пока оно есть
+                    Object j = FlashbackApi.job();
+                    if (j != null) job = j;
+                    return;
+                }
                 done();
             }
             default -> {
@@ -680,7 +689,7 @@ public final class ReplayFilm {
         mc.player.setDeltaMovement(Vec3.ZERO);
     }
 
-    /** Задание вывода: ключевые кадры камеры и угла на каждый тик окна, кадры PNG, проверка каждого кадра. */
+    /** Задание вывода: ключевые кадры камеры и угла на каждый тик окна, кадры (MOV или PNG), проверка каждого кадра. */
     private void export() {
         try {
             deleteTree(candDir);
@@ -705,8 +714,10 @@ public final class ReplayFilm {
             // волна трясёт камеру моделью мода (давление у камеры), её Operator не повторяет
             IncomingConfig.CLIENT.cameraShake.set(data.nukes.isEmpty() ? 0.0 : 1.0);
             flawless(true);
-            FlashbackApi.queuePng(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
-                    a, b, FPS, frames);
+            mov = FrameUnpack.enabled(out);
+            job = null;
+            FlashbackApi.queue(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
+                    a, b, FPS, mov ? candDir.resolve("frames.mov") : frames, mov);
             go(State.EXPORTING);
             // люди у камеры у клиента повтора: статисты плана должны быть в мире повтора
             String people = mc.level.players().stream().filter(pl -> pl.position().distanceTo(p0.pos()) < 128)
@@ -726,7 +737,24 @@ public final class ReplayFilm {
         qa.close();
         FrameQa q = qa;
         qa = null;
-        int frames = renumber(candDir.resolve("frames").resolve(spec.shot()));
+        Incoming.LOG.info("SCENARIO film export stats {} {} ({}): {}", spec.shot(), current.c.name(), mov ? "mov" : "png",
+                job == null ? "задания не видел" : FlashbackApi.stats(job));
+        Path dir = candDir.resolve("frames").resolve(spec.shot());
+        int frames;
+        if (mov) {
+            Path file = candDir.resolve("frames.mov");
+            frames = job == null ? -1 : FlashbackApi.writtenFrames(job);
+            if (!Files.isRegularFile(file) || frames == 0) {
+                // тот же кандидат ещё раз, кадрами PNG
+                FrameUnpack.disable("Flashback не записал " + file);
+                candidates.addFirst(current);
+                nextCandidate();
+                return;
+            }
+            FrameUnpack.submit(file, dir, frames, spec.shot() + " " + current.c.name());
+        } else {
+            frames = renumber(dir);
+        }
         FrameQa.Verdict v = q.verdict(spec.minShare(), spec.need(), current.c.close());
         Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film verdict %s %s: %s, %d frames (%d checked): мир %.2f, подлёт %.2f, перед ударом %.2f, удар %.2f, мотор %.2f, в дыму %.2f %s",
                 spec.shot(), current.c.name(), v.pass() ? "PASS" : "FAIL", frames, q.frames().size(), v.ready(), v.approach(), v.nearHit(), v.atKey(),
@@ -926,6 +954,8 @@ public final class ReplayFilm {
             }
             jfr = null;
         }
+        // кадры MOV раскладываются в фоне: монтаж и проверки дубля возьмут PNG, когда клиент выйдет
+        FrameUnpack.awaitAll();
         writeBest();
         Incoming.LOG.info("SCENARIO film done: {}", best);
         Incoming.LOG.info("SCENARIO done");
