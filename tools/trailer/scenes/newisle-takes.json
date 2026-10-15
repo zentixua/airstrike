@@ -293,8 +293,8 @@
    "shots": [
     {"plans": ["n27", "n28"], "offsets": {"n28": 3.0}, "seconds": 8,
      "strikes": [
-      {"weapon": "missile", "route": "north", "to": "grid_a", "eta": 1.0},
-      {"weapon": "missile", "route": "north", "to": "grid_b", "eta": 2.2},
+      {"weapon": "missile", "route": "far_west", "to": "grid_a", "eta": 1.0},
+      {"weapon": "missile", "route": "far_west", "to": "grid_b", "eta": 2.2},
       {"weapon": "missile", "route": "north", "to": "grid_c", "eta": 3.4}
      ],
      "cover": {"n27": {"subject": "scene"}, "n28": {"subject": "scene"}}}
