@@ -292,17 +292,6 @@ public final class RuinPlan {
         return cells.length;
     }
 
-    /** Меняет ли план биом чанка ({@link ScorchedBiomes}). */
-    public boolean changesBiomes() {
-        return biomes != null;
-    }
-
-    /** Для проверок: ступени опалённого биома по клеткам чанка ({@code qz << 2 | qx}); null — биом не меняется. */
-    @Nullable
-    public byte[] biomeLevels() {
-        return biomes == null ? null : biomes.levels().clone();
-    }
-
     /**
      * До {@code max} мест, где волна снесла блок целиком (был блок с моделью, стал воздух), — с блоком, который там был:
      * их куски разлетаются у игроков, которые видят чанк ({@code S2C.NukeDebris}). Места выбраны по хешу места (самые
@@ -373,21 +362,24 @@ public final class RuinPlan {
      * «через мир» — копии нечего будить) и, если {@code fires}, пожары без счётчика пожаров подрыва — копия его не
      * тратит. Любой поток: зовёт
      * только секции копии. На диске двойников ламп не бывает ({@code ChunkSaves}), поэтому хеш старых состояний —
-     * по состояниям как есть. False — места плана в копии уже не те (чанк меняли после плана): копия не годится.
+     * по состояниям как есть.
+     *
+     * @return сколько клеток биома поменялось ({@link ScorchedBiomes#write}); −1 — места плана в копии уже не те (чанк
+     *         меняли после плана): копия не годится
      */
-    boolean applyToCopy(LevelChunkSection[] sections, boolean fires, net.minecraft.core.Registry<net.minecraft.world.level.biome.Biome> biomeRegistry,
+    int applyToCopy(LevelChunkSection[] sections, boolean fires, net.minecraft.core.Registry<net.minecraft.world.level.biome.Biome> biomeRegistry,
                         int minSection) {
         int k = 0;
         while (k < cells.length) {
             int i = section(cells[k]);
-            if (i >= sections.length) return false;
+            if (i >= sections.length) return -1;
             LevelChunkSection s = sections[i];
             long h = 0;
             for (; k < cells.length && section(cells[k]) == i; k++) {
                 int c = cells[k];
                 h = mixNormal(h, s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15));
             }
-            if (h != oldHashes[i]) return false;
+            if (h != oldHashes[i]) return -1;
         }
         for (int c : cells) sections[section(c)].setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
         for (int c : fires ? this.fires : NONE) {
@@ -396,8 +388,7 @@ public final class RuinPlan {
                 s.setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
             }
         }
-        if (biomes != null) ScorchedBiomes.write(biomeRegistry, sections, minSection, biomes);
-        return true;
+        return biomes == null ? 0 : ScorchedBiomes.write(biomeRegistry, sections, minSection, biomes);
     }
 
     /**

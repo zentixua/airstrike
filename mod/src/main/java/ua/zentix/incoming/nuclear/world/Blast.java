@@ -18,6 +18,7 @@ import net.minecraft.world.level.lighting.LightEngine;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.registry.ModTags;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -195,11 +196,9 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         if (st.is(BlockTags.DIRT)) flags |= Props.DIRT;
         if (st.is(Blocks.SNOW_BLOCK)) flags |= Props.SNOW;
         if (st.is(Blocks.SNOW)) flags |= Props.SNOW_LAYER;
-        // то, что вспышка сжигает над землёй: трава, цветы, кусты, посевы (не листва — она на деревьях; не сухой куст)
-        if (!liquid && !leaves && st.getFluidState().isEmpty() && !st.is(Blocks.DEAD_BUSH) && (st.is(BlockTags.REPLACEABLE_BY_TREES)
-                || st.is(BlockTags.FLOWERS) || st.is(BlockTags.SAPLINGS) || st.is(BlockTags.CROPS))) {
-            flags |= Props.PLANT;
-        }
+        // то, что вспышка сжигает над землёй, — растения тега nuke_plants (тот же тег держит их порог давления); сухой
+        // куст — то, что от них остаётся
+        if (!liquid && st.getFluidState().isEmpty() && !st.is(Blocks.DEAD_BUSH) && st.is(ModTags.NUKE_PLANTS)) flags |= Props.PLANT;
         if (st.is(BlockTags.SOUL_FIRE_BASE_BLOCKS)) flags |= Props.SOUL_BASE;
         if (st.is(Blocks.FIRE)) flags |= Props.FIRE;
         return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE),

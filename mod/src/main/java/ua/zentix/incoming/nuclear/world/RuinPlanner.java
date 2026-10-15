@@ -62,8 +62,18 @@ public final class RuinPlanner {
     private static final int LAYER_BURN = 1, LAYER_CHAR = 2, LAYER_STRIP = 3, LAYER_PLANT = 4, LAYER_BIOME = 5;
     /** Случайность места — шум мира (пятна) и хеш места (зерно): веса при сумме квадратов 1, разброс остаётся 1. */
     private static final double SMOOTH = 0.8, GRAIN = 0.6;
-    /** Свет на склоне к взрыву — не больше стольких раз от ровной земли; высота взрыва над горизонтом в расчёте — не ниже. */
+    /**
+     * Свет на склоне к взрыву — не больше стольких раз от ровной земли; полутень у края тени склона, рад (шар — не точка:
+     * за километры его видно в несколько градусов), и высота взрыва над горизонтом в расчёте — не ниже её.
+     */
     private static final double MAX_INCIDENCE = 2.5, LOW_SUN = 0.1;
+    /** Уклон земли — по соседям до стольких столбцов в каждую сторону: ступени рельефа не дают полос по горизонталям. */
+    private static final int SLOPE_REACH = 2;
+    /**
+     * Доля радиуса руин у его края, на которой след света сходит на нет: дальше планов нет, и склон к взрыву, которому
+     * свет там ещё оставил бы опалённую траву, обрывался бы кругом.
+     */
+    private static final double EDGE_FADE = 0.2;
     /** Сколько чанков вокруг должны быть загружены целиком для плана. */
     public static final int REACH = 2;
 
@@ -76,7 +86,7 @@ public final class RuinPlanner {
     private static final BlockState DIRT = Blocks.DIRT.defaultBlockState(), COARSE_DIRT = Blocks.COARSE_DIRT.defaultBlockState(),
             PODZOL = Blocks.PODZOL.defaultBlockState(), DEAD_BUSH_STATE = Blocks.DEAD_BUSH.defaultBlockState(),
             WATER = Blocks.WATER.defaultBlockState(), FIRE = Blocks.FIRE.defaultBlockState(), SOUL_FIRE = Blocks.SOUL_FIRE.defaultBlockState();
-    /** Земля, которая под снегом-слоем «заснежена» ({@code snowy}): снег растаял — она без снега. */
+    /** Земля, которая под снегом «заснежена» ({@code snowy}): снега над ней нет — она без снега. */
     private static final BlockState[] SNOWY_GROUND = {Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.PODZOL.defaultBlockState(),
             Blocks.MYCELIUM.defaultBlockState()};
     private static final Direction[] DIRECTIONS = Direction.values();
@@ -95,7 +105,10 @@ public final class RuinPlanner {
         for (BlockState st : STONE_RUBBLE) Blast.ensure(st);
         for (BlockState st : WOOD_RUBBLE) Blast.ensure(st);
         for (BlockState st : new BlockState[]{AIR, DIRT, COARSE_DIRT, PODZOL, DEAD_BUSH_STATE, WATER, ModBlocks.TRINITITE.get().defaultBlockState()}) Blast.ensure(st);
-        for (BlockState st : SNOWY_GROUND) Blast.ensure(st);
+        for (BlockState st : SNOWY_GROUND) {
+            Blast.ensure(st);
+            Blast.ensure(st.setValue(BlockStateProperties.SNOWY, true));
+        }
         for (BlockState st : Blocks.FIRE.getStateDefinition().getPossibleStates()) Blast.ensure(st);
         for (BlockState st : Blocks.SOUL_FIRE.getStateDefinition().getPossibleStates()) Blast.ensure(st);
     }
@@ -262,7 +275,7 @@ public final class RuinPlanner {
             boolean inFireball = d.surface() && Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8
                     && at.y > d.groundY() - d.fireballRadius();
             double lit = g.lit(new BlockPos(x, ground, z));
-            double q = lit > 0 ? lit * incidence(c.ground, lx, lz, ground, x, z, d.burst()) : 0;
+            double q = lit > 0 ? lit * incidence(c.ground, lx, lz, ground, x, z, d.burst()) * edge(x, z, d.burst(), g.ctx().ruinRadius) : 0;
             heat[column] = inFireball ? lit : q;
             // рухнувшее оставляет завал при любом давлении (дом падает и ниже 5 psi); в огненном шаре — ничего
             if (blockDamage && !inFireball && c.removed[column] >= 3) rubble(s, lx, ground, lz, x, z, c.removed[column], c.wood[column]);
@@ -273,6 +286,7 @@ public final class RuinPlanner {
             }
             boolean stripped = ground(s, noise, lx, ground, lz, x, z, q, groundPsi, blockDamage);
             plants(s, noise, lx, ground, lz, x, z, q, stripped);
+            snowy(s, lx, ground, lz);
             if (fires && q >= ThermalModel.IGNITE) fire(s, lx, ground, lz, x, z, q, groundPsi);
         }
         Blast own = c.blast();
@@ -282,8 +296,8 @@ public final class RuinPlanner {
 
     /**
      * Ступени опалённого биома по клеткам 4×4 чанка ({@link ScorchedBiomes}): средний свет на земле клетки и шум мира;
-     * клетки меняются от земли клетки (средней по столбцам: колодец или обрыв в клетке её не уводят вниз) на
-     * {@link ScorchedBiomes#BELOW} вниз. Null — ни одной.
+     * клетки меняются от земли клетки на {@link ScorchedBiomes#BELOW} вниз. Земля клетки — нижняя четверть её столбцов:
+     * трава улицы между домами — под ней, а колодец или яма в одном столбце клетку вниз не уводят. Null — ни одной.
      */
     @Nullable
     private static ScorchedBiomes.Cells biomes(WorldNoise noise, int[] ground, double[] heat, int x0, int z0) {
@@ -307,7 +321,7 @@ public final class RuinPlanner {
                 if (level == 0) continue;
                 java.util.Arrays.sort(tops, 0, n);
                 levels[qz << 2 | qx] = (byte) level;
-                from[qz << 2 | qx] = tops[n / 2] - ScorchedBiomes.BELOW;
+                from[qz << 2 | qx] = tops[n / 4] - ScorchedBiomes.BELOW;
                 any = true;
             }
         }
@@ -316,9 +330,10 @@ public final class RuinPlanner {
 
     /**
      * Во сколько раз свет на земле столбца сильнее, чем на ровной земле там же: поток через площадку — косинус угла
-     * между лучом и нормалью (склон к взрыву жжёт сильнее, склон от взрыва — слабее, круче луча — тень), пороги ожогов
-     * — для ровной земли. Нормаль — по земле чанка после руин; перепад к соседу — не больше блока на блок (стена,
-     * завал и ствол склоном не считаются). Ровная земля — ровно 1 при любой высоте взрыва.
+     * между лучом и нормалью (склон к взрыву жжёт сильнее, склон от взрыва — слабее, круче луча — тень, с полутенью в
+     * {@link #LOW_SUN} рад: шар не точка), пороги ожогов — для ровной земли. Нормаль — по земле чанка после руин;
+     * перепад — не больше блока на блок (стена, завал и ствол склоном не считаются). Ровная земля — ровно 1 при любой
+     * высоте взрыва.
      */
     static double incidence(int[] ground, int lx, int lz, int h, int x, int z, Vec3 burst) {
         double gx = slope(ground, lx, lz, h, 1, 0), gz = slope(ground, lx, lz, h, 0, 1);
@@ -329,21 +344,32 @@ public final class RuinPlanner {
         ry /= len;
         rz /= len;
         double cos = (-gx * rx + ry - gz * rz) / Math.sqrt(gx * gx + 1 + gz * gz);
-        return Math.min(MAX_INCIDENCE, (Math.max(0, cos) + LOW_SUN) / Math.max(ry + LOW_SUN, LOW_SUN));
+        return Math.min(MAX_INCIDENCE, Math.max(0, cos + LOW_SUN) / Math.max(ry + LOW_SUN, LOW_SUN));
     }
 
-    /** Уклон земли вдоль оси ({@code dx, dz}): средний перепад к соседям в чанке, каждый не больше блока на блок. */
+    /** След света у края руин: 1 до {@code 1 − EDGE_FADE} радиуса, дальше плавно до 0 на краю. */
+    static double edge(int x, int z, Vec3 burst, double ruinRadius) {
+        double f = Mth.clamp((1 - Math.hypot(x + 0.5 - burst.x, z + 0.5 - burst.z) / ruinRadius) / EDGE_FADE, 0, 1);
+        return f * f * (3 - 2 * f);
+    }
+
+    /**
+     * Уклон земли вдоль оси ({@code dx, dz}): средний перепад к столбцам чанка до {@link #SLOPE_REACH} в обе стороны,
+     * каждый не больше блока на блок.
+     */
     private static double slope(int[] ground, int lx, int lz, int h, int dx, int dz) {
         double sum = 0;
         int n = 0;
-        int ax = lx + dx, az = lz + dz, bx = lx - dx, bz = lz - dz;
-        if (ax < 16 && az < 16 && ground[az << 4 | ax] != Integer.MIN_VALUE) {
-            sum += Mth.clamp(ground[az << 4 | ax] - h, -1, 1);
-            n++;
-        }
-        if (bx >= 0 && bz >= 0 && ground[bz << 4 | bx] != Integer.MIN_VALUE) {
-            sum += Mth.clamp(h - ground[bz << 4 | bx], -1, 1);
-            n++;
+        for (int k = 1; k <= SLOPE_REACH; k++) {
+            int ax = lx + dx * k, az = lz + dz * k, bx = lx - dx * k, bz = lz - dz * k;
+            if (ax < 16 && az < 16 && ground[az << 4 | ax] != Integer.MIN_VALUE) {
+                sum += Mth.clamp(ground[az << 4 | ax] - h, -k, k) / (double) k;
+                n++;
+            }
+            if (bx >= 0 && bz >= 0 && ground[bz << 4 | bx] != Integer.MIN_VALUE) {
+                sum += Mth.clamp(h - ground[bz << 4 | bx], -k, k) / (double) k;
+                n++;
+            }
         }
         return n == 0 ? 0 : sum / n;
     }
@@ -393,18 +419,18 @@ public final class RuinPlanner {
             strip(s, lx, ground, lz, x, z);
             return true;
         }
-        if (struck(q, CHAR_Q, CHAR_BETA, noise, x, z, LAYER_CHAR, 7)) {
-            s.set(lx, ground, lz, PODZOL);
-        } else if (struck(q, BURN_Q, BURN_BETA, noise, x, z, LAYER_BURN, 5)) {
-            s.set(lx, ground, lz, hash(x, ground, z, 5) < 0.5 ? COARSE_DIRT : DIRT);
+        // гарь — только там, где дёрн и так выгорел: пятна гари внутри выгоревшего, а не крапинами в зелёной траве
+        if (struck(q, BURN_Q, BURN_BETA, noise, x, z, LAYER_BURN, 5)) {
+            s.set(lx, ground, lz, struck(q, CHAR_Q, CHAR_BETA, noise, x, z, LAYER_CHAR, 7) ? PODZOL
+                    : hash(x, ground, z, 5) < 0.5 ? COARSE_DIRT : DIRT);
         }
         return false;
     }
 
     /**
-     * Над землёй: трава, цветы, кусты и посевы сгорают (от части остаётся сухой куст) или уходят с содранным дёрном,
-     * снег-слой тает — под ним земля больше не «заснежена». Случайность — больше зерно места, чем пятна: трава горит
-     * клочьями.
+     * Над землёй: трава, цветы, кусты и посевы ({@code nuke_plants}) сгорают (от части остаётся сухой куст) или уходят с
+     * содранным дёрном — со всем, что над ними (верх высокой травы, тростник), снег-слой тает. Случайность — больше
+     * зерно места, чем пятна: трава горит клочьями.
      */
     private static void plants(Sections s, WorldNoise noise, int lx, int ground, int lz, int x, int z, double q, boolean stripped) {
         int y = ground + 1;
@@ -416,15 +442,29 @@ public final class RuinPlanner {
                 && Fragility.hit(q, PLANT_Q, PLANT_BETA, 0.5 * noise.at(x + 0.5, z + 0.5, LAYER_PLANT) + 0.87 * grain(x, y, z, 41)))) return;
         if (snow) {
             s.set(lx, y, lz, AIR);
-            BlockState under = s.get(lx, ground, lz);
-            for (BlockState st : SNOWY_GROUND) if (under.getBlock() == st.getBlock()) s.set(lx, ground, lz, st);
             return;
         }
-        // двойная трава и высокие цветы: верхняя половина уходит с нижней
-        if (y + 1 < s.maxY && s.props(lx, y + 1, lz).is(Blast.Props.PLANT)) s.set(lx, y + 1, lz, AIR);
+        // двойная трава и высокие цветы, тростник: верх уходит с низом
+        for (int up = y + 1; up < s.maxY && s.props(lx, up, lz).is(Blast.Props.PLANT); up++) s.set(lx, up, lz, AIR);
         Blast.Props under = s.props(lx, ground, lz);
         boolean bush = !stripped && hash(x, y, z, 43) < DEAD_BUSH && (under.is(Blast.Props.DIRT) || under.is(Blast.Props.SAND));
         s.set(lx, y, lz, bush ? DEAD_BUSH_STATE : AIR);
+    }
+
+    /**
+     * Земля «заснежена» ({@code snowy}: белые бока у дёрна), пока над ней снег, как у {@code SnowyDirtBlock}: снежный
+     * слой сдуло волной или растопило светом (над землёй воздух) — бока зелёные, выгоревший под уцелевшим снегом —
+     * снова белые. Остальное над землёй (рыхлый снег, растения) {@code snowy} не трогает.
+     */
+    private static void snowy(Sections s, int lx, int ground, int lz) {
+        if (ground + 1 >= s.maxY) return;
+        BlockState under = s.get(lx, ground, lz);
+        if (!under.hasProperty(BlockStateProperties.SNOWY)) return;
+        Blast.Props above = s.props(lx, ground + 1, lz);
+        boolean snowy = under.getValue(BlockStateProperties.SNOWY);
+        boolean now = snowy ? !s.get(lx, ground + 1, lz).isAir() : above.is(Blast.Props.SNOW_LAYER) || above.is(Blast.Props.SNOW);
+        if (now == snowy) return;
+        for (BlockState st : SNOWY_GROUND) if (under.getBlock() == st.getBlock()) s.set(lx, ground, lz, st.setValue(BlockStateProperties.SNOWY, now));
     }
 
     /** Пожар на земле, где свет поджёг горючее (вероятность растёт со светом), а волна сбила огонь не везде (≥ 2 psi). */

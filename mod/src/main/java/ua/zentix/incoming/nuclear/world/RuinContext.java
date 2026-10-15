@@ -47,7 +47,11 @@ final class RuinContext {
     RuinContext(Detonation d) {
         this.d = d;
         this.noise = new ua.zentix.incoming.nuclear.model.WorldNoise(d.seed(), d.scale());
+        this.ruinRadius = d.ruinRadius();
     }
+
+    /** Докуда строятся руины, блоки ({@link Detonation#ruinRadius}): у края след света сходит на нет ({@code RuinPlanner}). */
+    final double ruinRadius;
 
     /** Шум мира подрыва для кривых поражения ({@code RuinPlanner}): пятна выгоревшей травы, гари, ступеней биома. */
     final ua.zentix.incoming.nuclear.model.WorldNoise noise;

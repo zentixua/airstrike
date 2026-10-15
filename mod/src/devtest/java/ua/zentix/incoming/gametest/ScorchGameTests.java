@@ -54,7 +54,7 @@ public final class ScorchGameTests {
      * (~3 кал/см²). Дёрн выгорает у центра и уцелел у края, а между — пятнами (кольцо, где есть и трава, и земля); гарь —
      * только ближе к центру; трава и цветы над землёй сгорели у центра (верхние половины высоких — вместе с нижними,
      * от части остался сухой куст), у края стоят. Биом — ступенями от обугленного к опалённому, моря-реки, пустыня и
-     * снежные равнины не тронуты, под землёй — тоже; чанк с новым биомом — к сохранению, в его данных — новые биомы.
+     * снежные равнины не тронуты, под землёй — тоже; в данных чанка — новые биомы.
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_scorch", skyAccess = true)
     public static void scorchFadesOutwardInPatches(GameTestHelper h) {
@@ -76,9 +76,12 @@ public final class ScorchGameTests {
                 }
             }
         }
-        // биом в 12 блоках под землёй (под камнем площадки) — до удара
+        // биом в 12 блоках под землёй (под камнем площадки) — до удара; равнина ли у земли: клетки биома — 4×4 по сетке
+        // мира, а площадка стоит как придётся — у границы полос в «равнинном» ряду бывает клетка снега
         int[] deep = new int[64 * 64];
         for (int x = 0; x < 64; x += 4) for (int z = 0; z < 64; z += 4) deep[x * 64 + z] = biomeAt(h, x, DEEP, z).hashCode();
+        boolean[] plains = new boolean[64 * 64];
+        for (int x = 0; x < 64; x++) for (int z = 0; z < 64; z++) plains[x * 64 + z] = biomeAt(h, x, 12, z).is(Biomes.PLAINS);
         double scale = 0.0182;
         Detonation d = NuclearGameTests.detonation(h, GROUND_ZERO, Yield.optimalBurstHeight(15) * scale, 15, (float) scale);
         NuclearGameTests.scarAll(h, d, new ColumnScar.Budget(true));
@@ -109,8 +112,8 @@ public final class ScorchGameTests {
                 psi[ring] = Math.max(psi[ring], d.psi(at));
                 if (top.is(Blocks.COARSE_DIRT)) coarse[ring]++;
                 if (ua.zentix.incoming.nuclear.world.ThermalShadow.visible(level, d.burst(), at.add(0, -0.5, 0))) seen[ring]++;
-                // биом — у равнинных рядов, без клеток у края площадки (в них и столбцы за стеной барьеров, в тени)
-                if (z >= 4 && z < 40 && x >= 4 && x < 60) {
+                // биом — у равнины, без клеток у края площадки (в них и столбцы за стеной барьеров, в тени)
+                if (plains[x * 64 + z] && z >= 4 && x >= 4 && x < 60) {
                     cells[ring]++;
                     levels[ring] += level(biomeAt(h, x, 12, z));
                 }
@@ -165,9 +168,8 @@ public final class ScorchGameTests {
                 if (biomeAt(h, x, DEEP, z).hashCode() != deep[x * 64 + z]) h.fail("биом под землёй изменился в " + x + ", " + z + ": " + biomeAt(h, x, DEEP, z));
             }
         }
-        // чанк у центра — к сохранению, и в его данных новые биомы
+        // в данных чанка у центра — новые биомы (к сохранению чанк руин помечен отметкой руин)
         LevelChunk chunk = level.getChunkAt(h.absolutePos(new BlockPos(2, 11, 32)));
-        h.assertTrue(chunk.isUnsaved(), "чанк с новым биомом не помечен к сохранению");
         String saved = net.minecraft.world.level.chunk.storage.ChunkSerializer.write(level, chunk).toString();
         h.assertTrue(saved.contains(CHARRED.location().toString()), "в данных чанка нет обугленного биома");
         h.succeed();

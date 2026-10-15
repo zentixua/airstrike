@@ -6,7 +6,8 @@ import ua.zentix.incoming.util.noise.FastNoiseLite;
  * Гладкое случайное поле местности для кривых поражения ({@link Fragility}): почему у одного склона трава выгорела, а
  * у соседнего нет (влажность, густота, торф, ветер). OpenSimplex2 fBm (4 октавы: пятна от ~90 м до ~10 м) с доменным
  * искажением (края пятен рваные, не круглые), приведённое к среднему 0 и разбросу 1 — как {@code z ~ N(0, 1)}.
- * Координаты — блоки мира, размер пятен — в метрах модели ({@code blocksPerMetre}). Поле зависит только от зерна и
+ * Координаты — блоки мира, размер пятен — в метрах модели ({@code blocksPerMetre}), но крупные — не меньше
+ * {@link #MIN_PATCH_BLOCKS} блоков: в малом масштабе удара пятна иначе мельчали бы до зерна. Поле зависит только от зерна и
  * места: план руин чанка одинаков в любом порядке и в любом потоке. Экземпляр после создания только читается
  * (FastNoiseLite без изменяемого состояния при чтении) — общий для потоков руин.
  */
@@ -15,6 +16,8 @@ public final class WorldNoise {
     static final double STD = 0.333;
     /** Размер самых крупных пятен, м. */
     static final double PATCH_M = 90;
+    /** Крупные пятна — не меньше стольких блоков. */
+    static final double MIN_PATCH_BLOCKS = 12;
     /** Искажение: сдвиг до ~30 м, волна ~150 м. */
     private static final double WARP_M = 30, WARP_WAVE_M = 150;
 
@@ -22,7 +25,7 @@ public final class WorldNoise {
     private final double metresPerBlock;
 
     public WorldNoise(long seed, double blocksPerMetre) {
-        this.metresPerBlock = 1 / blocksPerMetre;
+        this.metresPerBlock = Math.min(1 / blocksPerMetre, PATCH_M / MIN_PATCH_BLOCKS);
         int s = (int) (seed ^ seed >>> 32);
         noise.SetSeed(s);
         noise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
