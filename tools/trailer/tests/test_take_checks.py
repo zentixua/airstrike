@@ -327,6 +327,34 @@ class FrozenFramesTest(unittest.TestCase):
         self.assertEqual([], T.frozen_frames(self.frames([b"a", b"a", b"c", b"c"]), "n1"), "две пары — не замерзание")
 
 
+class DimFramesTest(unittest.TestCase):
+    """Тёмный кадр: средняя яркость против предела из cover (T07 n11 на рассвете 23200 мерился 19)."""
+
+    def frames(self, level, n=3):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("нет PIL")
+        root = tempfile.mkdtemp()
+        d = os.path.join(root, "frames", "n1")
+        os.makedirs(d)
+        for k in range(n):
+            Image.new("RGB", (64, 36), (level, level, level)).save(os.path.join(d, f"{k:05d}.png"))
+        return root
+
+    def test_dark_dawn_fails_the_floor(self):
+        out = T.dim_frames(self.frames(19), "n1", 60)
+        self.assertEqual(1, len(out))
+        self.assertIn("яркость", out[0])
+
+    def test_readable_dawn_passes(self):
+        self.assertEqual([], T.dim_frames(self.frames(75), "n1", 60))
+
+    def test_no_frames_or_no_floor_is_fine(self):
+        self.assertEqual([], T.dim_frames(tempfile.mkdtemp(), "n1", 60))
+        self.assertEqual([], T.dim_frames(self.frames(19), "n1", None))
+
+
 class RecordProblemsTest(unittest.TestCase):
     def test_old_recording_without_new_data_is_not_a_failure(self):
         self.assertEqual([], T.record_problems(tempfile.mkdtemp(), {"siren": True, "shots": []}, {}))

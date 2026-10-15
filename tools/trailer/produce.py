@@ -15,6 +15,10 @@ run    — цепочка: дубль `chain` идёт на копии сним�
          без записи (его планы — из живого дубля), а мир его входа держится до живого дубля. После записи — вывод планов дубля и проверка; не прошёл — та же
          копия входа и запасная камера (INCOMING_NEWISLE_VARIANT 1, 2), после `retries` пересъёмок — пропуск. Конец —
          черновик монтажа из прошедших планов (newisle_cut.py). Повторный запуск продолжает с места (state.json).
+         Пересъёмка снятого дубля по решению человека — <работа>/retake.txt (дубль на строку, читается при запуске и
+         на границе дублей, как requeue): статус снимается, дубль идёт со своего входа — снимка прошлого по цепочке,
+         каким он был при первой съёмке (с нынешней головы ранние сцены вышли бы на разрушенном городе), а цепочка
+         после пересъёмки не сдвигается. Нет входного мира в saves — строка в лог и пропуск (дубль остаётся снятым).
 live   — живой дубль Артёма на копии мира, с которого цепочка шла в его дубль (цепочки ещё не было — мастера): окно
          игры на его экране, подсказки, начало по Enter (`--standin` — бот вместо него, слепой прогон P1).
 search — поиски P1, каждая проба — на своей копии мастера; найденное — scenes/newisle-found.json (постановщик берёт
@@ -389,10 +393,14 @@ class Conveyor:
         return self.state["world_gb"]
 
     def input_for(self, take, intact=False):
-        """Мир входа дубля: мастер, снимок после прошлого дубля цепочки или снимок дубля ветки."""
+        """Мир входа дубля: мастер, снимок после прошлого дубля цепочки или снимок дубля ветки; пересъёмка — вход из
+        состояния дубля (снимок прошлого по цепочке, как при первой съёмке), а не нынешняя голова цепочки."""
         t = self.takes[take]
         if intact:
             return self.master
+        own = self.state["takes"].get(take, {}).get("retake_input")
+        if own is not None:
+            return self.master if own == "" else os.path.join(self.saves, own)
         src = t.get("from", "chain")
         if src.startswith("branch:"):
             snap = self.state["takes"].get(src[7:], {}).get("snapshot")
@@ -404,10 +412,11 @@ class Conveyor:
 
     def world_name(self, take, n, src):
         """Имя копии мира попытки: nw-<дубль>-a<n>, а занятое входом или снимком — с суффиксом r1, r2… Дубль снова в
-        очереди начинает попытки с a0, а его прежний мир a0 бывает входом цепочки: копия поверх себя стёрла вход (15.10)."""
+        очереди начинает попытки с a0, а его прежний мир a0 бывает входом цепочки: копия поверх себя стёрла вход (15.10).
+        Пересъёмка то же держит: её прежний снимок (retake_of) остаётся чьим-то входом — живого дубля Артёма."""
         used = {os.path.basename(src), self.state.get("chain")}
         for st in self.state["takes"].values():
-            used |= {st.get("snapshot"), st.get("kept"), st.get("before")}
+            used |= {st.get("snapshot"), st.get("kept"), st.get("before"), st.get("retake_of")}
         name, k = f"nw-{take}-a{n}", 0
         while name in used:
             k += 1
@@ -643,12 +652,13 @@ class Conveyor:
         return out
 
     def render_flags(self, take, rec, plan, path):
-        """Какие проверки вывода нужны плану: FPV, МБР; onboard, HUD и ядерные — без тряски."""
+        """Какие проверки вывода нужны плану: FPV, МБР, тёмный кадр (brightness в cover); onboard, HUD и ядерные — без тряски."""
         shot = next((s for s in self.takes[take].get("shots", []) if plan in s.get("plans", [])), {})
         flights, nuke = take_checks.read_events(os.path.join(rec, "replays", f"{plan}.events.jsonl"))
         return {"fpv": shot.get("camera") == "fpv" or os.path.basename(path).startswith("fpv"),
                 "icbm": any(f.weapon in take_checks.ICBM_WEAPONS for f in flights),
-                "shake": not (nuke or shot.get("camera") == "onboard" or shot.get("hud"))}
+                "shake": not (nuke or shot.get("camera") == "onboard" or shot.get("hud")),
+                "brightness": (shot.get("cover") or {}).get(plan, {}).get("brightness")}
 
     def take(self, take):
         """Дубль цепочки до итога: запись, проверка, вывод, пересъёмка запасной камерой, пропуск."""
@@ -717,7 +727,21 @@ class Conveyor:
             self.triage(take, last.get("rec"), "; ".join(a.get("reason", "") for a in st["attempts"]))
         self.state.setdefault("spent", {})[take] = self.state.get("spent", {}).get(take, 0) + round(self.m.now() - t0)
         src = t.get("from", "chain")
-        if src == "chain" and st.get("snapshot"):
+        if "retake_input" in st:
+            # пересъёмка: цепочка не сдвигается — дубли после переснятого давно прошли со своих миров; новый снимок —
+            # лист, а прежний (если он не голова цепочки) — в очередь удаления
+            old, inp = st.pop("retake_of", None), st.pop("retake_input")
+            if st.get("status") in ("passed", "chained"):
+                if src == "chain" and self.state.get("chain") == old:
+                    self.state["chain"] = st["snapshot"]     # переснят головной дубль: замена на месте
+                else:
+                    self.release(st["snapshot"])
+            self.release(old)
+            if src.startswith("branch:"):
+                base = self.state["takes"].get(src[7:], {}).get("snapshot")
+                if base != self.state.get("chain"):
+                    self.release(base)
+        elif src == "chain" and st.get("snapshot"):
             prev = self.state.get("chain")
             self.state["chain"] = st["snapshot"]
             self.release(prev)
@@ -812,24 +836,81 @@ class Conveyor:
         os.replace(path, path + ".done")
         self.save()
 
+    def retake(self):
+        """Пересъёмка снятого дубля по решению человека — <работа>/retake.txt (по дублю на строку), читается при запуске
+        и на каждой границе дублей, как requeue: статус снимается, дубль идёт со своего входа — снимка прошлого по
+        цепочке, каким он был при первой съёмке (с нынешней головы цепочки ранние сцены вышли бы на разрушенном
+        городе), а цепочка после пересъёмки не сдвигается. Нет входного мира в saves — строка в лог и пропуск: дубль
+        остаётся снятым, как был."""
+        path = os.path.join(self.work, "retake.txt")
+        if not os.path.exists(path):
+            return
+        for take in read(path).split():
+            if take not in self.takes:
+                self.say(f"{take}: пересъёмка — неизвестный дубль")
+                continue
+            st = self.state["takes"].get(take, {})
+            if st.get("status") not in ("passed", "chained"):
+                self.say(f"{take}: пересъёмка — дубль не снят ({st.get('status') or 'ещё не снимался'})")
+                continue
+            src = self.retake_input(take)
+            if src is None:
+                self.say(f"{take}: пересъёмка пропущена — нет входного мира в saves")
+                continue
+            self.state["released"] = [w for w in self.state.get("released", []) if w != src]
+            self.state["takes"][take] = {"attempts": [], "retake_input": src, "retake_of": st.get("snapshot")}
+            self.say(f"{take}: пересъёмка со своего входа ({src or 'мастер'})")
+        os.replace(path, path + ".done")
+        self.save()
+
+    def retake_input(self, take):
+        """Снимок прошлого по цепочке дубля, каким был вход при первой съёмке: ветке — снимок её базы, цепочке — снимок
+        последнего дубля цепочки перед ним с снимком (без снимка дубль цепочку не двигал). Мира нет в saves — None
+        (пересъёмка невозможна), мастер — пустая строка."""
+        src = self.takes[take].get("from", "chain")
+        if src.startswith("branch:"):
+            snap = self.state["takes"].get(src[7:], {}).get("snapshot")
+            return self.on_saves(snap)
+        for t in reversed(self.order[:self.order.index(take)]):
+            if self.takes[t].get("from", "chain") != "chain":
+                continue
+            snap = self.state["takes"].get(t, {}).get("snapshot")
+            if snap:
+                return self.on_saves(snap)
+        return ""
+
+    def on_saves(self, world):
+        """Имя мира с level.dat в saves — само себя; нет или неполный — None."""
+        if world and os.path.exists(os.path.join(self.saves, world, "level.dat")):
+            return world
+        return None
+
     def release(self, world):
         """Снимок, который больше не вход ни одному дублю впереди (его планы выведены), — в очередь на удаление. Удаляет
         его проверка места (старые первыми), когда места мало; до того мир лежит: перевывод плана по замечанию берёт LOD
-        DH из мира, где план записан."""
+        DH из мира, где план записан. Мир, который ещё чей-то вход, — наоборот, из очереди прочь."""
         if not world or world == self.state.get("chain"):
             return
         for t, tk in self.takes.items():           # вход дубля Артёма — до его живого дубля
             live = self.state.get("live", {}).get(t, {}).get("attempts") or ()
             if "artem" in tk and self.state["takes"].get(t, {}).get("before") == world and not any(a["ok"] for a in live):
-                return
+                return self.hold(world)
         for t in self.plan_order:
             src = self.takes[t].get("from", "chain")
             if src.startswith("branch:") and self.state["takes"].get(src[7:], {}).get("snapshot") == world \
                     and self.state["takes"].get(t, {}).get("status") not in ("passed", "skipped"):
-                return
+                return self.hold(world)
         released = self.state.setdefault("released", [])
         if world not in released:
             released.append(world)
+
+    def hold(self, world):
+        """Мир, который ещё чей-то вход (живой дубль Артёма, ветка впереди), — не в очереди на удаление: прошлый прогон
+        мог поставить его туда до того, как вход появился (ночь 15.10: nw-T02-a0 стоял в очереди, будучи входом живого
+        дубля T03)."""
+        released = self.state.setdefault("released", [])
+        if world in released:
+            released.remove(world)
 
     # ---------------------------------------------------------------- ночь
 
@@ -843,11 +924,13 @@ class Conveyor:
         try:
             self.preflight()
             self.requeue()
+            self.retake()
             self.render_live()
             self.render_missing()
             late = []
             while True:
                 self.requeue()             # починенный посреди ночи дубль — в очередь на ближайшей границе дублей
+                self.retake()              # пересъёмка по решению человека — тоже
                 take = next((t for t in self.plan_order if t not in late and self.state["takes"].get(t, {})
                              .get("status") not in ("passed", "skipped", "chained")), None)
                 if take is None:

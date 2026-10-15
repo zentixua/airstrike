@@ -41,7 +41,9 @@
 - FPV над живыми районами: у FPV-планов в ≥ 70 % кадров — удар последних 15 с ближе 200 блоков в конусе взгляда
   (fov/2 + 10°) или объект снят по qa.jsonl (in, виден, не в облаках и тумане, секция построена); у планов с МБР —
   в ≥ 80 % кадров, где она в кадре, `share` ≥ 0,02 высоты кадра;
-- застывшие кадры: в frames/<план>/ три и больше одинаковых подряд (хеш файла) — вывод встал.
+- застывшие кадры: в frames/<план>/ три и больше одинаковых подряд (хеш файла) — вывод встал;
+- тёмный кадр (планам с `brightness` в cover, T07 n11): средняя яркость кадров вывода ниже предела — рассвет, на
+  котором ущелье и ракеты не читаются (23200 мерилось 19 при прошедшем взгляде QA; PIL нет — не провал: замер нечем).
 
     python3 tools/trailer/take_checks.py record <папка дубля> [--scenes ПАПКА] [--take T04]
     python3 tools/trailer/take_checks.py render <папка кандидата> --plan <план> [--fpv] [--icbm] [--no-shake]
@@ -73,6 +75,7 @@ BLAST = {"rocket": 8, "drone": 12, "loiter": 12, "missile": 18, "bunker": 24}   
 FPV_SHARE, FPV_PAST_S, FPV_RANGE, FPV_CONE = 0.7, 15.0, 200.0, 10.0
 ICBM_SHARE, ICBM_FRAMES = 0.02, 0.8
 FROZEN_RUN = 3
+DIM_SAMPLE = 24                              # кадров на замер средней яркости
 
 
 def _jsonl(path):
@@ -546,7 +549,43 @@ def frozen_frames(cand, plan):
     return []
 
 
-def render_problems(cand, plan, fpv=False, icbm=False, shake=True):
+def _mean_luma(path):
+    """Средняя яркость кадра (0–255), кадр ужат до 320 пикселей: замер ровный, а не пиксель в пиксель."""
+    from PIL import Image
+    with Image.open(path) as im:
+        g = im.convert("L")
+        g.thumbnail((320, 320))
+        h = g.histogram()
+        total = sum(h)
+        return sum(i * c for i, c in enumerate(h)) / total if total else 0.0
+
+
+def dim_frames(cand, plan, floor):
+    """Тёмный кадр: средняя яркость кадров вывода ниже предела плана (`brightness` в cover) — время суток, на
+    которое объект не читается, как рассвет 23200 у T07 n11 (средняя 19). Провал — дубль переснимается."""
+    if not floor:
+        return []
+    frames = os.path.join(cand, "frames", plan)
+    if not os.path.isdir(frames):
+        return []
+    names = sorted(n for n in os.listdir(frames) if n.endswith(".png"))
+    if not names:
+        return []
+    step = max(1, len(names) // DIM_SAMPLE)
+    values = []
+    for name in names[::step]:
+        try:
+            values.append(_mean_luma(os.path.join(frames, name)))
+        except OSError:
+            continue
+    mean = sum(values) / len(values) if values else 0.0
+    if mean < floor:
+        worst = min(values) if values else 0.0
+        return [f"средняя яркость кадров {mean:.0f} (худший {worst:.0f}) < {floor:.0f}"]
+    return []
+
+
+def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=None):
     """Все проверки вывода папки кандидата: PASS плана с любой из них — FAIL (дубль переснимается)."""
     out = camera_turn(cand) + axis_fail(cand) + frozen_frames(cand, plan)
     if shake:
@@ -555,6 +594,8 @@ def render_problems(cand, plan, fpv=False, icbm=False, shake=True):
         out += fpv_over_districts(cand, plan)
     if icbm:
         out += icbm_in_frame(cand)
+    if brightness:
+        out += dim_frames(cand, plan, float(brightness))
     return out
 
 
@@ -570,9 +611,11 @@ def main(argv=None):
     ap.add_argument("--fpv", action="store_true")
     ap.add_argument("--icbm", action="store_true")
     ap.add_argument("--no-shake", action="store_true", help="onboard, HUD и ядерные планы без проверки тряски")
+    ap.add_argument("--brightness", type=float, help="предел средней яркости кадров (T07 n11: рассвет)")
     a = ap.parse_args(argv)
     if a.mode == "render":
-        problems = render_problems(a.dir, a.plan, fpv=a.fpv, icbm=a.icbm, shake=not a.no_shake)
+        problems = render_problems(a.dir, a.plan, fpv=a.fpv, icbm=a.icbm, shake=not a.no_shake,
+                                   brightness=a.brightness)
     else:
         result = load_json(os.path.join(a.dir, "result.json"), {})
         take_id = a.take or result.get("take") or os.path.basename(os.path.dirname(a.dir.rstrip("/")))

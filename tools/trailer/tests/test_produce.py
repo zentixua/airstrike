@@ -504,6 +504,75 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual("passed", c.state["takes"]["A"]["status"], "без перезапуска: на границе после B")
         self.assertTrue(os.path.exists(os.path.join(self.cfg["work"], "requeue.txt.done")))
 
+    def test_retake_reshoots_a_passed_take_from_its_own_input(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        self.assertEqual("nw-D-a0", c.state["chain"])
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c.run(["C"]))
+        st = c.state["takes"]["C"]
+        # вход — снимок базы ветки (B), каким был при первой съёмке, а не нынешняя голова цепочки (D)
+        src, dst = m.copies[-1]
+        self.assertEqual(os.path.join(self.cfg["saves"], "nw-B-a0"), src)
+        self.assertEqual("nw-C-a0r1", os.path.basename(dst), "копия не поверх прежнего снимка C")
+        self.assertEqual("passed", st["status"])
+        self.assertEqual("nw-C-a0r1", st["snapshot"])
+        self.assertEqual("nw-D-a0", c.state["chain"], "цепочка не сдвигается")
+        self.assertIn("nw-C-a0r1", c.state["released"], "новый снимок — лист")
+        self.assertIn("nw-C-a0", c.state["released"], "прежний снимок — в очередь удаления")
+        self.assertTrue(os.path.exists(os.path.join(self.cfg["work"], "retake.txt.done")))
+
+    def test_retake_of_a_chain_take_uses_the_previous_chain_snapshot(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("D\n")
+        self.assertEqual(0, c.run(["D"]))
+        src, dst = m.copies[-1]
+        self.assertEqual(os.path.join(self.cfg["saves"], "nw-B-a0"), src,
+                         "вход — снимок прошлого дубля цепочки (B), ветка C его не двигала")
+        self.assertEqual("nw-D-a0r1", c.state["takes"]["D"]["snapshot"])
+        self.assertEqual("nw-D-a0r1", c.state["chain"], "переснят головной дубль — замена на месте")
+
+    def test_retake_keeps_the_live_take_input_world(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        c.state["released"].append("nw-A-a0")            # прошлый прогон успел поставить вход живого дубля в очередь
+        c.save()
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("A\n")
+        self.assertEqual(0, c.run(["A"]))
+        src, dst = m.copies[-1]
+        self.assertEqual(self.master, src, "первый дубль цепочки — мастер")
+        self.assertEqual("nw-A-a0r1", c.state["takes"]["A"]["snapshot"])
+        self.assertNotIn("nw-A-a0", c.state["released"], "вход живого дубля B — не в очереди на удаление")
+        self.assertTrue(os.path.exists(os.path.join(self.cfg["saves"], "nw-A-a0", "level.dat")))
+        self.assertIn("nw-A-a0r1", c.state["released"])
+
+    def test_retake_without_input_world_skips_and_logs(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        starts = len(m.starts)
+        import shutil
+        shutil.rmtree(os.path.join(self.cfg["saves"], "nw-B-a0"))
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c.run(["C"]))
+        self.assertEqual("passed", c.state["takes"]["C"]["status"], "без входа дубль остаётся снятым")
+        self.assertEqual(starts, len(m.starts), "ничего не переснимается")
+        with open(os.path.join(self.cfg["work"], "produce.log"), encoding="utf-8") as f:
+            self.assertIn("C: пересъёмка пропущена — нет входного мира", f.read())
+
+    def test_retake_of_a_take_that_is_not_shot_is_skipped(self):
+        c, m = self.conveyor()
+        c.state["takes"]["A"] = {"status": "skipped", "attempts": [{"ok": False, "reason": "пропущен ночью"}]}
+        c.save()
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("A\n")
+        self.assertEqual(0, c.run(["A", "B", "C"]))
+        self.assertEqual("skipped", c.state["takes"]["A"]["status"], "не снятый не переснимается — это requeue")
+
     def test_search_and_live_stop_without_a_world(self):
         os.remove(os.path.join(self.master, "level.dat"))
         c, m = self.conveyor()
