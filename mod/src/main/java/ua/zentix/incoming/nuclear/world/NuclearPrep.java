@@ -49,7 +49,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * запланированному удару.
  * <p>
  * Место подрыва и земля под ним — как у самого подрыва ({@link NuclearWarhead#geometry}); план не зависит ни от времени,
- * ни от сида подрыва — только от места, мощности и масштаба, и подходит подрыву, если тот случился там же.
+ * ни от сида подрыва — только от места, мощности и масштаба, и подходит подрыву, если тот случился там же; такой подрыв
+ * берёт место, землю и видимость подготовки ({@link #planned}).
  */
 public final class NuclearPrep {
     private static final TicketType<UUID> TYPE = TicketType.create("incoming_nuclear_prep", Comparator.<UUID>naturalOrder());
@@ -355,7 +356,7 @@ public final class NuclearPrep {
             p.geometry = NuclearWarhead.geometry(level, s.surface() ? NuclearWarhead.surfaceAt(level, s.target()) : s.target(), s.yieldKt(), s.airBurst(),
                     IncomingConfig.SERVER.nukeEffectsScale.get().floatValue());
             layout(p);
-            p.ruins = new RuinContext(p.geometry);
+            p.ruins = new RuinContext(level, p.geometry);
         }
         long now = level.getGameTime();
         if (now >= p.nextRefresh) {
@@ -984,9 +985,7 @@ public final class NuclearPrep {
     @Nullable
     Handoff handOff(ServerLevel level, Detonation d, long now) {
         for (Prep p : preps) {
-            Detonation g = p.geometry;
-            if (p.detonation >= 0 || p.draining || g == null || g.yieldKt() != d.yieldKt() || g.surface() != d.surface() || g.scale() != d.scale()
-                    || g.burst().distanceTo(d.burst()) > SAME_PLACE) continue;
+            if (!preparedFor(p, d)) continue;
             p.detonation = d.id();
             p.handedOff = now;
             p.farAtDetonation = java.util.Arrays.stream(p.order).filter(c -> level.getChunkSource().getChunkNow(ChunkPos.getX(c), ChunkPos.getZ(c)) == null).toArray();
@@ -1001,6 +1000,23 @@ public final class NuclearPrep {
     }
 
     record Handoff(Long2ObjectOpenHashMap<RuinPlan> plans, long[] order, RuinContext ruins) {}
+
+    /**
+     * Место подрыва, по которому готовились руины, если подрыв — тот, к которому готовились; иначе {@code fresh}. Подрыв
+     * берёт его точку, землю и видимость: руины заранее и руины чанков, загруженных после того, как руины подготовки
+     * забыты (по самому подрыву), тогда одни и те же — и когда за полёт МБР сменилась погода.
+     */
+    Detonation planned(Detonation fresh) {
+        for (Prep p : preps) if (preparedFor(p, fresh)) return p.geometry;
+        return fresh;
+    }
+
+    /** Подготовка — к этому подрыву: ещё не отдана, то же место, мощность и масштаб. */
+    private static boolean preparedFor(Prep p, Detonation d) {
+        Detonation g = p.geometry;
+        return p.detonation < 0 && !p.draining && g != null && g.yieldKt() == d.yieldKt() && g.surface() == d.surface() && g.scale() == d.scale()
+                && g.burst().distanceTo(d.burst()) <= SAME_PLACE;
+    }
 
     /** Чанки зоны за волной (для сводки руин). */
     private static java.util.function.LongPredicate zone(Prep p) {

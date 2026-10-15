@@ -80,4 +80,5 @@ cd mod
 Made by ZentixUA. Incoming is free software under the GNU General Public License version 3
 ([LICENSE](LICENSE)). You may use, modify and redistribute it, including in modpacks, under the same license and with
 its source code. Sounds are made from Freesound recordings under CC0 and CC BY 4.0; the authors are listed in
-[SOUND-CREDITS.md](SOUND-CREDITS.md). The jar bundles the sable-companion library (MIT).
+[SOUND-CREDITS.md](SOUND-CREDITS.md). The jar bundles the sable-companion library (MIT) and
+a copy of FastNoiseLite by Jordan Peck (MIT).

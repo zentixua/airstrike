@@ -34,15 +34,27 @@ import java.util.TreeMap;
  * <p>
  * Список тестов сервер GameTest получает до любых событий мода ({@code GameTestRegistry.getAllTestFunctions()} в
  * {@code Main}) и копирует себе, а партии из этой копии собирает в {@code initServer} после
- * {@link ServerAboutToStartEvent} — здесь копия и сужается до своей части. В jar мода не входит (devtest).
+ * {@link ServerAboutToStartEvent} — здесь копия и сужается до своей части (и до партий {@code -PgametestOnly=<регвыр>}
+ * при прогоне своих тестов локально). В jar мода не входит (devtest).
  */
 @Mod(Incoming.MOD_ID)
 public final class GameTestShards {
     private static final String RESOURCE = "/gametest-durations.json";
 
     public GameTestShards() {
-        String spec = System.getProperty("incoming.gametest.shard", "");
+        String spec = System.getProperty("incoming.gametest.shard", ""), only = System.getProperty("incoming.gametest.only", "");
+        if (!only.isBlank()) NeoForge.EVENT_BUS.addListener((ServerAboutToStartEvent e) -> only(e, only));
         if (!spec.isBlank()) NeoForge.EVENT_BUS.addListener((ServerAboutToStartEvent e) -> select(e, spec));
+    }
+
+    /** Только партии, чьё имя подходит под регулярное выражение ({@code -PgametestOnly=…}: прогон своих тестов локально). */
+    private static void only(ServerAboutToStartEvent e, String regex) {
+        if (!(e.getServer() instanceof GameTestServer server)) return;
+        List<TestFunction> tests = ObfuscationReflectionHelper.getPrivateValue(GameTestServer.class, server, "testFunctions");
+        int total = tests.size();
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(regex);
+        tests.removeIf(t -> !p.matcher(t.batchName()).matches());
+        Incoming.LOG.info("GameTest: только партии «{}» — тестов {} из {}", regex, tests.size(), total);
     }
 
     private static void select(ServerAboutToStartEvent e, String spec) {

@@ -291,11 +291,12 @@ public final class FarLods {
     private static Built build(DiskShots.Format f, DiskShots.Sections s, @Nullable RuinPlan plan, boolean fires, boolean lights) {
         long chunk = s.pos().toLong();
         if (s.skip() != null) return new Built(chunk, null, false, lights, s.skip());
-        if (plan != null && !plan.applyToCopy(s.sections(), fires)) return new Built(chunk, null, false, lights, "stale plan");
+        int biomes = plan == null ? 0 : plan.applyToCopy(s.sections(), fires, f.biomes(), f.minSection());
+        if (biomes < 0) return new Built(chunk, null, false, lights, "stale plan");
         ProtoChunk copy = new ProtoChunk(s.pos(), UpgradeData.EMPTY, s.sections(), new ProtoChunkTicks<>(), new ProtoChunkTicks<>(),
                 LevelHeightAccessor.create(f.minY(), f.height()), f.biomes(), null);
         copy.setPersistedStatus(ChunkStatus.FULL);
-        return new Built(chunk, copy, plan != null && plan.changedBlocks() + plan.fireCount() > 0, lights, null);
+        return new Built(chunk, copy, plan != null && plan.changedBlocks() + plan.fireCount() + biomes > 0, lights, null);
     }
 
     /** Поток сервера: лампы — к сети сейчас; изменилось против диска (или квартал сменил свет) — в DH. */

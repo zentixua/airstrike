@@ -18,6 +18,7 @@ import net.minecraft.world.level.lighting.LightEngine;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.registry.ModTags;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,7 +82,9 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         static final int OPAQUE = 1;
         static final int STURDY_UP = 1 << 4, FLAMMABLE = 1 << 5, REPLACEABLE = 1 << 6, SLOW = 1 << 7, SOURCE = 1 << 8,
                 SHAPE_LIGHT = 1 << 9, GRASS = 1 << 10, MOSS = 1 << 11, SAND = 1 << 12, DIRT = 1 << 13, SNOW = 1 << 14,
-                SOUL_BASE = 1 << 15, FIRE = 1 << 16, NO_FLUID = 1 << 17;
+                SOUL_BASE = 1 << 15, FIRE = 1 << 16, NO_FLUID = 1 << 17, PLANT = 1 << 18, SNOW_LAYER = 1 << 19,
+                /** Снег для дёрна под ним ({@code SnowyDirtBlock}: тег {@code minecraft:snow} — слой, блок, рыхлый снег). */
+                SNOWY_TOP = 1 << 20;
 
         boolean is(int flag) {
             return (flags & flag) != 0;
@@ -194,6 +197,11 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         if (st.is(BlockTags.SAND)) flags |= Props.SAND;
         if (st.is(BlockTags.DIRT)) flags |= Props.DIRT;
         if (st.is(Blocks.SNOW_BLOCK)) flags |= Props.SNOW;
+        if (st.is(Blocks.SNOW)) flags |= Props.SNOW_LAYER;
+        if (st.is(BlockTags.SNOW)) flags |= Props.SNOWY_TOP;
+        // то, что вспышка сжигает над землёй, — растения тега nuke_plants (тот же тег держит их порог давления); сухой
+        // куст — то, что от них остаётся
+        if (!liquid && st.getFluidState().isEmpty() && !st.is(Blocks.DEAD_BUSH) && st.is(ModTags.NUKE_PLANTS)) flags |= Props.PLANT;
         if (st.is(BlockTags.SOUL_FIRE_BASE_BLOCKS)) flags |= Props.SOUL_BASE;
         if (st.is(Blocks.FIRE)) flags |= Props.FIRE;
         return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE),
