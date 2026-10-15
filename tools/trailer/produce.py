@@ -726,6 +726,26 @@ class Conveyor:
             self.release(self.state["takes"].get(take, {}).get("before"))
             self.save()
 
+    def render_missing(self):
+        """Снятые дубли с планами, которых вывод не видел (`cover` плану дали после записи: T01 n48 ночью 15.10), —
+        вывод этих планов из той же записи. Пересъёмка тут не годится: цепочка ушла вперёд, и с её нынешнего мира в
+        начале истории стоял бы уже разрушенный город."""
+        if not self.cfg.get("render"):
+            return
+        for take in self.order:
+            st = self.state["takes"].get(take, {})
+            if st.get("status") != "passed" or "artem" in self.takes[take]:
+                continue
+            last = next((a for a in reversed(st.get("attempts", [])) if a.get("ok") and a.get("rec")), None)
+            done = (last or {}).get("plans") or {}
+            missing = [p for p in covered(None, self.takes[take]) if p not in done]
+            if not last or not missing:
+                continue
+            self.current = f"{take}: вывод {', '.join(missing)} из записи"
+            self.current_take = take
+            last["plans"] = {**done, **self.render(take, last["rec"], missing, last=True)}
+            self.save()
+
     def cut(self, final=False):
         """Монтаж из прошедших планов (newisle_cut.py по листу аниматика): черновик 720p30 — всегда, без неснятых;
         чистовой — только когда сняты все планы листа."""
@@ -806,6 +826,7 @@ class Conveyor:
             self.preflight()
             self.requeue()
             self.render_live()
+            self.render_missing()
             late = []
             while True:
                 self.requeue()             # починенный посреди ночи дубль — в очередь на ближайшей границе дублей

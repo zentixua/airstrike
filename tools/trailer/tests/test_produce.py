@@ -450,6 +450,16 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(1, len(c.state["takes"]["A"]["attempts"]), "снятый не переснимается")
         self.assertFalse(os.path.exists(os.path.join(self.cfg["work"], "requeue.txt")))
 
+    def test_passed_take_renders_a_plan_covered_after_recording(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A"]))
+        a = c.state["takes"]["A"]["attempts"][-1]
+        a["plans"] = {}                                        # запись без вывода: cover плану дали позже
+        c.save()
+        self.assertEqual(0, c.run(["A"]))
+        self.assertEqual("PASS", c.state["takes"]["A"]["attempts"][-1]["plans"]["a1"][0], "вывод из той же записи")
+        self.assertEqual(1, len(c.state["takes"]["A"]["attempts"]), "без пересъёмки")
+
     def test_requeue_is_read_at_each_take_boundary(self):
         c, m = self.conveyor()
         c.state["takes"]["A"] = {"status": "skipped", "attempts": [{"ok": False, "reason": "пропущен ночью"}]}
