@@ -66,13 +66,28 @@ final class NewisleData {
             return p;
         }
 
-        /** Сколько секунд снаряд идёт от пуска до момента плана (удар или точка пролёта) — по маршевой скорости паспорта. */
+        /**
+         * Сколько секунд снаряд идёт от пуска до момента плана (удар или точка пролёта) — по маршевой скорости паспорта и
+         * задержке старта по замерам ({@code limits.launch_lag}): сервер считает в ETA и пусковую, поджиг и разгон
+         * (StrikeProjectile.etaTicks), и без неё второй missile T07 уходил по ETA первого на 2 с поздно.
+         */
         double flight(Map<String, Double> speeds) {
+            return flight(speeds, true);
+        }
+
+        /** {@code onLauncher} false — старт вне мира (чанк места пуска не готов): сразу на маршевой, задержки старта нет. */
+        double flight(Map<String, Double> speeds, boolean onLauncher) {
+            double lag = onLauncher ? speeds.getOrDefault(LAG + weapon.getSerializedName(), 0.0) : 0;
             if (weapon == WeaponType.ROCKET) {
-                return Ballistics.ticksFor(from, to, LauncherEntity.elevation(WeaponType.ROCKET), RocketEntity.MIN_FLIGHT) / 20.0;
+                return lag + Ballistics.ticksFor(from, to, LauncherEntity.elevation(WeaponType.ROCKET), RocketEntity.MIN_FLIGHT) / 20.0;
+            }
+            if (weapon == WeaponType.BUNKER) {
+                // B-2 ставится не в from: за bomber_flight_time до сброса (StrikeService.launchBomber, from — только курс);
+                // удар у сервера — сброс и 20 тиков падения (BomberEntity.etaTicks)
+                return weapon.spec().route().seconds() + 1.0;
             }
             double v = speed(speeds);
-            return lengthTo(path(), pass) / v / 20;
+            return lag + lengthTo(path(), pass) / v / 20;
         }
 
         /** От точки пролёта до удара, секунд (без точки — 0). */
@@ -198,11 +213,18 @@ final class NewisleData {
         return takes.getAsJsonObject("limits");
     }
 
-    /** Маршевые скорости снарядов для расписания (блоков за тик), если замеры их поправили: {@code limits.speeds}. */
+    /** Ключ задержки старта в {@link #speeds}: пусковая, поджиг и разгон до маршевой, секунды по замерам. */
+    static final String LAG = "lag:";
+
+    /**
+     * Маршевые скорости снарядов для расписания (блоков за тик), если замеры их поправили: {@code limits.speeds}; задержки
+     * старта {@code limits.launch_lag} — под ключом {@link #LAG}.
+     */
     Map<String, Double> speeds() {
         Map<String, Double> out = new LinkedHashMap<>();
         JsonObject l = limits();
         if (l.has("speeds")) for (var e : l.getAsJsonObject("speeds").entrySet()) out.put(e.getKey(), e.getValue().getAsDouble());
+        if (l.has("launch_lag")) for (var e : l.getAsJsonObject("launch_lag").entrySet()) out.put(LAG + e.getKey(), e.getValue().getAsDouble());
         return out;
     }
 
@@ -417,11 +439,17 @@ final class NewisleData {
      * {@code explicitWhen} — момент плана задан сам (тревога, поджиг): пуски — по опорному, начало — по нему.
      */
     static Schedule schedule(List<Strike> strikes, Map<String, Double> speeds, boolean explicitWhen) {
+        return schedule(strikes, speeds, explicitWhen, from -> true);
+    }
+
+    /** {@code onLauncher} — встанет ли пусковая на месте пуска (иначе старт вне мира, без задержки старта). */
+    static Schedule schedule(List<Strike> strikes, Map<String, Double> speeds, boolean explicitWhen,
+                             java.util.function.Predicate<Vec3> onLauncher) {
         int n = strikes.size();
         double[] at = new double[n], flight = new double[n];
         int ref = 0;
         for (int i = 0; i < n; i++) {
-            flight[i] = strikes.get(i).flight(speeds);
+            flight[i] = strikes.get(i).flight(speeds, onLauncher.test(strikes.get(i).from()));
             at[i] = strikes.get(i).eta() - flight[i];
             if (at[i] < at[ref]) ref = i;
         }
