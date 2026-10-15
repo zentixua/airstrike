@@ -324,8 +324,17 @@
    "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "strikes": [{"weapon": "missile", "route": "south_a", "eta": 3.0}, {"weapon": "missile", "route": "south_b", "eta": 3.5}], "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
   },
   {
-   "id": "T21", "title": "Ковёр «Града» ночью", "from": "chain", "clock": "night", "siren": true, "minutes": 10,
-   "shots": [{"plans": ["n41"], "seconds": 10, "cover": {"n41": {"subject": "framed", "weapon": "rocket", "need": "HIT", "smoky": 1.0}}}]
+   "id": "T21", "title": "Ночь: удар по Городу 1 разными средствами", "from": "chain", "clock": "night", "siren": true, "minutes": 12,
+   "stage": [
+    {"do": "crowd", "group": "street", "at": {"at": [-135, -35], "above": 0}, "n": 10, "spread": 5, "roam": 1, "prefix": "Str", "creative": true},
+    {"do": "settle"}
+   ],
+   "shots": [
+    {"plans": ["n41"], "seconds": 10, "cover": {"n41": {"subject": "framed", "weapon": "rocket", "need": "HIT", "smoky": 1.0}}},
+    {"plans": ["n41b"], "seconds": 6, "when": {"kind": "none"},
+     "ready": [{"do": "crowd.flee", "group": "street", "to": {"at": [-70, -35], "above": 0}, "stagger": [0, 0.6]}],
+     "cover": {"n41b": {"subject": "impact", "weapon": "missile", "need": "HIT", "smoky": 1.0}}}
+   ]
   },
   {
    "id": "T22", "title": "Городок смотрит, как горит Север", "from": "chain", "clock": "night", "siren": true, "minutes": 10,
