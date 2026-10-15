@@ -535,7 +535,8 @@ class Conveyor:
     def attempt(self, take, n, variant, src, chain_only=False, live=False, standin=False, last=False):
         """Одна запись дубля на свежей копии входа. Итог — dict: ok, reason, world, rec, result, problems, warnings.
         Проверки take_checks — мягкие: пересъёмка, пока попытки есть; на последней (`last`) — предупреждение, а не
-        пропуск дубля (пересъёмка их не всегда лечит: сирена или ось ракеты — от мода, не от дубля)."""
+        пропуск дубля (пересъёмка их не всегда лечит: ось ракеты — от мода, не от дубля). Отставание сервера и сирена —
+        всегда предупреждение, без пересъёмки (`take_checks.record_warnings`)."""
         self.current = f"{take} попытка {n + 1}/{int(self.limits['retries']) + 1} (камера {variant})"
         self.current_take = take
         self.wait_resources(self.world_gb())
@@ -574,7 +575,7 @@ class Conveyor:
         problems = check_take(result, read(os.path.join(rec, "record.log")), self.takes[take])
         problems += check_hud(os.path.join(rec, "hud.jsonl"))
         soft = take_checks.record_problems(rec, self.takes[take], result)
-        warnings = soft if last else []
+        warnings = take_checks.record_warnings(rec, self.takes[take], result) + (soft if last else [])
         if not last:
             problems += soft
         out.update(ok=not problems, reason="; ".join(problems), problems=problems, warnings=warnings)
@@ -761,7 +762,8 @@ class Conveyor:
 
     def requeue(self):
         """Пропущенные дубли, чью постановку починили посреди ночи, — снова в очередь: <работа>/requeue.txt (по дублю на
-        строку) читается при запуске, их пропуск снимается, и цепочка снимает их со своего текущего мира."""
+        строку) читается при запуске и на каждой границе дублей, их пропуск снимается, и цепочка снимает их со своего
+        текущего мира."""
         path = os.path.join(self.work, "requeue.txt")
         if not os.path.exists(path):
             return
@@ -805,9 +807,12 @@ class Conveyor:
             self.requeue()
             self.render_live()
             late = []
-            for take in self.plan_order:
-                if self.state["takes"].get(take, {}).get("status") in ("passed", "skipped", "chained"):
-                    continue
+            while True:
+                self.requeue()             # починенный посреди ночи дубль — в очередь на ближайшей границе дублей
+                take = next((t for t in self.plan_order if t not in late and self.state["takes"].get(t, {})
+                             .get("status") not in ("passed", "skipped", "chained")), None)
+                if take is None:
+                    break
                 if self.m.now() > self.night_end:
                     late.append(take)      # ночь кончилась: черновик — из того, что снято
                     continue
@@ -847,6 +852,17 @@ class Conveyor:
 
 
 # ---------------------------------------------------------------- проверка дубля по данным
+
+def stage(text):
+    """Этап из текста файла статуса: слово после «stage:» первой строки («stage: stopped, waiting» → «stopped»).
+    Скрипты ждут этап по нему, а не по первому слову строки: оно — «stage:» (verify-run ждал «done» вечно)."""
+    first = text.splitlines()[0] if text.strip() else ""
+    head, _, rest = first.partition("stage:")
+    if not _ or head.strip():
+        return ""
+    words = rest.replace(",", " ").split()
+    return words[0] if words else ""
+
 
 def read(path):
     try:
@@ -1041,8 +1057,9 @@ def live(conv, take, standin=False):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="конвейер трейлера Newisle")
-    ap.add_argument("mode", choices=("run", "live", "search", "status", "night"))
-    ap.add_argument("--config", required=True)
+    ap.add_argument("mode", choices=("run", "live", "search", "status", "night", "stage"))
+    ap.add_argument("--config", help="машина (JSON); не нужна только этапу")
+    ap.add_argument("--file", help="stage: файл статуса (по умолчанию — стандартный ввод)")
     ap.add_argument("--work", help="папка работы вместо work машины")
     ap.add_argument("--takes", help="только эти дубли (через запятую), по порядку истории")
     ap.add_argument("--take", help="дубль живой записи")
@@ -1050,6 +1067,11 @@ def main(argv=None):
     ap.add_argument("--only", help="поиски через запятую")
     ap.add_argument("--fault", action="append", default=[], metavar="ДУБЛЬ=kill|disk|camera")
     a = ap.parse_args(argv)
+    if a.mode == "stage":
+        print(stage(read(a.file) if a.file and a.file != "-" else sys.stdin.read()))
+        return 0
+    if not a.config:
+        ap.error("нужен --config")
     cfg = load_json(a.config)
     if cfg is None:
         sys.exit(f"нет машины {a.config}")

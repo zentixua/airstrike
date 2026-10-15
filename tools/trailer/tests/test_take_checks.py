@@ -296,6 +296,12 @@ class RecordProblemsTest(unittest.TestCase):
     def test_old_recording_without_new_data_is_not_a_failure(self):
         self.assertEqual([], T.record_problems(tempfile.mkdtemp(), {"siren": True, "shots": []}, {}))
 
+    def test_server_lag_is_a_warning_not_a_retake(self):
+        result = {"shots": [{"replay": "n1", "mspt": [80.0] * 30}]}
+        rec = tempfile.mkdtemp()
+        self.assertEqual([], T.record_problems(rec, {"siren": False, "shots": []}, result))
+        self.assertEqual(1, len(T.record_warnings(rec, {"siren": False, "shots": []}, result)))
+
 
 if __name__ == "__main__":
     unittest.main()
