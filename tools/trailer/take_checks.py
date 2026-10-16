@@ -25,7 +25,11 @@
   дубля (sounds.jsonl: триггер siren с heard) и в сумме не меньше 6 с;
 - стая в бинокль: план ночной стаи (камера scope, watch-оружие drone, сумерки/ночь — в qa/<план>.jsonl HudQa)
   читается как стая: в квадрате окуляра (`in`) и не закрыты (`open`) не меньше min(6, пущенных сценой) дронов в
-  ≥ 60 % кадров; видимого размера строки qa не дают — предела размера нет.
+  ≥ 60 % кадров; видимого размера строки qa не дают — предела размера нет;
+- толпа провожает ракеты (`crowd.follow` в ready плана): в окне каждого плана люди группы (приставка шага `crowd`)
+  смотрят на ближнюю ракету этого оружия в 300 блоках — курс ±30°, тангаж ±15° от глаза (ноги + 1,62) — не меньше
+  чем в 70 % взглядов: журнал записи пишет курс головы и тангаж людей (с 17.10); n43 ночью 16.10 — люди смотрели
+  мимо ракет на 90–175°, слежение кончалось до окна.
 
 Вывод (папка кандидата render/<план>/<кандидат>/, каждый провал — PASS плана становится FAIL, дубль переснимается):
 - поворот камеры ≤ 120°/с по state.json (ключи на тик; по тикам × 20, не с интерполяцией до 60 кадров: в файле
@@ -68,6 +72,7 @@ ICBM_PITCH_TICKS, ICBM_LEAD_TICKS, ICBM_LAG_TICKS, ICBM_BURST = 60, 2, 12, 5.0
 ICBM_ROUND = 0.01                               # места в журнале округлены до 0,01 блока
 SIREN_EVENT, SIREN_BEFORE_S, SIREN_TOTAL_S, SIREN_MAX_S = "incoming:siren", 2.0, 6.0, 26.5
 FLOCK_MIN, FLOCK_SHARE = 6, 0.6
+GAZE_YAW, GAZE_PITCH, GAZE_SHARE, GAZE_RANGE, GAZE_STEP, EYE = 30.0, 15.0, 0.7, 300.0, 2, 1.62
 TURN_MAX, AXIS_MAX = 120.0, 15.0
 WAVE_SPEED, SHAKE_RANGE, SHAKE_WINDOW, SHAKE_K, SHAKE_MAX = 17.15, 150.0, 12, 6.0, 3.5
 SHAKE_SHARE = 0.15                         # доля от размаха модели Operator, ниже которой толчка нет
@@ -376,9 +381,79 @@ def flock_in_scope(rec, take):
     return out
 
 
+def _crowd_names(take, group):
+    """Имена людей группы толпы дубля: приставка шага `crowd` (Des0, Des1, …) и названные по имени."""
+    prefix, names = None, set()
+    for a in take.get("stage", []):
+        if a.get("do") == "crowd" and a.get("group") == group:
+            prefix = a.get("prefix", prefix)
+            names.update(a.get("names", ()))
+    return lambda n: n in names or (prefix is not None and n.startswith(prefix))
+
+
+def _gaze_rows(path):
+    """events.jsonl → (отметки [(тик, что)], пути {i: (оружие, {тик: место})}, взгляды {тик: [(имя, глаз, курс, тангаж)]}).
+    Строки людей без взгляда (журналы до 17.10) пропускаются."""
+    marks, flights, gaze = [], {}, {}
+    for r in _jsonl(path):
+        t = r.get("t", 0)
+        if "mark" in r:
+            marks.append((t, r["mark"]))
+        elif "new" in r:
+            flights[r["new"]] = (r.get("weapon", ""), {})
+        elif "f" in r:
+            for e in r["f"]:
+                if e[0] in flights:
+                    flights[e[0]][1][t] = (e[1], e[2], e[3])
+        if "p" in r:
+            rows = [(p[0], (p[1], p[2] + EYE, p[3]), p[4], p[5]) for p in r["p"] if len(p) >= 6]
+            if rows:
+                gaze[t] = rows
+    return marks, flights, gaze
+
+
+def crowd_gaze(rec, take):
+    """Толпа провожает ракеты (`crowd.follow` в ready плана): в окне каждого плана люди группы смотрят на ближнюю
+    ракету этого оружия (в 300 блоках, как War.trackLook) — курс в пределах 30°, тангаж в пределах 15° — не меньше
+    чем в 70 % взглядов (раз в 2 тика). Журнал до 17.10 без взглядов — не провал."""
+    out = []
+    for s in take.get("shots", []):
+        follow = [a for a in s.get("ready", []) if a.get("do") == "crowd.follow"]
+        if not follow or not s.get("plans"):
+            continue
+        marks, flights, gaze = _gaze_rows(os.path.join(rec, "replays", f"{s['plans'][0]}.events.jsonl"))
+        if not gaze:
+            continue
+        order = sorted((t, m[5:]) for t, m in marks if m.startswith("plan:"))
+        end = max((t for t, m in marks if m == "end"), default=max(gaze))
+        for a in follow:
+            member, weapon = _crowd_names(take, a.get("group")), a.get("weapon", "")
+            paths = [p for w, p in flights.values() if w == weapon]
+            for k, (t0, plan) in enumerate(order):
+                t1 = order[k + 1][0] if k + 1 < len(order) else end
+                good = total = 0
+                for t in range(t0, t1, GAZE_STEP):
+                    for name, eye, yaw, pitch in gaze.get(t, ()):
+                        if not member(name):
+                            continue
+                        near = min((p[t] for p in paths if t in p), key=lambda q: math.dist(q, eye), default=None)
+                        if near is None or math.dist(near, eye) > GAZE_RANGE:
+                            continue
+                        d = [near[i] - eye[i] for i in range(3)]
+                        want_yaw = math.degrees(math.atan2(-d[0], d[2]))
+                        want_pitch = -math.degrees(math.atan2(d[1], math.hypot(d[0], d[2])))
+                        total += 1
+                        if abs(_wrap(yaw - want_yaw)) <= GAZE_YAW and abs(pitch - want_pitch) <= GAZE_PITCH:
+                            good += 1
+                if total and good < GAZE_SHARE * total:
+                    out.append(f"{plan}: толпа {a.get('group')} смотрит на ракету в {100 * good / total:.0f}% взглядов "
+                               f"(курс ±{GAZE_YAW:.0f}°, тангаж ±{GAZE_PITCH:.0f}°; нужно {GAZE_SHARE:.0%})")
+    return out
+
+
 def record_problems(rec, take, result):
     """Проверки записи, провал которых лечит пересъёмка: список причин для attempt() конвейера."""
-    return same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take)
+    return same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take) + crowd_gaze(rec, take)
 
 
 def record_warnings(rec, take, result):

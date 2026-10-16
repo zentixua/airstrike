@@ -1093,12 +1093,17 @@ final class War {
 
     /** Бот следит глазами за ближайшим снарядом этого типа (каждые 2 тика), не дольше {@code ticks} тиков. */
     void trackLook(String bot, Class<? extends Entity> type, int ticks) {
-        MinecraftServer server = server();
         int[] left = {ticks / 2};
+        trackLook(bot, type, () -> --left[0] < 0);
+    }
+
+    /** То же, пока не {@code over} (проверка — раз в 2 тика сервера) или пока бот есть. */
+    void trackLook(String bot, Class<? extends Entity> type, BooleanSupplier over) {
+        MinecraftServer server = server();
         Runnable[] step = new Runnable[1];
         step[0] = () -> {
             var sp = cast().player(bot);
-            if (sp == null || --left[0] < 0) return;
+            if (sp == null || over.getAsBoolean()) return;
             Entity best = null;
             double bd = 300 * 300;
             for (Entity x : sp.serverLevel().getEntitiesOfClass(type, sp.getBoundingBox().inflate(300))) {

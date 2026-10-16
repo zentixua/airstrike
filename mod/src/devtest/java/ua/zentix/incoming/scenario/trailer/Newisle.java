@@ -393,6 +393,8 @@ final class Newisle {
         final List<Launched> mine = new ArrayList<>();
         final Vec3[] aims;
         boolean moment = true, whenSeen;
+        /** Запись плана кончилась ({@code cueEnd}): приказы «до конца плана» (слежение толпы) снимаются. */
+        volatile boolean over;
         long startTick = -1;
         // тот же старт по часам сервера: клиентские штампы под нагрузкой ударов отстают от него (T21, ночь 15.10)
         volatile long startServer = -1;
@@ -484,6 +486,7 @@ final class Newisle {
         List<Runnable> ends = new ArrayList<>();
         for (JsonElement e : list(s, "end")) ends.add(now(e.getAsJsonObject(), run));
         shot.cueEnd(() -> {
+            run.over = true;
             if (cam.equals("onboard")) ProjectileCamera.exit();
             ends.forEach(Runnable::run);
             closeShot(run);
@@ -1023,10 +1026,15 @@ final class Newisle {
             case "crowd.follow" -> () -> {
                 Class<? extends Entity> type = entity(WeaponType.parse(a.get("weapon").getAsString()));
                 JsonArray d = a.getAsJsonArray("delay");
-                int len = run == null ? 400 : (int) Math.round(run.shot.get("seconds").getAsDouble() * 20) + 100;
+                // до конца записи плана, а не seconds от ready: после ready запись ещё ждёт момент (T02 — 364 тика), и
+                // слежение на seconds×20 + 100 тиков кончалось до окна n52 (журнал взглядов 17.10: в окне n43 люди
+                // смотрели мимо ракет на 90–175°)
                 for (Crowd.Person p : group(a).people()) {
                     int delay = (int) Math.round((d.get(0).getAsDouble() + random.nextDouble() * (d.get(1).getAsDouble() - d.get(0).getAsDouble())) * 20);
-                    war.later(delay, () -> film.withServer(s -> war.trackLook(p.name, type, len)));
+                    war.later(delay, () -> film.withServer(s -> {
+                        if (run == null) war.trackLook(p.name, type, 400);
+                        else war.trackLook(p.name, type, () -> run.over);
+                    }));
                 }
             };
             case "crowd.remove" -> () -> film.withServer(s -> {

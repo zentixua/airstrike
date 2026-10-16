@@ -197,6 +197,50 @@ class FlockTest(unittest.TestCase):
         self.assertEqual([], T.flock_in_scope(tempfile.mkdtemp(), take))
 
 
+class CrowdGazeTest(unittest.TestCase):
+    """Толпа провожает ракеты (n43): журнал записи пишет курс головы и тангаж; люди смотрят на ближнюю ракету."""
+    TAKE = {"stage": [{"do": "crowd", "group": "desert", "prefix": "Des"}],
+            "shots": [{"plans": ["n52", "n43"], "ready": [{"do": "crowd.follow", "group": "desert", "weapon": "missile"}]}]}
+
+    def rec(self, look, gaze=True):
+        """Ракета идёт на восток в 100 блоках к югу и в 40 выше глаз; look(t, глаз, ракета) → (курс, тангаж)."""
+        rows = [{"t": 0, "mark": "plan:n52"}, {"t": 0, "new": 0, "id": "a", "weapon": "missile", "bomber": False},
+                {"t": 40, "mark": "plan:n43"}, {"t": 80, "mark": "end"}]
+        for t in range(0, 80):
+            m = (-50 + 2 * t, 141.6, 100.0)
+            eye = (0.0, 101.62, 0.0)
+            yaw, pitch = look(t, eye, m)
+            person = ["Des0", 0.0, 100.0, 0.0] + ([yaw, pitch] if gaze else [])
+            rows.append({"t": t, "f": [[0, m[0], m[1], m[2], 4, 1]]})
+            rows.append({"t": t, "me": [0, 70, 0], "p": [["Sokol", 5.0, 70.0, 5.0, 0.0, 0.0], person]})
+        root = tempfile.mkdtemp()
+        write(os.path.join(root, "replays", "n52.events.jsonl"), rows)
+        return root
+
+    @staticmethod
+    def at_missile(t, eye, m):
+        d = [m[i] - eye[i] for i in range(3)]
+        return (T.math.degrees(T.math.atan2(-d[0], d[2])), -T.math.degrees(T.math.atan2(d[1], T.math.hypot(d[0], d[2]))))
+
+    def test_people_following_the_missile_pass(self):
+        self.assertEqual([], T.crowd_gaze(self.rec(self.at_missile), self.TAKE))
+
+    def test_people_looking_away_fail_each_plan(self):
+        # как n43 16.10: слежение кончилось до окна, головы стоят на месте — курс к северу, ракета к югу
+        out = T.crowd_gaze(self.rec(lambda t, eye, m: (180.0, 0.0)), self.TAKE)
+        self.assertEqual(["n52", "n43"], [p.split(":")[0] for p in out], out)
+        self.assertIn("0% взглядов", out[1])
+
+    def test_level_gaze_under_a_high_missile_fails_on_pitch(self):
+        out = T.crowd_gaze(self.rec(lambda t, eye, m: (self.at_missile(t, eye, m)[0], 0.0)), self.TAKE)
+        self.assertEqual(2, len(out), out)
+
+    def test_old_journal_without_gaze_and_other_people_are_not_checked(self):
+        self.assertEqual([], T.crowd_gaze(self.rec(lambda t, eye, m: (180.0, 0.0), gaze=False), self.TAKE))
+        take = {"stage": [{"do": "crowd", "group": "desert", "prefix": "Cit"}], "shots": self.TAKE["shots"]}
+        self.assertEqual([], T.crowd_gaze(self.rec(lambda t, eye, m: (180.0, 0.0)), take))
+
+
 def state(rows):
     """state.json вывода: ключи камеры на тик [тик, x, y, z, yaw, pitch]."""
     keys = {str(t): {"position": [x, y, z], "yaw": yaw, "pitch": pitch, "roll": 0} for t, x, y, z, yaw, pitch in rows}
