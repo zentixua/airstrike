@@ -442,7 +442,7 @@
    {"place": "c1_cafe", "near": [-144, 20], "r": 14, "kind": "ground", "see": "c1_metro_in"},
    {"place": "c1_cafe_opposite", "near": [-160, 32], "r": 16, "kind": "facade", "see_from": "c1_cafe"},
    {"place": "desert_crowd", "near": [-575, -1030], "r": 20, "kind": "ground"},
-   {"place": "desert_bunker", "near": [-440, -1150], "r": 30, "kind": "ground", "away_from": "desert_crowd", "dist": 180},
+   {"place": "desert_bunker", "near": [-412, -1192], "r": 30, "kind": "ground", "away_from": "desert_crowd", "dist": 180},
    {"place": "fisher", "near": [-505, 225], "r": 20, "kind": "water"},
    {"place": "c1_metro_in", "near": [-144, 12], "r": 12, "kind": "stairs"}
   ]},

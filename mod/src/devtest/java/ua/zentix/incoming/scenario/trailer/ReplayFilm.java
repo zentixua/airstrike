@@ -762,9 +762,7 @@ public final class ReplayFilm {
     /** Задание вывода: ключевые кадры камеры и угла на каждый тик окна, кадры (MOV или PNG), проверка каждого кадра. */
     private void export() {
         try {
-            deleteTree(candDir);
-            Path frames = candDir.resolve("frames").resolve(spec.shot());
-            if (!probing) Files.createDirectories(frames);
+            Path frames = freshCandidate(candDir, spec.shot(), probing);
             Path stateFile = candDir.resolve("state.json");
             Files.writeString(stateFile, editorState(current.c.path(), a, b), StandardCharsets.UTF_8);
             Pose p0 = current.c.path().at(a);
@@ -1049,6 +1047,18 @@ public final class ReplayFilm {
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
+    }
+
+    /**
+     * Папка кандидата заново, пустая; итог — папка кадров полного вывода ({@code frames/<план>}). У пробы кадров на диске
+     * нет, но задание Flashback ({@code state.json}) пишется в саму папку кандидата — она есть и у пробы: ночь 15.10 без
+     * неё каждая проба падала на {@code NoSuchFileException} (T21, T23, T23b — «не выведен»).
+     */
+    static Path freshCandidate(Path candDir, String shot, boolean probing) throws IOException {
+        deleteTree(candDir);
+        Path frames = candDir.resolve("frames").resolve(shot);
+        Files.createDirectories(probing ? candDir : frames);
+        return frames;
     }
 
     private static void deleteTree(Path dir) throws IOException {

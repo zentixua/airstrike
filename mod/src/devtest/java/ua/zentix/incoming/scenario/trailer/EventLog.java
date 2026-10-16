@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.client.flight.FlightTrack;
 import ua.zentix.incoming.client.flight.FlightTracks;
 import ua.zentix.incoming.client.nuclear.ClientNuclear;
+import ua.zentix.incoming.entity.FlightPhase;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -179,6 +180,8 @@ final class EventLog {
         int impact = -1;
         int lost = -1;
         Vec3 impactPos;
+        /** Где удар видно в кадре ({@link #seen}): место взрыва, а у бомбы, что бурит грунт, — устье скважины. */
+        Vec3 seenPos;
 
         Flight(int index, UUID id, String weapon, boolean bomber, int born) {
             this.index = index;
@@ -231,6 +234,20 @@ final class EventLog {
 
         boolean present(double t) {
             return at.containsKey((int) Math.floor(t));
+        }
+
+        /**
+         * Где удар видно: у бомбы, что бурит грунт ({@link FlightPhase#DRILL}), — место первого тика бурения, устье
+         * скважины. Заряд рвётся в породе на два десятка блоков ниже (n24, 15.10: вход на 64, взрыв на 40), и луч к нему
+         * закрыт из любой камеры, а наружу выходят удар о грунт, выброс газов из устья и провал над зарядом
+         * ({@code Warheads.bunkerEntry}, {@code S2C.Vent}). У остальных снарядов — место взрыва.
+         */
+        @Nullable
+        Vec3 seen() {
+            if (impactPos == null) return null;
+            int drill = FlightPhase.DRILL.ordinal();
+            return phase.entrySet().stream().filter(e -> e.getValue() == drill).min(Map.Entry.comparingByKey())
+                    .map(e -> pos(e.getKey())).orElse(impactPos);
         }
     }
 
@@ -337,7 +354,10 @@ final class EventLog {
                 d.marks.add(new Mark(t, o.get("mark").getAsString()));
             }
         }
-        for (Flight f : d.flights) f.at.putAll(beforeQueue ? Shown.asShown(f.raw, f.server) : f.raw);
+        for (Flight f : d.flights) {
+            f.at.putAll(beforeQueue ? Shown.asShown(f.raw, f.server) : f.raw);
+            f.seenPos = f.seen();
+        }
         return d;
     }
 }
