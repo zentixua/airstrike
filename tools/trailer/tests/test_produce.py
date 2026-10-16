@@ -535,6 +535,18 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual("nw-C-a0r2", os.path.basename(m2.copies[-1][1]), "имя защищённого мира — занято")
         self.assertEqual("passed", c2.state["takes"]["C"]["status"])
 
+    def test_copy_never_lands_on_a_world_it_does_not_know(self):
+        # мир прерванной записи другой работы лежит под именем первой попытки: копия — под другим именем, мир цел
+        stray = os.path.join(self.cfg["saves"], "nw-A-a0")
+        os.makedirs(stray)
+        with open(os.path.join(stray, "level.dat"), "w") as f:
+            f.write("чужой")
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A"]))
+        self.assertEqual("nw-A-a0r1", c.state["takes"]["A"]["snapshot"])
+        with open(os.path.join(stray, "level.dat")) as f:
+            self.assertEqual("чужой", f.read())
+
     def test_retake_of_a_chain_take_uses_the_previous_chain_snapshot(self):
         c, m = self.conveyor()
         self.assertEqual(0, c.run(["A", "B", "C", "D"]))
