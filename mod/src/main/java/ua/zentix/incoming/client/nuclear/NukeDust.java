@@ -48,6 +48,9 @@ public final class NukeDust {
     /** На сколько пелена накрывает экран за тик. */
     private static final float VEIL_RISE = 0.12f;
     private static float veil, veilTarget;
+    /** Цвет пелены: бурая пыль, над водой — серо-белые брызги. */
+    private static final int VEIL_DUST = 0x6E5A44, VEIL_SPRAY = 0xAEB8BE;
+    private static int veilRgb = VEIL_DUST;
     private static float veilDecay = 0.97f;
     /** Проломы, до которых фронт ещё не дошёл: пыль из них встаёт в его тик ({@link #tick}). */
     private static final List<Breach> BREACHES = new ArrayList<>();
@@ -71,6 +74,9 @@ public final class NukeDust {
 
     /** Фронт пришёл: пелена по давлению (1 psi — лёгкая дымка, 5+ psi — почти ничего не видно). */
     static void arrive(double psi) {
+        Minecraft mc = Minecraft.getInstance();
+        Vec3 eye = mc.gameRenderer.getMainCamera().getPosition();
+        veilRgb = mc.level != null && !mc.level.dimensionType().hasCeiling() && NukeWater.waterAround(mc.level, eye.x, eye.z) ? VEIL_SPRAY : VEIL_DUST;
         veilTarget = Math.max(veilTarget, (float) Mth.clamp(0.2 + psi / 7, 0.2, 0.85));
         veilDecay = psi >= 3 ? 0.975f : 0.96f;
     }
@@ -108,6 +114,8 @@ public final class NukeDust {
             int bx = Mth.floor(x), bz = Mth.floor(z);
             LevelChunk chunk = level.getChunkSource().getChunk(bx >> 4, bz >> 4, false);
             if (chunk == null) continue;
+            // над водой пыли нет: там брызги (NukeWater)
+            if (!ceiling && NukeWater.water(chunk, bx, bz, m)) continue;
             int top = ceiling ? floor : chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15) + 1;
             boolean surface = top > floor;
             if (!surface) top = Mth.floor(d.groundY());
@@ -192,6 +200,8 @@ public final class NukeDust {
         away = away.lengthSqr() < 1e-4 ? new Vec3(1, 0, 0) : away.normalize();
         double speed = Mth.clamp(0.4 + psi * 0.25, 0.4, 2.5) * (1 - age / 80.0);
         boolean ceiling = level.dimensionType().hasCeiling();
+        // над водой — брызги и водяная пыль, сорванного с земли нет
+        boolean wet = !ceiling && NukeWater.waterAround(level, ear.x, ear.z);
         int n = (int) (Mth.clamp(psi * 12, 12, 90) * (1 - age / 60.0));
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (int i = 0; i < n; i++) {
@@ -199,7 +209,7 @@ public final class NukeDust {
             double along = -14 + RANDOM.nextDouble() * 20, side = (RANDOM.nextDouble() - 0.5) * 30, up = -2 + RANDOM.nextDouble() * 8;
             Vec3 p = ear.add(away.scale(along)).add(-away.z * side, up, away.x * side);
             double v = speed * (0.7 + RANDOM.nextDouble() * 0.6);
-            if (i % 5 == 0 && !ceiling) {
+            if (i % 5 == 0 && !ceiling && !wet) {
                 // сорванное с земли — трава, листва, песок, снег — летит и кувыркается
                 int bx = Mth.floor(p.x), bz = Mth.floor(p.z);
                 LevelChunk chunk = level.getChunkSource().getChunk(bx >> 4, bz >> 4, false);
@@ -210,9 +220,10 @@ public final class NukeDust {
             } else {
                 // бурая пыль и серый дым клубами — стена, которая проходит сквозь игрока
                 boolean smoke = i % 5 == 1;
+                int from = wet ? 0xC4CDD3 : smoke ? 0x3E3A36 : 0x7A6852, to = wet ? 0xEEF2F4 : smoke ? 0x6E6A66 : 0xA08E78;
                 Fx.smoke().vel(away.x * v, 0.01 + RANDOM.nextDouble() * 0.04, away.z * v).size(1.2f, 5 + RANDOM.nextFloat() * 3).growFast()
-                        .life(70 + RANDOM.nextInt(90)).color(smoke ? 0x3E3A36 : 0x7A6852, smoke ? 0x6E6A66 : 0xA08E78).alpha(0.7f).drag(0.97f)
-                        .collide().wind(0).fadeIn(2).fadeFrom(0.35f).budget(FxBudget.GROUND).spawn(level, p);
+                        .life(wet ? 40 + RANDOM.nextInt(40) : 70 + RANDOM.nextInt(90)).color(from, to).alpha(wet ? 0.55f : 0.7f).drag(0.97f)
+                        .collide().wind(0).fadeIn(2).fadeFrom(0.35f).budget(wet ? FxBudget.SPRAY : FxBudget.GROUND).spawn(level, p);
             }
         }
     }
@@ -236,13 +247,14 @@ public final class NukeDust {
 
     static void reset() {
         veil = veilTarget = 0;
+        veilRgb = VEIL_DUST;
         BREACHES.clear();
     }
 
-    /** Бурая пелена поверх мира (под вспышкой). */
+    /** Пелена поверх мира (под вспышкой): бурая, над водой — серо-белая. */
     static void render(GuiGraphics g) {
         if (veil <= 0) return;
         int a = (int) (veil * 255);
-        g.fill(0, 0, g.guiWidth(), g.guiHeight(), (a << 24) | 0x6E5A44);
+        g.fill(0, 0, g.guiWidth(), g.guiHeight(), (a << 24) | veilRgb);
     }
 }

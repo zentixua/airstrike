@@ -97,12 +97,16 @@ public final class NukeRenderer {
         Vec3 cam = view.camera();
         for (ClientNuclear.Active a : all) {
             double vis = a.d.visibility();
-            a.puffs.sprites(a.seconds(view.partial()), view.partial(), view.ambient(), (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
+            CloudPuffs.Sink sink = (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
                 double dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
                 float haze = (float) (1 - Math.exp(-a.d.metres(Math.sqrt(dx * dx + dy * dy + dz * dz)) / vis));
                 out.puff(dx, dy, dz, size * 0.5, rot, tex, Mth.lerp(haze, r, fr), Mth.lerp(haze, g, fg), Mth.lerp(haze, b, fb), alpha * (1 - 0.5f * haze),
                         gr, gg, gb, ga * (1 - 0.7f * haze));
-            });
+            };
+            a.puffs.sprites(a.seconds(view.partial()), view.partial(), view.ambient(), sink);
+            // подрыв на воде: столб, кольцо тумана, базисная волна — над водой под эпицентром; кольцо фронта на воде
+            a.water.sprites(a.seconds(view.partial()), view.ambient(), a.d.groundY() - 0.1, sink);
+            NukeWater.decal(a, view.partial());
         }
     }
 

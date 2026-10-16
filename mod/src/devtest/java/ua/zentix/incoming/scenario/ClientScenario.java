@@ -115,6 +115,11 @@ public final class ClientScenario {
     private boolean hover;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
+    /** Ядерный подрыв у воды ({@code nuke-water}, {@code nuke-lake}): кадры от подрыва ({@link #waterEvents}). */
+    private boolean water, lake;
+    /** Место подрыва и зрителя ({@link #planNukeWater}): выбирает сервер, шаги клиента ждут. */
+    private volatile Vec3 waterBurst, waterEye;
+    private volatile int waterGround;
 
     public ClientScenario(IEventBus modBus) {
         String scenario = System.getProperty("incoming.scenario");
@@ -149,6 +154,7 @@ public final class ClientScenario {
         NeoForge.EVENT_BUS.addListener(this::onRenderLevel);
         String mode = scenario;
         if ("nuke".equals(mode)) planNuke();
+        else if ("nuke-water".equals(mode) || "nuke-lake".equals(mode)) planNukeWater("nuke-lake".equals(mode));
         else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("replay".equals(mode)) {
@@ -219,6 +225,7 @@ public final class ClientScenario {
             if (s.at == tick) s.action.run();
         }
         if (nuke) nukeEvents();
+        if (water) waterEvents();
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
@@ -311,6 +318,140 @@ public final class ClientScenario {
         for (int t : new int[]{270, 300, 340, 400, 500}) shot(t, "launch");
         at(520, () -> cmd("tp @s ~ ~ ~ 180 -8"));
         // дальше — от настоящих событий: сервер может отставать от счётчика кадров клиента
+    }
+
+    /**
+     * Ядерный подрыв у воды (DESIGN-nuke §6, «Вода»), 15 кт на земле, без полёта ({@code nuke now}), днём.
+     * {@code nuke-water}: зритель (наблюдатель — волна не сбрасывает его) в 20 блоках над морем в 40 блоках
+     * от берега ближайшего тёплого моря, подрыв — на море в 1,5 км: столб, кольцо
+     * тумана, тёмное кольцо фронта и стена брызг на воде у берега, потом базисная волна. {@code nuke-lake}: равнина,
+     * перед зрителем — пруд 120×140 блоков (от 30 до 170 блоков), подрыв — на суше в 1,5 км за ним: фронт идёт через пруд
+     * тёмным кольцом со стеной брызг, а пыль стены над водой не встаёт.
+     */
+    private void planNukeWater(boolean lake) {
+        water = true;
+        this.lake = lake;
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            // наблюдатель: волна в 1,5 км сбросила бы зрителя с площадки посреди съёмки
+            cmd("gamemode spectator");
+            Minecraft.getInstance().options.hideGui = true;
+            var server = Minecraft.getInstance().getSingleplayerServer();
+            server.execute(() -> {
+                var level = server.overworld();
+                BlockPos origin = BlockPos.ZERO.atY(64);
+                if (lake) {
+                    var found = level.findClosestBiome3d(b -> b.is(net.minecraft.world.level.biome.Biomes.PLAINS), origin, 6400, 32, 64);
+                    var gen = level.getChunkSource().getGenerator();
+                    var random = level.getChunkSource().randomState();
+                    BlockPos plains = found == null ? origin : found.getFirst(), at = plains;
+                    // место, от которого на +Z до подрыва — суша (у равнины бывает море): по спирали вокруг равнины
+                    int bestLand = -1;
+                    for (int k = 0; k < 81 && bestLand < 17; k++) {
+                        int cx = plains.getX() + ((k % 9) - 4) * 256, cz = plains.getZ() + ((k / 9) - 4) * 256, land = 0;
+                        for (int r = 0; r <= 1600; r += 100)
+                            if (gen.getBaseHeight(cx, cz + r, Heightmap.Types.OCEAN_FLOOR_WG, level, random) >= 65) land++;
+                        if (land > bestLand) {
+                            bestLand = land;
+                            at = new BlockPos(cx, 64, cz);
+                        }
+                    }
+                    waterGround = gen.getBaseHeight(at.getX(), at.getZ(), Heightmap.Types.WORLD_SURFACE_WG, level, random);
+                    Incoming.LOG.info("SCENARIO lake at {} ground {} ({} of 17 points on land)", at.toShortString(), waterGround, bestLand);
+                    waterEye = new Vec3(at.getX() + 0.5, 0, at.getZ() + 0.5);
+                    waterBurst = new Vec3(at.getX() + 0.5, 320, at.getZ() + 1500.5);
+                } else {
+                    // тёплое море (у замёрзшего — лёд и айсберги), от него к началу мира — до берега
+                    var found = level.findClosestBiome3d(b -> b.is(net.minecraft.world.level.biome.Biomes.OCEAN) || b.is(net.minecraft.world.level.biome.Biomes.LUKEWARM_OCEAN)
+                            || b.is(net.minecraft.world.level.biome.Biomes.WARM_OCEAN) || b.is(net.minecraft.world.level.biome.Biomes.DEEP_LUKEWARM_OCEAN), origin, 6400, 32, 64);
+                    var gen = level.getChunkSource().getGenerator();
+                    var random = level.getChunkSource().randomState();
+                    BlockPos sea = found == null ? origin : found.getFirst(), at = sea;
+                    double len = Math.max(1, Math.hypot(sea.getX(), sea.getZ()));
+                    for (int r = 0; r < len; r += 8) {
+                        int x = sea.getX() - (int) Math.round(sea.getX() / len * r), z = sea.getZ() - (int) Math.round(sea.getZ() / len * r);
+                        if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) >= 62) {
+                            at = new BlockPos(x, 64, z);
+                            break;
+                        }
+                    }
+                    // море — в ту сторону от берега, где дно генератора ниже уровня моря на всём пути к подрыву
+                    double best = -1, bestAngle = 0;
+                    for (int k = 0; k < 24; k++) {
+                        double a = k * Math.PI * 2 / 24;
+                        double score = 0;
+                        for (int r = 100; r <= 1700; r += 100) {
+                            int x = at.getX() + (int) Math.round(Math.cos(a) * r), z = at.getZ() + (int) Math.round(Math.sin(a) * r);
+                            if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) < 58) score += 1;
+                        }
+                        if (score > best) {
+                            best = score;
+                            bestAngle = a;
+                        }
+                    }
+                    Incoming.LOG.info("SCENARIO water shore {} sea direction {}° ({} of 17 points over water)", at.toShortString(),
+                            Math.round(Math.toDegrees(bestAngle)), (int) best);
+                    // зритель — над водой в 40 блоках от берега
+                    waterEye = new Vec3(at.getX() + 0.5 + Math.cos(bestAngle) * 40, 0, at.getZ() + 0.5 + Math.sin(bestAngle) * 40);
+                    waterBurst = new Vec3(at.getX() + 0.5 + Math.cos(bestAngle) * 1540, ua.zentix.incoming.client.fx.layer.WaterDecal.SEA_LEVEL, at.getZ() + 0.5 + Math.sin(bestAngle) * 1500);
+                }
+                Minecraft.getInstance().execute(() -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 140 %.1f", waterEye.x, waterEye.z)));
+            });
+        });
+        // площадка и вид — когда чанки вокруг пришли
+        at(300, () -> {
+            Minecraft mc = Minecraft.getInstance();
+            int x = (int) Math.floor(waterEye.x), z = (int) Math.floor(waterEye.z);
+            // у пруда — высота генератора (без деревьев; чанк клиента мог ещё не прийти)
+            int ground = lake ? waterGround : mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+            int y = lake ? ground + 8 : Math.max(ground, ua.zentix.incoming.client.fx.layer.WaterDecal.SEA_LEVEL) + 20;
+            if (lake) {
+                // пруд: вода в два блока под уровнем земли у зрителя, над ним — воздух
+                for (int z0 = 30; z0 <= 170; z0 += 35) {
+                    int z1 = Math.min(170, z0 + 34);
+                    cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 60, ground, z + z0, x + 60, ground + 5, z + z1));
+                    cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:water", x - 60, ground - 2, z + z0, x + 60, ground - 1, z + z1));
+                }
+            }
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y - 1, z - 1, x + 1, y - 1, z + 1));
+            waterEye = new Vec3(x + 0.5, y, z + 0.5);
+            look(waterBurst.x, 63 + (lake ? 120 : 210), waterBurst.z);
+        });
+        at(420, () -> cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %.1f %.1f %.1f 15 ground", waterBurst.x, waterBurst.y, waterBurst.z)));
+        at(5000, () -> {
+            Incoming.LOG.info("SCENARIO water: no detonation");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /** Зритель {@link #waterEye} смотрит на точку. */
+    private void look(double x, double y, double z) {
+        cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", waterEye.x, waterEye.y, waterEye.z, x, y, z));
+    }
+
+    /** Подрыв у воды: кадры по времени от подрыва, строка воды в лог; конец — после последнего кадра. */
+    private void waterEvents() {
+        if (tick % 10 == 0) Incoming.LOG.info("SCENARIO water {}", ua.zentix.incoming.client.nuclear.NukeWater.describe());
+        if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
+        detTick = tick;
+        steps.removeIf(s -> s.at >= 4999);
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        Incoming.LOG.info("SCENARIO detonation at tick {}: ground {} at {}, eye {} blocks away", tick, String.format(java.util.Locale.ROOT, "%.1f", d.groundY()),
+                xyz(d.burst()), Math.round(Math.hypot(d.burst().x - waterEye.x, d.burst().z - waterEye.z)));
+        int[] frames = {2, 8, 16, 24, 32, 44, 60, 76, 92, 104, 112, 120, 128, 136, 144, 152, 160, 176, 200, 240, 300, 400, 600, 900, 1400, 2000};
+        String name = lake ? "lake" : "water";
+        for (int dt : frames) shot(tick + dt, name);
+        // сбоку от подрыва: кольцо на воде и стена брызг вдоль берега
+        at(tick + 2040, () -> {
+            double ax = waterBurst.x - waterEye.x, az = waterBurst.z - waterEye.z, l = Math.hypot(ax, az);
+            look(waterEye.x - az / l * 200, waterEye.y - 20, waterEye.z + ax / l * 200);
+        });
+        shot(tick + 2060, name + "_side");
+        at(tick + 2080, () -> {
+            Incoming.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
     }
 
     /** Ядерный сценарий: кадры входа боеголовки и после подрыва — от момента, когда клиент получил подрыв. */

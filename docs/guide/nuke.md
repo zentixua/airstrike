@@ -43,6 +43,11 @@ light burns grass, flowers and crops in patches and leaves black char where it w
 water around turn yellow-brown and grey. The edge is ragged, not a ring. The scorched colours stay for good, also in
 Distant Horizons terrain.
 
+Over water the wave raises no dust. It runs across the water as a dark ring of ripples, with a wall of spray behind it
+where the wind is strong, and white foam near the centre. A burst on the water or just above it throws up a hollow
+column of water about a kilometre high at 15 kt. A ring of mist forms on the water for a few seconds, and when the
+column falls, a white base surge rolls out for minutes.
+
 ## How to survive
 
 - **Get underground.** The wave leaves natural ground alone: caves and bunkers stand, and earth stops both the light

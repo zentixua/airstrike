@@ -94,6 +94,12 @@ public final class FxLayer {
             SourceProbes.shader = null;
             Incoming.LOG.error("Source probe shader failed to load: glare of hidden distant fire is not dimmed", ex);
         }
+        try {
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_water"), DefaultVertexFormat.POSITION), s -> WaterDecal.shader = s);
+        } catch (IOException ex) {
+            WaterDecal.shader = null;
+            Incoming.LOG.error("Water decal shader failed to load: no dark blast ring on water", ex);
+        }
     }
 
     /** Раз в тик клиента (не на паузе): секундная сводка времени кадра. */
@@ -144,6 +150,7 @@ public final class FxLayer {
         if (warmup) FarRenderer.warmup();
         FRUSTUM.set(FarDraw.viewProjection(e, view.camera(), VIEW_PROJECTION));
         QUADS.begin(view.left(), view.up());
+        WaterDecal.begin(level, e.getCamera());
         LIGHTS.begin();
         PROBES.begin();
         QUADS.nearestTexels(true);
@@ -159,13 +166,15 @@ public final class FxLayer {
             QUADS.seenBy(0);
         }
         lastQuads = QUADS.size();
-        if (QUADS.size() == 0) return;
+        if (QUADS.size() == 0 && !WaterDecal.active()) return;
         int models = FarRenderer.renderModels();
         int scene = SceneDepth.update(e.getProjectionMatrix());
         int seen = PROBES.update(scene, FarDraw.view(e, view.camera(), VIEW), e.getProjectionMatrix(), view.pixel());
         LightTexture light = mc.gameRenderer.lightTexture();
         FarDraw.begin(e, view.camera());
         try {
+            // наклейка на воду — под квадратами: брызги и дым над водой ложатся на неё
+            if (WaterDecal.active()) WaterDecal.draw(e, view, scene, FOG);
             RenderSystem.setShader(() -> s);
             RenderSystem.setShaderTexture(0, atlas);
             RenderSystem.setShaderTexture(1, scene >= 0 ? scene : atlas);

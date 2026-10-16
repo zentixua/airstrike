@@ -33,26 +33,29 @@ public final class ClientNuclear {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
+        /** Подрыв на воде: столб, кольцо тумана, базисная волна ({@link NukeWater}). */
+        final WaterPuffs water;
         /** Сколько тиков прошло до прихода пакета (у пришедших при входе в мир — с самого подрыва). */
         private final long before;
         private long age;
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d));
+            this(d, live, clientNow, new CloudPuffs(d), new WaterPuffs(d, WaterPuffs.count(d)));
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
         Active(Active a, long clientNow) {
-            this(a.d, false, clientNow, a.puffs);
+            this(a.d, false, clientNow, a.puffs, a.water);
             puffs.untrack();
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs) {
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water) {
             this.d = d;
             this.live = live;
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
             this.puffs = puffs;
+            this.water = water;
             this.sounds = new NukeSounds.Schedule(this);
         }
 
@@ -231,6 +234,7 @@ public final class ClientNuclear {
             a.sounds.tick();
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
             if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
+            NukeWater.tick(a, level, eye);
             NukeDust.front(a, eye);
             if (a.ticks(0) > lifeTicks(a.d)) it.remove();
         }
