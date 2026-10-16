@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Проверки дублей Newisle без игры: предел поворота камеры вывода ({@link ReplayFilm#turnRate}, Артём, 14.10 — камеры
- * дёргаются), зазор разносчика пусков ({@link Newisle#launchAt}, Артём, 15.10 — установки не стреляют в одну
+ * дёргаются), разносчик пусков ({@link Newisle.Launches}, Артём, 15.10 — установки не стреляют в одну
  * миллисекунду) и папка кандидата пробы ({@link ReplayFilm#freshCandidate}, ночь 15.10 — ни одна проба не выведена).
  */
 class NewisleChecksTest {
@@ -47,28 +47,30 @@ class NewisleChecksTest {
     }
 
     @Test
-    void launchGapSpreadsSamePlaceAndDifferentPlaces() {
+    void launchesQueuePerPlaceAndNeverShareATick() {
         RandomSource r = RandomSource.create(1);
-        Vec3 at = new Vec3(100, 0, 100);
-        // первого пуска ничто не держит
-        assertEquals(500, Newisle.launchAt(500, Long.MIN_VALUE, null, null, WeaponType.MISSILE, at, r));
-        // то же место и то же оружие — очередь одной трубы: 9–13 тиков
-        for (int i = 0; i < 200; i++) {
-            long gap = Newisle.launchAt(500, 500, at, WeaponType.MISSILE, WeaponType.MISSILE, at, r) - 500;
-            assertTrue(gap >= 9 && gap <= 13, "зазор того же места " + gap);
+        Vec3 a = new Vec3(100, 0, 100), b = new Vec3(400, 0, 100), c = new Vec3(100, 0, 400);
+        for (int k = 0; k < 100; k++) {
+            Newisle.Launches q = new Newisle.Launches();
+            // первого пуска ничто не держит
+            assertEquals(500, q.next(500, WeaponType.ROCKET, a, r));
+            // другое место — свой расчёт: только не в тот же тик, 3–6 тиков после любого пуска
+            long tb = q.next(500, WeaponType.ROCKET, b, r);
+            assertTrue(tb - 500 >= 3 && tb - 500 <= 6, "зазор разных мест " + (tb - 500));
+            long tc = q.next(500, WeaponType.DRONE, c, r);
+            assertTrue(tc - tb >= 3 && tc - tb <= 6, "зазор другого оружия " + (tc - tb));
+            // то же место и оружие — очередь одной трубы: 9–13 тиков после своего прошлого пуска, и общий зазор
+            long ta = q.next(500, WeaponType.ROCKET, a, r);
+            assertTrue(ta - 500 >= 9 && ta - tc >= 3 && ta <= Math.max(513, tc + 6), "очередь места " + (ta - 500) + ", после прошлого " + (ta - tc));
+            // то же место, но другое оружие — своя очередь
+            long td = q.next(ta, WeaponType.DRONE, a, r);
+            assertTrue(td - ta >= 3 && td - ta <= 6, "другое оружие того же места " + (td - ta));
+            // близко к месту, но дальше порога 40 блоков — другое место
+            long te = q.next(td, WeaponType.ROCKET, new Vec3(141, 0, 100), r);
+            assertTrue(te - td >= 3 && te - td <= 6, "дальше порога " + (te - td));
+            // зазоры уже прошли — пуск сейчас
+            assertEquals(te + 100, q.next(te + 100, WeaponType.ROCKET, a, r));
         }
-        // другое место (или другое оружие) — разные расчёты: 20–60 тиков
-        Vec3 elsewhere = new Vec3(200, 0, 100);
-        for (int i = 0; i < 200; i++) {
-            long gap = Newisle.launchAt(500, 500, at, WeaponType.MISSILE, WeaponType.MISSILE, elsewhere, r) - 500;
-            assertTrue(gap >= 20 && gap <= 60, "зазор разных мест " + gap);
-            long w = Newisle.launchAt(500, 500, at, WeaponType.MISSILE, WeaponType.DRONE, at, r) - 500;
-            assertTrue(w >= 20 && w <= 60, "зазор другого оружия " + w);
-        }
-        // близко к прошлому месту, но дальше порога 40 блоков — тоже «разные места»
-        assertTrue(Newisle.launchAt(500, 500, at, WeaponType.MISSILE, WeaponType.MISSILE, new Vec3(141, 0, 100), r) - 500 >= 20);
-        // зазор уже прошёл — пуск сейчас
-        assertEquals(600, Newisle.launchAt(600, 500, at, WeaponType.MISSILE, WeaponType.MISSILE, at, r));
     }
 
     @Test

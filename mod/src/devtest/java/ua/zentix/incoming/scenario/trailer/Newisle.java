@@ -789,17 +789,12 @@ final class Newisle {
     }
 
     /**
-     * Пуск удара {@code i} записи — через разносчик: пуски постановщика не встают в один тик (Артём, 14.10: установки не
-     * стреляют в одну миллисекунду). Пуск ближе зазора к прошлому ждёт остаток ({@link War#later}); зазор — с разбросом
-     * по зерну дубля и варианта: то же место пуска (ближе {@link #SAME_PLACE} блоков) и то же оружие — как очередь одной
-     * трубы «Града» (9–13 тиков), разные места — как разные расчёты (20–60 тиков).
+     * Пуск удара {@code i} записи — через разносчик ({@link Launches}): пуски постановщика не встают в один тик. Пуск
+     * ближе зазора ждёт остаток ({@link War#later}).
      */
     private void launch(Run run, int i) {
         Strike s = run.strikes.get(i);
-        long at = launchAt(mc.level.getGameTime(), lastLaunchTick, lastLaunchAt, lastLaunchWeapon, s.weapon(), s.from(), random);
-        lastLaunchTick = at;
-        lastLaunchAt = s.from();
-        lastLaunchWeapon = s.weapon();
+        long at = launches.next(mc.level.getGameTime(), s.weapon(), s.from(), random);
         // ждать по времени игры: тики клиента под нагрузкой отстают от сервера, и пуск уходил позже записанного delay
         // (T18 ночью 15.10: 34 тика клиента — 46 тиков игры, 74 — 114)
         long now = mc.level.getGameTime();
@@ -808,13 +803,45 @@ final class Newisle {
                 () -> fire(run, i, (mc.level.getGameTime() - now) / 20.0));
     }
 
-    /** Тик пуска разносчика: сейчас или остаток зазора после прошлого пуска. Чистая — для юнит-теста. */
-    static long launchAt(long now, long lastTick, @Nullable Vec3 lastAt, @Nullable WeaponType lastWeapon, WeaponType weapon,
-                         Vec3 from, RandomSource random) {
-        if (lastAt == null || lastWeapon == null) return now;
-        boolean same = weapon == lastWeapon && Math.hypot(from.x - lastAt.x, from.z - lastAt.z) < SAME_PLACE;
-        int gap = same ? SAME_GAP + random.nextInt(SAME_SPREAD) : OTHER_GAP + random.nextInt(OTHER_SPREAD);
-        return Math.max(now, lastTick + gap);
+    /**
+     * Разносчик пусков постановщика (Артём, 15.10: установки не стреляют в одну миллисекунду). У каждого места пуска
+     * своя очередь: то же место (ближе {@link #SAME_PLACE} блоков) и то же оружие стреляют как одна труба «Града»
+     * (9–13 тиков), а между любыми двумя пусками, из каких угодно мест, — не меньше 3–6 тиков. Разные расчёты стреляют
+     * независимо: три батареи n41 кладут ряды разом (до 16.10 между разными местами было 20–60 тиков, и 21 удар n41
+     * растянулся на 22 с). Зазоры — с разбросом по зерну дубля и варианта. Чистый — для юнит-теста.
+     */
+    static final class Launches {
+        private final List<Place> places = new ArrayList<>();
+        private long last = Long.MIN_VALUE;
+
+        /** Тик пуска: сейчас или после зазора своей очереди и общего; пуск записывается в обе. */
+        long next(long now, WeaponType weapon, Vec3 from, RandomSource random) {
+            Place own = null;
+            for (Place p : places) {
+                if (p.weapon == weapon && Math.hypot(from.x - p.at.x, from.z - p.at.z) < SAME_PLACE) {
+                    own = p;
+                    break;
+                }
+            }
+            long at = now;
+            if (own != null) at = Math.max(at, own.last + SAME_GAP + random.nextInt(SAME_SPREAD));
+            if (last != Long.MIN_VALUE) at = Math.max(at, last + ANY_GAP + random.nextInt(ANY_SPREAD));
+            if (own == null) places.add(own = new Place(from, weapon));
+            own.last = at;
+            last = at;
+            return at;
+        }
+
+        private static final class Place {
+            final Vec3 at;
+            final WeaponType weapon;
+            long last;
+
+            Place(Vec3 at, WeaponType weapon) {
+                this.at = at;
+                this.weapon = weapon;
+            }
+        }
     }
 
     /** Сам пуск командой оператора (игрок съёмки): с места пуска через точки пути. */
@@ -832,14 +859,10 @@ final class Newisle {
         launched.add(l);
     }
 
-    /** Прошлый пуск разносчика: тик, место и оружие — по ним зазор следующему. */
-    private long lastLaunchTick = Long.MIN_VALUE;
-    @Nullable
-    private Vec3 lastLaunchAt;
-    @Nullable
-    private WeaponType lastLaunchWeapon;
+    /** Очереди пусков дубля по местам. */
+    private final Launches launches = new Launches();
     /** Одно место пуска — ближе столько блоков; зазоры очереди одного места и разных мест, тиков (разброс — сверху). */
-    private static final int SAME_PLACE = 40, SAME_GAP = 9, SAME_SPREAD = 5, OTHER_GAP = 20, OTHER_SPREAD = 41;
+    private static final int SAME_PLACE = 40, SAME_GAP = 9, SAME_SPREAD = 5, ANY_GAP = 3, ANY_SPREAD = 4;
 
     private void tick(ClientTickEvent.Post e) {
         if (++ticks % 1200 == 0) heap();
