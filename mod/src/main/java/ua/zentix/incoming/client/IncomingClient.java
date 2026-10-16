@@ -293,7 +293,7 @@ public final class IncomingClient {
         public void blast(S2C.Blast p) {
             Replay.event("blast", live -> {
                 if (!live) return;
-                p.projectile().ifPresent(FlightTracks::impact);
+                p.projectile().ifPresent(id -> FlightTracks.impact(id, p.pos()));
                 BlastEffects.blast(p);
             });
         }
@@ -428,7 +428,7 @@ public final class IncomingClient {
         public void intercept(S2C.Intercept p) {
             Replay.event("intercept", live -> {
                 if (!live) return;
-                p.target().ifPresent(FlightTracks::impact);
+                p.target().ifPresent(id -> FlightTracks.impact(id, p.pos()));
                 BlastEffects.intercept(p);
             });
         }
