@@ -2,6 +2,7 @@ package ua.zentix.incoming.nuclear.world;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongHeapPriorityQueue;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.BedBlock;
@@ -27,7 +28,8 @@ import ua.zentix.incoming.nuclear.Detonation;
  * <ul>
  * <li>Расстояние опоры до земли — обход 0-1 от низа окна (вверх 0, вбок и вниз +1, до {@link #C}): блок держится, пока
  * оно не больше его пролёта ({@link Blast.Props#span}); грунт в постройке (кладка без арматуры) — только если опора
- * не стала длиннее. Падает только то, что волна лишила опоры: {@code после > L}
+ * не стала длиннее, а висящий, которого до удара держал ряд между опорами с двух сторон, — только пока его так держит
+ * ряд и после ({@link #unspanned}). Падает только то, что волна лишила опоры: {@code после > L}
  * и ({@code до ≤ L}, или {@code после ≥ до + 3} — дыра в перекрытии не режет щелей, или до удара опоры не было,
  * а блок касается сломанного) — природные своды и навесы, которые и так «висели», стоят.</li>
  * <li>Считается, только если волна сломала опорный блок, над которым или рядом с которым что-то уцелело; по окну
@@ -215,7 +217,7 @@ final class Collapse {
         distances(before, false, n, fixed);
         distances(after, true, n, fixed);
         long[] down = new long[gone.length];
-        IntArrayList fall = new IntArrayList();
+        IntArrayList fall = new IntArrayList(), masonry = new IntArrayList();
         for (int y = yb; y <= yt; y++) {
             for (int wz = LO - C; wz < HI + C; wz++) {
                 for (int wx = LO - C; wx < HI + C; wx++) {
@@ -226,7 +228,25 @@ final class Collapse {
                     if (falls(i, after[i], p)) {
                         fall.add(i);
                         set(down, i);
+                    } else if (after[i] > 0 && p.span() > 0 && !p.fixed() && p.response().kind() == BlockResponse.Kind.GROUND
+                            && spanned(wx, y, wz, false, down)) {
+                        masonry.add(i);
                     }
+                }
+            }
+        }
+        // кладка, ставшая консолью ({@link #unspanned}), падает; её падение удлиняет опору другим — расстояния
+        // чинятся там, где опора шла через неё ({@link #reroute}), и кто теперь падает — падает; до неподвижной точки
+        while (true) {
+            int was = fall.size();
+            if (!unspanned(masonry, down, fall)) break;
+            IntArrayList lost = reroute(fall, was, down);
+            for (int q = 0; q < lost.size(); q++) {
+                int i = lost.getInt(q), wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+                if (wx < LO - C || wx >= HI + C || wz < LO - C || wz >= HI + C || bit(down, i)) continue;
+                if (falls(i, after[i], props(wx, y, wz))) {
+                    fall.add(i);
+                    set(down, i);
                 }
             }
         }
@@ -289,6 +309,149 @@ final class Collapse {
         // держалась до удара, — консоль, которой стала опора подлиннее, падает
         if (a <= p.span()) return a > b && p.response().kind() == BlockResponse.Kind.GROUND;
         return b <= p.span() || b < INF && a >= Math.min(b + 3, INF);
+    }
+
+    /**
+     * Грунт в постройке — кладка без арматуры — держится плитой, перемычкой, сводом: рядом блоков между опорами с двух
+     * сторон. Висящая кладка (стоит не на несущем, опора — вбок), которую до удара держал такой ряд хотя бы по одной оси
+     * ({@code masonry}: {@link #spanned} до удара), а теперь ни по одной, стала консолью и падает, даже если ближняя опора
+     * та же (плита у уцелевшего ядра, чьи стены рухнули, — расстояние до ядра у ближних к нему мест прежнее). Каскадом:
+     * её падение рвёт ряды соседей и выбивает опору из-под стоящего на ней. Природный навес или карниз и до удара
+     * держался с одной стороны — стоит; перекрытие с дырой держится рядом по другой оси. Новые падающие — в {@code down}
+     * и {@code fall}; решение не зависит от порядка: ряды и опоры снизу только пропадают.
+     *
+     * @return упало ли что-то
+     */
+    private boolean unspanned(IntArrayList masonry, long[] down, IntArrayList fall) {
+        boolean any = false, changed = true;
+        while (changed) {
+            changed = false;
+            for (int q = 0; q < masonry.size(); q++) {
+                int i = masonry.getInt(q);
+                if (bit(down, i)) continue;
+                int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+                if (standingAfter(wx, y - 1, wz, down) || spanned(wx, y, wz, true, down)) continue;
+                set(down, i);
+                fall.add(i);
+                changed = any = true;
+            }
+        }
+        return any;
+    }
+
+    /**
+     * Опора после удара без упавшей кладки ({@code fall} с {@code from}) — заново только там, где она шла через неё,
+     * а не обходом всего окна (тот же результат: расстояния только растут). Место теряет расстояние, если у него не
+     * осталось держащего соседа на шаг ближе к опоре (снизу — на том же расстоянии): места проверяются по возрастанию
+     * расстояния и снизу вверх, поэтому соседи, через которых оно держится, уже решены. Потерявшие получают расстояние
+     * от уцелевших соседей обходом по корзинам расстояний ({@code after}).
+     *
+     * @return места, чьё расстояние выросло (могут теперь падать — {@link #falls})
+     */
+    private IntArrayList reroute(IntArrayList fall, int from, long[] down) {
+        long[] seen = new long[gone.length], lost = new long[gone.length];
+        LongHeapPriorityQueue queue = new LongHeapPriorityQueue();
+        IntArrayList out = new IntArrayList();
+        for (int q = from; q < fall.size(); q++) successors(fall.getInt(q), queue, down, lost);
+        while (!queue.isEmpty()) {
+            int i = (int) queue.dequeueLong();
+            if (bit(seen, i)) continue;
+            set(seen, i);
+            int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+            boolean held = false;
+            for (Direction dir : Direction.values()) {
+                int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+                if (!standingAfter(nx, ny, nz, down)) continue;
+                int m = idx(nx, ny, nz);
+                // сосед снизу держит на том же расстоянии (вверх — 0), остальные — на шаг ближе
+                if (!bit(lost, m) && after[m] + (dir == Direction.DOWN ? 0 : 1) == after[i] && leads(m, nx, ny, nz)) {
+                    held = true;
+                    break;
+                }
+            }
+            if (held) continue;
+            set(lost, i);
+            out.add(i);
+            if (leads(i, wx, y, wz)) successors(i, queue, down, lost);
+        }
+        IntArrayList[] buckets = new IntArrayList[C + 1];
+        for (int q = 0; q < out.size(); q++) after[out.getInt(q)] = INF;
+        for (int q = 0; q < out.size(); q++) {
+            int i = out.getInt(q), wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb, best = INF;
+            for (Direction dir : Direction.values()) {
+                int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+                if (!standingAfter(nx, ny, nz, down)) continue;
+                int m = idx(nx, ny, nz);
+                if (bit(lost, m) || !leads(m, nx, ny, nz)) continue;
+                best = Math.min(best, after[m] + (dir == Direction.DOWN ? 0 : 1));
+            }
+            if (best > C) continue;
+            after[i] = (byte) best;
+            (buckets[best] == null ? buckets[best] = new IntArrayList() : buckets[best]).add(i);
+        }
+        for (int d = 1; d <= C; d++) {
+            IntArrayList b = buckets[d];
+            for (int q = 0; b != null && q < b.size(); q++) {
+                int i = b.getInt(q), wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+                if (after[i] != d || !leads(i, wx, y, wz)) continue;
+                for (Direction dir : Direction.values()) {
+                    int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+                    if (!standingAfter(nx, ny, nz, down)) continue;
+                    int m = idx(nx, ny, nz), nd = d + (dir == Direction.UP ? 0 : 1);
+                    if (!bit(lost, m) || nd > C || after[m] <= nd) continue;
+                    after[m] = (byte) nd;
+                    (buckets[nd] == null ? buckets[nd] = new IntArrayList() : buckets[nd]).add(m);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** В очередь {@link #reroute} — стоящие соседи, чья опора могла идти через место {@code i} (на шаг дальше, сверху — на том же). */
+    private void successors(int i, LongHeapPriorityQueue queue, long[] down, long[] lost) {
+        int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb, di = after[i];
+        for (Direction dir : Direction.values()) {
+            int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+            if (!standingAfter(nx, ny, nz, down)) continue;
+            int m = idx(nx, ny, nz), nd = di + (dir == Direction.UP ? 0 : 1);
+            if (bit(lost, m) || nd > C || after[m] != nd) continue;
+            // по расстоянию, потом снизу вверх: держащие места решены раньше
+            queue.enqueue((long) (nd * h + ny - yb) << 32 | m);
+        }
+    }
+
+    /** Опора идёт через место дальше, как в {@link #distances}: оно само опора или держится и не падает. */
+    private boolean leads(int i, int wx, int y, int wz) {
+        return after[i] == 0 || after[i] < INF && !falls(i, after[i], props(wx, y, wz));
+    }
+
+    /** Несущее место стоит после удара: не сломано и не падает. */
+    private boolean standingAfter(int wx, int y, int wz, long[] down) {
+        if (!inside(wx, y, wz)) return false;
+        int i = idx(wx, y, wz);
+        return !bit(gone, i) && !bit(down, i) && props(wx, y, wz).bearing();
+    }
+
+    /**
+     * Ряд несущего через место (по x или по z, на его высоте) с обеих сторон доходит до стоящего от земли (опора на
+     * расстоянии 0: стена, колонна, ядро) не дальше пролёта места — до удара или после него.
+     */
+    private boolean spanned(int wx, int y, int wz, boolean afterBlast, long[] down) {
+        int reach = props(wx, y, wz).span();
+        return reaches(wx, y, wz, 1, 0, reach, afterBlast, down) && reaches(wx, y, wz, -1, 0, reach, afterBlast, down)
+                || reaches(wx, y, wz, 0, 1, reach, afterBlast, down) && reaches(wx, y, wz, 0, -1, reach, afterBlast, down);
+    }
+
+    private boolean reaches(int wx, int y, int wz, int sx, int sz, int reach, boolean afterBlast, long[] down) {
+        byte[] dist = afterBlast ? after : before;
+        for (int k = 1; k <= reach; k++) {
+            int x = wx + sx * k, z = wz + sz * k;
+            if (!inside(x, y, z)) return false;
+            int m = idx(x, y, z);
+            if (afterBlast ? !standingAfter(x, y, z, down) : !props(x, y, z).bearing()) return false;
+            if (dist[m] == 0) return true;
+        }
+        return false;
     }
 
     private boolean bearing(int i, int wx, int y, int wz, boolean afterBlast) {

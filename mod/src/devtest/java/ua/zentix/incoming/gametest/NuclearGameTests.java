@@ -447,12 +447,15 @@ public final class NuclearGameTests {
 
     /**
      * Та же башня с бассейном на 25-м этаже (вода на перекрытии между стенами): вода в столбце не делает постройку
-     * рельефом — башня рушится, вода уходит вместе с ней, ничего не висит.
+     * рельефом — башня рушится, вода уходит вместе с ней, ничего не висит. Подрыв — точно над ядром башни: ядро стоит
+     * (сверху его не опрокинуть), стены падают, а дно бассейна (терракота под водой — не тонкая, волна её не ломает) у
+     * ядра держится на том же расстоянии до опоры, что и до удара, — без правила висящей кладки
+     * ({@code Collapse.unspanned}) кольцо плиты висело вокруг ядра в воздухе (CI: центр площадки на углу чанков).
      */
     @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_pool", skyAccess = true)
     public static void towerWithPoolFalls(GameTestHelper h) {
         BlockPos c = chunkCorner(h);
-        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        Detonation d = detonation(h, c, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
         int built = tower(h, c);
         for (int dx = 1 - TOWER_HALF; dx < TOWER_HALF; dx++) {
             for (int dz = 1 - TOWER_HALF; dz < TOWER_HALF; dz++) {
