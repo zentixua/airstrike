@@ -29,7 +29,9 @@
 - толпа провожает ракеты (`crowd.follow` в ready плана): в окне каждого плана люди группы (приставка шага `crowd`)
   смотрят на ближнюю ракету этого оружия в 300 блоках — курс ±30°, тангаж ±15° от глаза (ноги + 1,62) — не меньше
   чем в 70 % взглядов: журнал записи пишет курс головы и тангаж людей (с 17.10); n43 ночью 16.10 — люди смотрели
-  мимо ракет на 90–175°, слежение кончалось до окна.
+  мимо ракет на 90–175°, слежение кончалось до окна;
+- карта пульта без рельефа: у плана с открытой картой (result.json: `map_ticks`) нет тиков со строкой «Distant
+  Horizons is still loading its own terrain» (`map_pending`) — план ждёт ответа DH (момент `map`) и только потом пишет.
 
 Вывод (папка кандидата render/<план>/<кандидат>/, каждый провал — PASS плана становится FAIL, дубль переснимается):
 - поворот камеры ≤ 120°/с по state.json (ключи на тик; по тикам × 20, не с интерполяцией до 60 кадров: в файле
@@ -451,9 +453,23 @@ def crowd_gaze(rec, take):
     return out
 
 
+def map_loading(result):
+    """Карта пульта в кадре со строкой «Distant Horizons is still loading its own terrain» (n07 16.10: пустая сетка без
+    рельефа): result.json дубля пишет у плана тики с открытой картой (`map_ticks`) и из них со строкой ожидания DH
+    (`map_pending`); хоть один такой тик — провал."""
+    out = []
+    for s in (result or {}).get("shots", []):
+        pending = s.get("map_pending", 0)
+        if pending:
+            plan = (s.get("plans") or [s.get("replay", "?")])[0]
+            out.append(f"{plan}: на карте пульта строка загрузки Distant Horizons {pending} тиков из {s.get('map_ticks', 0)}")
+    return out
+
+
 def record_problems(rec, take, result):
     """Проверки записи, провал которых лечит пересъёмка: список причин для attempt() конвейера."""
-    return same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take) + crowd_gaze(rec, take)
+    return (same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take) + crowd_gaze(rec, take)
+            + map_loading(result))
 
 
 def record_warnings(rec, take, result):

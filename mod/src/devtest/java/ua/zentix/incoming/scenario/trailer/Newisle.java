@@ -39,6 +39,7 @@ import ua.zentix.incoming.client.Keys;
 import ua.zentix.incoming.client.cam.ProjectileCamera;
 import ua.zentix.incoming.client.hud.ClientFlights;
 import ua.zentix.incoming.client.map.MapTarget;
+import ua.zentix.incoming.client.map.TerrainTiles;
 import ua.zentix.incoming.client.screen.MapScreen;
 import ua.zentix.incoming.client.screen.RemoteScreen;
 import ua.zentix.incoming.compat.SubLevels;
@@ -395,6 +396,8 @@ final class Newisle {
         boolean moment = true, whenSeen;
         /** Запись плана кончилась ({@code cueEnd}): приказы «до конца плана» (слежение толпы) снимаются. */
         volatile boolean over;
+        /** Тиков записи плана с открытой картой пульта и из них — со строкой «Distant Horizons ещё грузит» (n07 16.10). */
+        int mapTicks, mapPending;
         long startTick = -1;
         // тот же старт по часам сервера: клиентские штампы под нагрузкой ударов отстают от него (T21, ночь 15.10)
         volatile long startServer = -1;
@@ -459,6 +462,7 @@ final class Newisle {
             }, 20 * 240);
         }
         shot.cue(0, () -> {
+            recording = run;
             run.startTick = mc.level.getGameTime();
             film.withServer(sv -> run.startServer = sv.overworld().getGameTime());
             run.moment = moment == null || run.whenSeen;
@@ -487,6 +491,7 @@ final class Newisle {
         for (JsonElement e : list(s, "end")) ends.add(now(e.getAsJsonObject(), run));
         shot.cueEnd(() -> {
             run.over = true;
+            if (recording == run) recording = null;
             if (cam.equals("onboard")) ProjectileCamera.exit();
             ends.forEach(Runnable::run);
             closeShot(run);
@@ -581,6 +586,12 @@ final class Newisle {
                 var place = once(when.get("at"));
                 yield () -> War.frontIn(place.get()) < lead;
             }
+            // карта пульта открыта (ready: map.open) и построена: все видимые плитки готовы и Distant Horizons уже отдал
+            // рельеф — без этого n07 16.10 начался с пустой сетки и строки «Distant Horizons is still loading…»
+            case "map" -> () -> {
+                TerrainTiles.Progress p = TerrainTiles.progress();
+                return mc.screen instanceof MapScreen && !TerrainTiles.farPending() && p.visible() > 0 && p.done();
+            };
             case "icbm" -> {
                 double above = when.get("above").getAsDouble();
                 yield () -> {
@@ -620,6 +631,11 @@ final class Newisle {
                 if (v != null) mspt.add(v);
             }
             o.add("mspt", mspt);
+        }
+        if (run.mapTicks > 0) {
+            // карта пульта в кадре: сколько тиков на ней строка ожидания DH (take_checks.map_loading — провал записи)
+            o.addProperty("map_ticks", run.mapTicks);
+            o.addProperty("map_pending", run.mapPending);
         }
         if (run.shot.has("cover")) o.add("cover", run.shot.get("cover"));
         shotsOut.add(o);
@@ -870,6 +886,11 @@ final class Newisle {
     private void tick(ClientTickEvent.Post e) {
         if (++ticks % 1200 == 0) heap();
         if (mc.level == null) return;
+        Run r = recording;
+        if (r != null && mc.screen instanceof MapScreen) {
+            r.mapTicks++;
+            if (TerrainTiles.farPending()) r.mapPending++;
+        }
         for (Launched l : launched) l.tick();
         if (!enterSeen && !hints.isEmpty() && mc.screen == null
                 && InputConstants.isKeyDown(mc.getWindow().getWindow(), InputConstants.KEY_RETURN)) {
@@ -878,6 +899,9 @@ final class Newisle {
     }
 
     private long ticks;
+    /** План, который сейчас пишется (от первого кадра до {@code cueEnd}). */
+    @Nullable
+    private volatile Run recording;
 
     /**
      * Живой объём старшего поколения после последней видимой сборки — тот же, по которому бюджет руин

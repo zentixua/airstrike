@@ -125,7 +125,7 @@ final class NewisleData {
             "launchers", "silo.build", "commander", "player", "hidden", "boat", "airship", "grid.node", "station.wire");
     /** Моменты записи ({@code when.kind}). */
     static final java.util.Set<String> MOMENTS = java.util.Set.of("none", "siren", "lit", "interceptor", "onboard", "warning", "front",
-            "icbm");
+            "icbm", "map");
 
     final JsonObject scenario, takes;
     /** Кадры камеры плана по разведке; нет плана — нет его позы (конвейер останавливается до съёмки). */

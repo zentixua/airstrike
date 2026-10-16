@@ -399,6 +399,21 @@ class DimFramesTest(unittest.TestCase):
         self.assertEqual([], T.dim_frames(self.frames(19), "n1", None))
 
 
+class MapLoadingTest(unittest.TestCase):
+    def test_dh_loading_line_on_the_remote_map_fails(self):
+        result = {"shots": [{"plans": ["n07"], "map_ticks": 120, "map_pending": 37}]}
+        out = T.map_loading(result)
+        self.assertEqual(1, len(out))
+        self.assertIn("n07", out[0])
+        self.assertIn("37 тиков из 120", out[0])
+        self.assertEqual(out, T.record_problems(tempfile.mkdtemp(), {"shots": []}, result))
+
+    def test_built_map_and_plans_without_map_pass(self):
+        self.assertEqual([], T.map_loading({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_pending": 0},
+                                                      {"plans": ["n13"]}]}))
+        self.assertEqual([], T.map_loading(None))
+
+
 class RecordProblemsTest(unittest.TestCase):
     def test_old_recording_without_new_data_is_not_a_failure(self):
         self.assertEqual([], T.record_problems(tempfile.mkdtemp(), {"siren": True, "shots": []}, {}))
