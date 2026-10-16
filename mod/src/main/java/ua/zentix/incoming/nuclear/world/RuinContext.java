@@ -328,6 +328,17 @@ final class RuinContext {
     }
 
     /**
+     * Снимок одного чанка для следа на земле без руин ({@link RuinPlanner#scorch}, поток сервера): соседи следу не
+     * нужны, в окне только сам чанк.
+     */
+    Grid scorchGrid(ServerLevel level, ChunkShot shot, Blast.PropsView view) {
+        ChunkShot[] g = new ChunkShot[Grid.SIDE * Grid.SIDE];
+        g[Grid.R * Grid.SIDE + Grid.R] = shot;
+        return new Grid(this, shot.pos(), level.getMinBuildHeight(), level.getMaxBuildHeight(), g, view,
+                IncomingConfig.SERVER.nukeBlockDamage.get(), IncomingConfig.SERVER.nukeTreeFall.get(), IncomingConfig.SERVER.nukeFires.get());
+    }
+
+    /**
      * Разломы окна чанка (он и загруженные соседи) — не больше одного за вызов (поток сервера): разлом холодного
      * соседа — отдельная единица работы, а не девять в одной. true — все в кэше и верны (план чанка — одна единица),
      * false — посчитан один.

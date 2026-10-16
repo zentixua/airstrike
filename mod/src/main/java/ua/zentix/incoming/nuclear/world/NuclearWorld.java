@@ -198,6 +198,8 @@ public final class NuclearWorld {
             scars.scanLoaded(d, ready.plans(), ready.order());
         }
         else scars.scanLoaded(d);
+        // след на земле вдали — в LOD DH: за тяжёлой зоной (её LOD — руины по готовым планам) или весь, если не готовились
+        FarLods.scorch(level, d, ready != null);
         if (d.surface() && IncomingConfig.SERVER.nukeCrater.get() && IncomingConfig.SERVER.nukeBlockDamage.get()
                 && CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
             craters.add(new CraterJob(d, 0));
