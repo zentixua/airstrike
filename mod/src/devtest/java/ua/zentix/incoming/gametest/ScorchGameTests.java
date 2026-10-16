@@ -16,6 +16,7 @@ import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.incoming.Incoming;
@@ -192,9 +193,11 @@ public final class ScorchGameTests {
     /**
      * След без руин ({@code RuinPlanner.scorch}: LOD вдали за тяжёлой зоной) — тот же, что у плана руин, там, где волна
      * ничего не сломала: поле травы на ровной земле за тяжёлой зоной, от ~1,4 км (дёрн выгорает) до ~5 км. Свет, склон,
-     * пятна, растения, пожары и биомы — одни и те же; план без руин — по снимку одного чанка, без окна соседей. Сравниваются
-     * чанки целиком на площадке: в крайних — стена барьеров, кнопка блока структуры и постройки соседних партий, их волна
-     * бьёт.
+     * пятна, растения, пожары и биомы — одни и те же; план без руин — по снимку одного чанка, без окна соседей. Подрыв —
+     * над дальним от блока структуры углом площадки: свет от подрыва за её краем шёл бы сквозь постройки соседних партий
+     * (их порядок и место в каждой части CI свои — тень на всю площадку). Сравниваются чанки целиком на площадке (в
+     * крайних — стена барьеров и соседи) и за тяжёлой зоной (меньше 5 psi у ближнего столба: растения волна ломает от
+     * 6,8 psi).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_scorch_far", skyAccess = true)
     public static void scorchWithoutRuinsSameAsRuins(GameTestHelper h) {
@@ -202,22 +205,24 @@ public final class ScorchGameTests {
         fillBiome(h, 0, 63, Biomes.PLAINS);
         plants(h);
         double scale = 0.0182;
-        Detonation d = NuclearGameTests.detonation(h, new BlockPos(-24, 12, 32), Yield.optimalBurstHeight(15) * scale, 15, (float) scale);
-        int changed = 0, biomes = 0;
+        Detonation d = NuclearGameTests.detonation(h, new BlockPos(60, 12, 60), Yield.optimalBurstHeight(15) * scale, 15, (float) scale);
+        int changed = 0, biomes = 0, compared = 0;
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
         for (LevelChunk chunk : NuclearGameTests.chunks(h)) {
-            // только чанки целиком на площадке: в крайних — стена барьеров и постройки соседних партий (их стёкла волна бьёт)
             net.minecraft.world.level.ChunkPos c = chunk.getPos();
             if (c.getMinBlockX() < Math.min(a.getX(), b.getX()) || c.getMaxBlockX() > Math.max(a.getX(), b.getX())
                     || c.getMinBlockZ() < Math.min(a.getZ(), b.getZ()) || c.getMaxBlockZ() > Math.max(a.getZ(), b.getZ())) continue;
+            double nx = Math.clamp(d.burst().x, c.getMinBlockX(), c.getMaxBlockX() + 1), nz = Math.clamp(d.burst().z, c.getMinBlockZ(), c.getMaxBlockZ() + 1);
+            if (d.psi(new Vec3(nx, d.groundY() + 1, nz)) >= 5) continue;
+            compared++;
             RuinPlan ruins = RuinPlanner.plan(level, d, chunk), scorch = RuinPlanner.testScorch(level, d, chunk);
             String diff = scorch.differs(ruins);
             if (diff != null) h.fail("чанк " + chunk.getPos() + ": след без руин не тот, что у руин (след | руины; y — от низа мира): " + diff);
             changed += ruins.changedBlocks();
             if (ruins.recolours()) biomes++;
         }
-        h.assertTrue(changed > 0 && biomes > 0, "след не лёг: мест " + changed + ", чанков с биомами " + biomes);
-        Incoming.LOG.info("След без руин совпал с руинами: {} мест, чанков с биомами {}", changed, biomes);
+        h.assertTrue(compared >= 4 && changed > 0 && biomes > 0, "след не лёг: чанков " + compared + ", мест " + changed + ", чанков с биомами " + biomes);
+        Incoming.LOG.info("След без руин совпал с руинами: чанков {}, мест {}, чанков с биомами {}", compared, changed, biomes);
         h.succeed();
     }
 

@@ -288,21 +288,26 @@ public final class RuinPlanner {
     static RuinPlan scorch(RuinContext.Grid g) {
         ChunkShot shot = g.at(0, 0);
         Sections s = new Sections(shot, g.view());
+        // дно — как у обрушения (Collapse.yb): на 16 ниже самой низкой опоры (вода — опора), под глубокой
+        // водой земли нет; окно обрушения — и соседи, здесь — один чанк
+        int low = Integer.MAX_VALUE;
+        for (int column = 0; column < 256; column++) if (shot.solid[column] >= s.minY) low = Math.min(low, shot.solid[column]);
+        int bottom = low == Integer.MAX_VALUE ? s.minY : Math.max(s.minY, low - 16);
         int[] ground = new int[256];
-        for (int column = 0; column < 256; column++) ground[column] = groundOf(s, column & 15, column >> 4);
+        for (int column = 0; column < 256; column++) ground[column] = groundOf(s, column & 15, column >> 4, bottom);
         double[] heat = land(g, s, ground, null, null);
         for (int column = 0; column < 256; column++) if (ground[column] != Integer.MIN_VALUE) snowy(s, column & 15, ground[column], column >> 4);
         return s.finish(g.ctx(), new long[0], biomes(g.ctx().noise, ground, heat, shot.x << 4, shot.z << 4));
     }
 
     /**
-     * Земля столбца без руин — как у {@link Collapse}, где ничего не сломано: верхний опорный блок, не бревно
-     * ({@code Integer.MIN_VALUE} — нет). Секции из одного воздуха пропускаются целиком.
+     * Земля столбца без руин — как у {@link Collapse}, где ничего не сломано: верхний опорный блок, не бревно, не ниже
+     * {@code bottom} ({@code Integer.MIN_VALUE} — нет). Секции из одного воздуха пропускаются целиком.
      */
-    private static int groundOf(Sections s, int lx, int lz) {
-        for (int i = s.sections - 1; i >= 0; i--) {
+    private static int groundOf(Sections s, int lx, int lz, int bottom) {
+        for (int i = s.sections - 1; i >= 0 && s.minY + (i << 4) + 15 >= bottom; i--) {
             if (!s.shot.mayHave(i, st -> !st.isAir())) continue;
-            for (int y = s.minY + (i << 4) + 15; y >= s.minY + (i << 4); y--) {
+            for (int y = s.minY + (i << 4) + 15; y >= Math.max(bottom, s.minY + (i << 4)); y--) {
                 Blast.Props p = s.props(lx, y, lz);
                 if (p.bearing() && !p.log()) return y;
             }
