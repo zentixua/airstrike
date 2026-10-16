@@ -391,7 +391,7 @@ public final class NuclearGameTests {
             }
         }
         h.assertTrue(standing * 20 <= built, path + ": башня стоит — выше завала " + standing + " блоков из " + built
-                + " (давление у земли " + String.format(Locale.ROOT, "%.0f", d.psi(Vec3.atCenterOf(h.absolutePos(CENTER)))) + " psi)");
+                + " (давление у башни " + String.format(Locale.ROOT, "%.0f", d.psi(Vec3.atCenterOf(h.absolutePos(c)))) + " psi)");
         h.assertTrue(rubble * 2 >= (2 * TOWER_HALF + 1) * (2 * TOWER_HALF + 1), path + ": завала мало — " + rubble + " столбцов");
         return standing;
     }
@@ -457,15 +457,32 @@ public final class NuclearGameTests {
         BlockPos c = chunkCorner(h);
         Detonation d = detonation(h, c, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
         int built = tower(h, c);
+        pool(h, c);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        towerFell(h, d, c, built, "с бассейном");
+        h.succeed();
+    }
+
+    /** Башня с бассейном, подрыв в центре площадки (не над ядром): место башни у углов чанков — какое выпало. */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_pool_off", skyAccess = true)
+    public static void towerWithPoolFallsOffCore(GameTestHelper h) {
+        BlockPos c = chunkCorner(h);
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        int built = tower(h, c);
+        pool(h, c);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        towerFell(h, d, c, built, "с бассейном, подрыв не над ядром");
+        h.succeed();
+    }
+
+    /** Бассейн на 25-м этаже башни {@link #tower}: вода на перекрытии между стенами, вокруг ядра. */
+    private static void pool(GameTestHelper h, BlockPos c) {
         for (int dx = 1 - TOWER_HALF; dx < TOWER_HALF; dx++) {
             for (int dz = 1 - TOWER_HALF; dz < TOWER_HALF; dz++) {
                 if (dx >= -1 && dx <= 0 && dz >= -1 && dz <= 0) continue;
                 for (int y = 25; y <= 26; y++) h.getLevel().setBlock(h.absolutePos(c.offset(dx, y, dz)), Blocks.WATER.defaultBlockState(), 2);
             }
         }
-        scarAll(h, d, new ColumnScar.Budget(false));
-        towerFell(h, d, c, built, "с бассейном");
-        h.succeed();
     }
 
     /**

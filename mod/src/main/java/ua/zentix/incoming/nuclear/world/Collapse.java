@@ -434,7 +434,7 @@ final class Collapse {
 
     /**
      * Ряд несущего через место (по x или по z, на его высоте) с обеих сторон доходит до стоящего от земли (опора на
-     * расстоянии 0: стена, колонна, ядро) не дальше пролёта места — до удара или после него.
+     * расстоянии 0 с пролётом: стена, колонна, ядро; не стекло) не дальше пролёта места — до удара или после него.
      */
     private boolean spanned(int wx, int y, int wz, boolean afterBlast, long[] down) {
         int reach = props(wx, y, wz).span();
@@ -448,8 +448,13 @@ final class Collapse {
             int x = wx + sx * k, z = wz + sz * k;
             if (!inside(x, y, z)) return false;
             int m = idx(x, y, z);
-            if (afterBlast ? !standingAfter(x, y, z, down) : !props(x, y, z).bearing()) return false;
-            if (dist[m] == 0) return true;
+            Blast.Props p = props(x, y, z);
+            // после удара — ещё и не падает по опоре: за полосой, где решают падение ({@code down} там нет), падающее
+            // по опоре выглядело бы стоящим, и соседние окна решали бы плиту у границы чанков по-разному
+            if (afterBlast ? !standingAfter(x, y, z, down) || !leads(m, x, y, z) : !p.bearing()) return false;
+            // без пролёта (стекло, песок) конец ряда не держит: окна вылетают при 0.8 psi, и перекрытие между ядром и
+            // стеклянной стеной и до удара — консоль от ядра, а не плита
+            if (dist[m] == 0 && p.span() > 0) return true;
         }
         return false;
     }
