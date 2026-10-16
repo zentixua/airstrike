@@ -232,6 +232,20 @@ public final class RuinPlanner {
     }
 
     /**
+     * Для проверок: падающее давление у земли, psi, от которого волна может сломать растение — отражённое на открытой
+     * грани ({@link Blast#reflected}) достаёт до нижнего порога растений.
+     */
+    public static double testPlantBreakPsi() {
+        double lo = 0, hi = BlockResponse.PLANT_PSI;
+        for (int i = 0; i < 40; i++) {
+            double mid = (lo + hi) / 2;
+            if (Blast.reflected(mid) >= BlockResponse.PLANT_PSI * BlockResponse.JITTER_MIN) hi = mid;
+            else lo = mid;
+        }
+        return lo;
+    }
+
+    /**
      * Готов ли чанк к плану одной единицей работы: разломы его окна в кэше. Нет — посчитан один из них (это и есть
      * единица работы), план — следующей.
      */

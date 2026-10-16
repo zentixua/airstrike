@@ -196,8 +196,8 @@ public final class ScorchGameTests {
      * пятна, растения, пожары и биомы — одни и те же; план без руин — по снимку одного чанка, без окна соседей. Подрыв —
      * над дальним от блока структуры углом площадки: свет от подрыва за её краем шёл бы сквозь постройки соседних партий
      * (их порядок и место в каждой части CI свои — тень на всю площадку). Сравниваются чанки целиком на площадке (в
-     * крайних — стена барьеров и соседи) и за тяжёлой зоной (меньше 5 psi у ближнего столба: растения волна ломает от
-     * 6,8 psi).
+     * крайних — стена барьеров и соседи), где волна не ломает и растений: у ближнего столба давление ниже того, от
+     * которого отражённое на открытой грани достаёт до их порога (~3,1 psi).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_scorch_far", skyAccess = true)
     public static void scorchWithoutRuinsSameAsRuins(GameTestHelper h) {
@@ -207,13 +207,14 @@ public final class ScorchGameTests {
         double scale = 0.0182;
         Detonation d = NuclearGameTests.detonation(h, new BlockPos(60, 12, 60), Yield.optimalBurstHeight(15) * scale, 15, (float) scale);
         int changed = 0, biomes = 0, compared = 0;
+        double plantBreak = RuinPlanner.testPlantBreakPsi();
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
         for (LevelChunk chunk : NuclearGameTests.chunks(h)) {
             net.minecraft.world.level.ChunkPos c = chunk.getPos();
             if (c.getMinBlockX() < Math.min(a.getX(), b.getX()) || c.getMaxBlockX() > Math.max(a.getX(), b.getX())
                     || c.getMinBlockZ() < Math.min(a.getZ(), b.getZ()) || c.getMaxBlockZ() > Math.max(a.getZ(), b.getZ())) continue;
             double nx = Math.clamp(d.burst().x, c.getMinBlockX(), c.getMaxBlockX() + 1), nz = Math.clamp(d.burst().z, c.getMinBlockZ(), c.getMaxBlockZ() + 1);
-            if (d.psi(new Vec3(nx, d.groundY() + 1, nz)) >= 5) continue;
+            if (d.psi(new Vec3(nx, d.groundY() + 1, nz)) >= plantBreak) continue;
             compared++;
             RuinPlan ruins = RuinPlanner.plan(level, d, chunk), scorch = RuinPlanner.testScorch(level, d, chunk);
             String diff = scorch.differs(ruins);
