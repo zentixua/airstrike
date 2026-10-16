@@ -119,6 +119,16 @@ public final class ScarQueue {
      * долгими задачами.
      */
     private static final int LOOKAHEAD = 20;
+    /**
+     * Сколько сверх малого срока полосы (сервер без свободного времени в тике, {@link WorkClock#canStartVisible}) получают
+     * руины чанков, которые видит игрок, и их проверка заранее, нс. Волна идёт по городу у игрока, когда серверу и так
+     * тесно (боты, загрузка чанков, другие очереди ядерки): на netcup 16.10 (15 кт, бот в 1 км) тик был без свободного
+     * времени, полосе доставалось 1–3 мс на всю ядерку, очередь брала 0–2 видимых чанка за тик, их копилось до 255,
+     * и руины вставали до 64 тиков после фронта — при подмене по готовому плану 0,24 мс в среднем. 6 мс — 20–30 таких
+     * подмен за тик, больше, чем фронт открывает игроку (около 10 чанков за тик); к тику — не больше 6 мс и только пока
+     * видимые ждут.
+     */
+    private static final long SEEN_BUSY_NANOS = 6_000_000L;
     /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
     private static final int NEIGHBOUR_RETRY = 10;
     /**
@@ -679,7 +689,8 @@ public final class ScarQueue {
             Incoming.LOG.info("DIAG ruin tick {}: seen ruined {} (lag up to {}), seen left {}, unseen ruined {}, unseen left {}, checked ahead {}, "
                             + "inspected {} (waited {}), nuclear lane {} ms, stopped: {}", now, diagSeen, diagSeenLag, readySeen.size(), diagUnseen,
                     readyUnseen.size(), diagAhead, inspected, waitedThisTick, ms(clock.usedThisTickNanos()),
-                    readySeen.isEmpty() && readyUnseen.isEmpty() ? "queue empty" : clock.canStart() ? "time over (overdue)" : "budget");
+                    readySeen.isEmpty() && readyUnseen.isEmpty() ? "queue empty"
+                            : (readySeen.isEmpty() ? clock.canStart() : clock.canStartVisible(SEEN_BUSY_NANOS)) ? "time over (overdue)" : "budget");
         }
     }
 
@@ -757,13 +768,14 @@ public final class ScarQueue {
             (watched(level, new ChunkPos(job.chunk)) ? readySeen : readyUnseen).add(job);
         }
         inspected = waitedThisTick = 0;
-        // видимые игроку, чей срок пришёл; видимые, к которым подходит волна (проверка заранее); остальные
-        while (clock.canStart()) {
-            if (inspected > 0 && clock.overdue()) return;
+        // видимые игроку, чей срок пришёл; видимые, к которым подходит волна (проверка заранее); остальные. Видимым и
+        // проверке заранее — срок дальше на сервере без свободного времени (SEEN_BUSY_NANOS), остальным — срок полосы
+        while (clock.canStartVisible(SEEN_BUSY_NANOS)) {
+            if (inspected > 0 && clock.overdueVisible(SEEN_BUSY_NANOS)) return;
             Job job;
             if (!readySeen.isEmpty()) job = readySeen.removeFirst();
             else if (lookAheadNext(level, now, clock)) continue;
-            else if (!readyUnseen.isEmpty()) job = readyUnseen.removeFirst();
+            else if (!readyUnseen.isEmpty() && clock.canStart() && !(inspected > 0 && clock.overdue())) job = readyUnseen.removeFirst();
             else return;
             job.ready = false;
             if (jobs.get(job.chunk) != job) continue; // выгружен или снят
