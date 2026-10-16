@@ -949,6 +949,154 @@ public final class RuinBackgroundGameTests {
     }
 
     /**
+     * Чанк, который видит игрок, с готовым планом, устаревшим за полёт МБР (игрок заменил стекло): незадолго до волны
+     * очередь сверяет план с чанком и строит новый в фоне, первым в пуле руин, — в срок руины встают сразу. Чанк,
+     * которого никто не видит, с таким же планом узнаёт об этом только в срок: его план на месте только отдан в фон.
+     * Время очереди — своё ({@code work} с заданным «сейчас»: всё в одном тике), видимость — подменой (у мок-игрока
+     * GameTest обзора нет).
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_look_ahead", skyAccess = true)
+    public static void staleSeenPlanReplannedBeforeWave(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos seenGlass = NuclearGameTests.CENTER.west(8), unseenGlass = NuclearGameTests.CENTER.east(8);
+        h.setBlock(seenGlass, Blocks.GLASS);
+        h.setBlock(unseenGlass, Blocks.GLASS);
+        Detonation d = NuclearGameTests.detonation(h, NuclearGameTests.CENTER, 0, 15, 0.025f);
+        LevelChunk seen = level.getChunkAt(h.absolutePos(seenGlass)), unseen = level.getChunkAt(h.absolutePos(unseenGlass));
+        long seenKey = seen.getPos().toLong(), unseenKey = unseen.getPos().toLong();
+        // окна руин — в памяти сразу: за краем площадки чанки грузятся в фоне, а окно с диска читалось бы тиками
+        for (LevelChunk c : List.of(seen, unseen)) {
+            for (int dx = -RuinPlanner.REACH; dx <= RuinPlanner.REACH; dx++) {
+                for (int dz = -RuinPlanner.REACH; dz <= RuinPlanner.REACH; dz++) level.getChunk(c.getPos().x + dx, c.getPos().z + dz);
+            }
+        }
+        var plans = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<RuinPlan>();
+        plans.put(seenKey, RuinPlanner.plan(level, d, seen));
+        plans.put(unseenKey, RuinPlanner.plan(level, d, unseen));
+        // игрок заменил стёкла уже после планов
+        h.setBlock(seenGlass, Blocks.WHITE_STAINED_GLASS);
+        h.setBlock(unseenGlass, Blocks.WHITE_STAINED_GLASS);
+        ScarQueue q = new ScarQueue();
+        ScarQueue.seenForTest(c -> c == seenKey);
+        try {
+            q.scanLoaded(d, plans, new long[]{seenKey, unseenKey});
+            long seenWave = ScarQueue.due(d, seen.getPos()), last = Math.max(seenWave, ScarQueue.due(d, unseen.getPos()));
+            ua.zentix.incoming.nuclear.world.WorkClock clock = ua.zentix.incoming.nuclear.world.WorkClock.counting(1_000_000);
+            // все чанки в очереди, волна ещё далеко
+            clock.start(10_000_000_000L);
+            q.work(level, seenWave - 60, clock);
+            h.assertTrue(q.pendingPlan(d.id(), seenKey) && q.pendingPlan(d.id(), unseenKey), "готовые планы сняты до проверки заранее");
+            // незадолго до волны: видимый проверен, его план устарел — новый в фоне
+            clock.start(10_000_000_000L);
+            q.work(level, seenWave - 20, clock);
+            h.assertFalse(q.pendingPlan(d.id(), seenKey), "устаревший план видимого чанка не снят до волны");
+            h.assertTrue(q.pendingPlan(d.id(), unseenKey), "план чанка, которого никто не видит, проверен заранее");
+            h.assertTrue(q.ruinStats()[2] == 1, "устаревших планов " + q.ruinStats()[2] + " вместо одного");
+            h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.awaitForTest(ua.zentix.incoming.nuclear.world.RuinWorkers.Priority.SEEN, 60_000),
+                    "фоновый план видимого чанка не готов за минуту");
+            // волна: видимый — руины сразу, второй только узнал, что план устарел
+            clock.start(10_000_000_000L);
+            q.work(level, last - 1, clock);
+            h.assertTrue(seen.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) == d.id(), "руин видимого чанка нет в срок");
+            h.assertBlockNotPresent(Blocks.WHITE_STAINED_GLASS, seenGlass);
+            h.assertTrue(q.ruinStats()[2] == 2, "план чанка, которого никто не видит, не проверен в срок: устаревших " + q.ruinStats()[2]);
+            h.assertTrue(unseen.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) != d.id(), "руины невидимого чанка встали без плана на месте — проверка ни о чём");
+            h.assertBlockPresent(Blocks.WHITE_STAINED_GLASS, unseenGlass);
+        } finally {
+            ScarQueue.seenForTest(null);
+            q.clear(level);
+        }
+        h.succeed();
+    }
+
+    /**
+     * Фоновый план, который устарел, пока строился (игрок заменил стекло между снимками и подменой), не ставится и не
+     * засчитывается: чанк получает план в потоке сервера по себе как есть, в той же очереди. Раньше подмена молча не
+     * шла, а чанк получал отметку руин и оставался целым.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_stale_background", skyAccess = true)
+    public static void staleBackgroundPlanRebuiltOnServer(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos glass = NuclearGameTests.CENTER.west(8);
+        h.setBlock(glass, Blocks.GLASS);
+        Detonation d = NuclearGameTests.detonation(h, NuclearGameTests.CENTER, 0, 15, 0.025f);
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(glass));
+        ChunkPos pos = chunk.getPos();
+        for (int dx = -RuinPlanner.REACH; dx <= RuinPlanner.REACH; dx++) {
+            for (int dz = -RuinPlanner.REACH; dz <= RuinPlanner.REACH; dz++) level.getChunk(pos.x + dx, pos.z + dz);
+        }
+        ScarQueue q = new ScarQueue();
+        try {
+            q.offer(chunk, d);
+            long wave = ScarQueue.due(d, pos);
+            ua.zentix.incoming.nuclear.world.WorkClock clock = ua.zentix.incoming.nuclear.world.WorkClock.counting(1_000_000);
+            clock.start(10_000_000_000L);
+            q.work(level, wave - 1, clock);
+            h.assertTrue("plan in the background".equals(q.diagState(pos.toLong(), wave)), "план не отдан в фон: " + q.diagState(pos.toLong(), wave));
+            h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.awaitForTest(ua.zentix.incoming.nuclear.world.RuinWorkers.Priority.NEAR, 60_000),
+                    "фоновый план не готов за минуту");
+            // игрок заменил стекло, пока план строился
+            h.setBlock(glass, Blocks.WHITE_STAINED_GLASS);
+            for (long now = wave; now < wave + 10 && chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) != d.id(); now++) {
+                clock.start(10_000_000_000L);
+                q.work(level, now, clock);
+            }
+            h.assertTrue(chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) == d.id(), "руин нет: " + q.diagState(pos.toLong(), wave + 10));
+            h.assertBlockNotPresent(Blocks.WHITE_STAINED_GLASS, glass);
+            h.assertTrue(q.ruinStats()[2] == 1, "устаревших планов " + q.ruinStats()[2] + " вместо одного");
+        } finally {
+            q.clear(level);
+        }
+        h.succeed();
+    }
+
+    /**
+     * Задача пула, которая ждёт в очереди на дальней ступени (план, отданный подготовкой руин заранее), переносится на
+     * ступень чанка у волны и идёт раньше всех дальних, что стоят перед ней; начатая и уже важная — не переносятся.
+     * Потоки заняты задачами, которые ждут защёлку; задачи очереди за ними ждут вторую: без переноса освободившиеся
+     * потоки взяли бы их и дальняя задача не началась бы, пока держится вторая защёлка.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "ruin_pool_promote", skyAccess = true)
+    public static void queuedFarTaskPromoted(GameTestHelper h) {
+        var far = ua.zentix.incoming.nuclear.world.RuinWorkers.Priority.FAR;
+        var seen = ua.zentix.incoming.nuclear.world.RuinWorkers.Priority.SEEN;
+        int threads = ua.zentix.incoming.nuclear.world.RuinWorkers.threadsForTest();
+        java.util.concurrent.CountDownLatch running = new java.util.concurrent.CountDownLatch(1), queued = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.Callable<Boolean> filler = () -> (started.getAndIncrement() < threads ? running : queued).await(30, java.util.concurrent.TimeUnit.SECONDS);
+        List<java.util.concurrent.Future<Boolean>> fillers = new ArrayList<>();
+        // задачи прежних партий (кольцо следа, руины заранее) заняли бы потоки
+        h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.awaitForTest(far, 30_000), "пул руин не освободился от прежних задач");
+        try {
+            for (int i = 0; i < 3 * threads; i++) fillers.add(ua.zentix.incoming.nuclear.world.RuinWorkers.submitForTest(filler, far));
+            java.util.concurrent.Future<String> task = ua.zentix.incoming.nuclear.world.RuinWorkers.submitForTest(() -> "plan", far);
+            // все потоки заняты: задача ещё в очереди
+            long until = System.nanoTime() + 10_000_000_000L;
+            while (started.get() < threads && System.nanoTime() < until) java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
+            h.assertTrue(started.get() == threads, "потоки пула не заняты: начато " + started.get() + " из " + threads);
+            h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.promoteForTest(fillers.get(0), seen) == null, "начатая задача перенесена");
+            java.util.concurrent.Future<String> moved = ua.zentix.incoming.nuclear.world.RuinWorkers.promoteForTest(task, seen);
+            h.assertTrue(moved != null, "задача в очереди не перенесена");
+            h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.promoteForTest(moved, seen) == null, "задача перенесена на свою же ступень");
+            running.countDown();
+            String result = moved.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            h.assertTrue("plan".equals(result), "перенесённая задача дала " + result);
+            h.assertFalse(task.isDone(), "прежняя задача тоже выполнилась");
+            h.assertTrue(started.get() <= 2 * threads, "перенесённая задача шла за дальними: начато задач очереди " + (started.get() - threads));
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            throw new net.minecraft.gametest.framework.GameTestAssertException("перенесённая задача не выполнилась за 10 с, пока задачи очереди ждут: " + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new net.minecraft.gametest.framework.GameTestAssertException("прервано");
+        } finally {
+            running.countDown();
+            queued.countDown();
+            ua.zentix.incoming.nuclear.world.RuinWorkers.awaitForTest(far, 10_000);
+        }
+        h.succeed();
+    }
+
+    /**
      * Зона за волной у края исследованного мира: чанк, чьё окно руин целое на диске, получает план с диска, и квадрат
      * зоны, где хоть один чанк окон его чанков не целый, не пропускается целиком (иначе план ждёт до конца зоны и
      * пропадает, руин на диске нет: «unplaced … chunks»). Здесь место удара (9×9 вокруг цели,
