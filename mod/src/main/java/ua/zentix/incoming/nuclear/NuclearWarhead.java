@@ -57,10 +57,12 @@ public final class NuclearWarhead {
         // предел мощности — и для ударов из старых сохранений и команд других модов
         yieldKt = Math.min(yieldKt, ua.zentix.incoming.strike.Loadout.Nuke.MAX_YIELD);
         NuclearEvents events = NuclearEvents.get(level);
-        Detonation g = geometry(level, target, yieldKt, airBurst, scale);
+        // готовились к этому подрыву — его место, земля и видимость те же, что у руин заранее
+        Detonation g = NuclearWorld.get(level).planned(geometry(level, target, yieldKt, airBurst, scale));
         Detonation d = new Detonation(events.nextId(), g.burst(), g.groundY(), yieldKt, g.surface(),
                 level.getGameTime(), (float) (level.random.nextDouble() * Math.PI * 2), 5 + level.random.nextFloat() * 10,
-                g.visibility(), level.random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get());
+                g.visibility(), level.random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get(),
+                IncomingConfig.SERVER.nukeWaveSpeed.get().floatValue());
         events.add(d);
         PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
 
@@ -82,7 +84,8 @@ public final class NuclearWarhead {
         double hob = airBurst ? Yield.optimalBurstHeight(yieldKt) * scale : 0;
         boolean surface = hob / scale < FireballModel.maxRadius(yieldKt, true);
         float visibility = (float) (level.isThundering() ? ThermalModel.VISIBILITY_THUNDER : level.isRaining() ? ThermalModel.VISIBILITY_RAIN : ThermalModel.VISIBILITY_CLEAR);
-        return new Detonation(-1, new Vec3(target.x, ground + hob, target.z), ground, yieldKt, surface, 0, 0, 0, visibility, 0, scale, false);
+        return new Detonation(-1, new Vec3(target.x, ground + hob, target.z), ground, yieldKt, surface, 0, 0, 0, visibility, 0, scale, false,
+                IncomingConfig.SERVER.nukeWaveSpeed.get().floatValue());
     }
 
     /** Точка на поверхности над целью (удар «по поверхности»: цель — место на карте). */

@@ -69,7 +69,7 @@ class CloudPuffsTest {
     }
 
     /** 15 кт у земли на высоте 64, без ветра, в масштабе 1 блок = 4 м. */
-    private static final Detonation GROUND = new Detonation(1, new Vec3(0, 64, 0), 64, 15, true, 0, 0, 0, 20_000, 7, 0.25f, false);
+    private static final Detonation GROUND = new Detonation(1, new Vec3(0, 64, 0), 64, 15, true, 0, 0, 0, 20_000, 7, 0.25f, false, Detonation.OLD_WAVE);
 
     /** Клуб кадра: центр и размер, блоки. */
     private record Seen(double x, double y, double z, double size) {}

@@ -20,8 +20,8 @@ import ua.zentix.incoming.util.Terrain;
  * шар, гриб и осадки. Хранится в мире ({@link NuclearEvents}) и уходит клиентам одним пакетом.
  * <p>
  * Масштаб {@code scale}: 1 блок = 1/scale метра (1.0 — как в жизни). Расстояния модели делятся на него,
- * время фронта умножается. Фронт в игре идёт медленнее модели — видимой стеной, за ней звук со скоростью звука
- * ({@link FrontProfile}): {@link #arrivalTicks}, {@link #frontRadius}.
+ * время фронта умножается. Фронт в игре вдали идёт медленнее модели — видимой стеной со скоростью {@code wave}, за ней
+ * звук со скоростью звука ({@link FrontProfile}): {@link #arrivalTicks}, {@link #frontRadius}.
  *
  * @param id        номер подрыва в мире (растёт)
  * @param burst     точка подрыва
@@ -34,9 +34,13 @@ import ua.zentix.incoming.util.Terrain;
  * @param visibility видимость, м (ясно 20 км, дождь 5, гроза 1) — ослабление света
  * @param seed      сид случайных деталей (одинаковый у всех клиентов)
  * @param fallout   есть радиоактивный след (наземный подрыв и включены осадки)
+ * @param wave      скорость стены пыли вдали от шара, доля скорости звука (настройка {@code nuclear.wave_speed} в момент подрыва)
  */
 public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boolean surface, long gameTime,
-                         float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout) {
+                         float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout, float wave) {
+
+    /** Скорость стены вдали у подрывов, сохранённых до настройки {@code wave_speed}: 3 блока за тик. */
+    public static final float OLD_WAVE = (float) (3 / FrontProfile.SOUND_SPEED);
 
     public static final Codec<Detonation> CODEC = RecordCodecBuilder.create(i -> i.group(
             Codec.INT.fieldOf("id").forGetter(Detonation::id),
@@ -50,14 +54,15 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
             Codec.FLOAT.fieldOf("visibility").forGetter(Detonation::visibility),
             Codec.LONG.fieldOf("seed").forGetter(Detonation::seed),
             Codec.FLOAT.fieldOf("scale").forGetter(Detonation::scale),
-            Codec.BOOL.fieldOf("fallout").forGetter(Detonation::fallout)
+            Codec.BOOL.fieldOf("fallout").forGetter(Detonation::fallout),
+            Codec.FLOAT.optionalFieldOf("wave", OLD_WAVE).forGetter(Detonation::wave)
     ).apply(i, Detonation::new));
 
     public static final StreamCodec<ByteBuf, Detonation> STREAM_CODEC = new StreamCodec<>() {
         @Override
         public Detonation decode(ByteBuf b) {
             return new Detonation(ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b), b.readDouble(), b.readDouble(), b.readBoolean(),
-                    b.readLong(), b.readFloat(), b.readFloat(), b.readFloat(), b.readLong(), b.readFloat(), b.readBoolean());
+                    b.readLong(), b.readFloat(), b.readFloat(), b.readFloat(), b.readLong(), b.readFloat(), b.readBoolean(), b.readFloat());
         }
 
         @Override
@@ -74,6 +79,7 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
             b.writeLong(d.seed);
             b.writeFloat(d.scale);
             b.writeBoolean(d.fallout);
+            b.writeFloat(d.wave);
         }
     };
 
@@ -124,7 +130,7 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         return Caches.arrival(this);
     }
 
-    /** Приход фронта в игре (кэш на подрыв): у эпицентра как у модели, дальше медленнее ({@link FrontProfile}). */
+    /** Приход фронта в игре (кэш на подрыв): у эпицентра как у модели, дальше — со скоростью {@code wave} ({@link FrontProfile}). */
     public FrontProfile front() {
         return Caches.front(this);
     }
@@ -232,7 +238,8 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         static FrontProfile front(Detonation d) {
             // у эпицентра — как у модели: вспышка и шар не меняются; за стеной пыли (0.3 psi) — только звук
             return FRONT.computeIfAbsent(d, x -> FrontProfile.of(x.arrival(), x.scale, FrontProfile.slowFrom(x.fireballRadius()),
-                    x.blocks(BlastModel.rangeForOverpressure(BlastModel.kpa(0.3), x.yieldKt)), x.radiusMax() * 1.5));
+                    x.blocks(BlastModel.rangeForOverpressure(BlastModel.kpa(0.3), x.yieldKt)), x.radiusMax() * 1.5,
+                    x.wave * FrontProfile.SOUND_SPEED));
         }
 
         static double radiusMax(Detonation d) {

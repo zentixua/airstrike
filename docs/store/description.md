@@ -7,10 +7,10 @@ launchers and the effects of a nuclear explosion have their real sizes.
 
 | Weapon | What it does |
 |---|---|
-| Shahed-style drone | Launched from a trailer next to you, flies for about 50 seconds and dives on the target. Follows a moving target while you keep it in its camera. |
-| Lancet-style loitering munition | Circles over the target until you pick what to hit from its camera. |
+| Shahed-136 drone | Launched from a trailer next to you, flies for about 50 seconds and dives on the target. Follows a moving target while you keep it in its camera. |
+| Lancet loitering munition | Circles over the target until you pick what to hit from its camera. |
 | Cruise missile | Flies low over the terrain and dives at the end. Can carry a nuclear warhead. |
-| Grad-style rocket launcher | A 40-tube trailer that covers an area with unguided rockets. |
+| Grad rocket launcher | A 40-tube trailer that covers an area with unguided rockets. |
 | B-2 with a bunker buster | The bomb goes through about 30 blocks of stone and explodes underground. Can carry a nuclear warhead. |
 | ICBM | A nuclear warhead of 1 or 15 kt, 90 seconds after launch. |
 

@@ -41,4 +41,5 @@ server its owner does. The most useful ones are below; the rest are in the same 
 | `world.block_damage`, `fire` | on | destruction and fires |
 | `nuclear.enabled`, `ops_only` | on, on | nuclear weapons exist; only operators launch them |
 | `nuclear.effects_scale` | 1.0 | scale of nuclear strike radii |
+| `nuclear.wave_speed` | 0.5 | speed of the blast wave away from the fireball, as a share of the speed of sound (1.0 is true to life) |
 | `grid.enabled` | on | [blackout](blackout.md) |

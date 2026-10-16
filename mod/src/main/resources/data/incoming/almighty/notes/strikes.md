@@ -1,4 +1,4 @@
-Incoming (https://github.com/zentixua/incoming): strikes by drones, missiles, MLRS, a B-2, and a nuclear strike.
+Incoming (https://github.com/zentixua/incoming): strikes by Shahed and Lancet drones, cruise missiles, Grad rocket salvos, a B-2, and a nuclear strike.
 - A strike is the command «incoming salvo <weapon> <count> <spread> at x z [from x z] [via x z …]»: at x z is a place
   on the ground, and the server finds its height itself, also where the chunks are not loaded. at x y z is exactly
   that point: above the ground a projectile bursts in the air (a bunker bomb falls to the ground, and digs down to a

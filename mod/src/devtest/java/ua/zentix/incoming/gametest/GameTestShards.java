@@ -41,10 +41,9 @@ public final class GameTestShards {
     private static final String RESOURCE = "/gametest-durations.json";
 
     public GameTestShards() {
-        String spec = System.getProperty("incoming.gametest.shard", "");
-        if (!spec.isBlank()) NeoForge.EVENT_BUS.addListener((ServerAboutToStartEvent e) -> select(e, spec));
-        String only = System.getProperty("incoming.gametest.only", "");
+        String spec = System.getProperty("incoming.gametest.shard", ""), only = System.getProperty("incoming.gametest.only", "");
         if (!only.isBlank()) NeoForge.EVENT_BUS.addListener((ServerAboutToStartEvent e) -> only(e, only));
+        if (!spec.isBlank()) NeoForge.EVENT_BUS.addListener((ServerAboutToStartEvent e) -> select(e, spec));
     }
 
     /** Только партии или тесты, чьё имя подходит под регулярное выражение ({@code -PgametestOnly}): прогон своей правки. */

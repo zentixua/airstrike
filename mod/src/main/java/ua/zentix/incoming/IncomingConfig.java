@@ -58,6 +58,7 @@ public final class IncomingConfig {
         public final ModConfigSpec.IntValue nukeDefaultYield;
         public final ModConfigSpec.IntValue nukeMaxYield;
         public final ModConfigSpec.DoubleValue nukeEffectsScale;
+        public final ModConfigSpec.DoubleValue nukeWaveSpeed;
         public final ModConfigSpec.BooleanValue nukeBlockDamage;
         public final ModConfigSpec.BooleanValue nukeFires;
         public final ModConfigSpec.BooleanValue nukeTreeFall;
@@ -100,9 +101,9 @@ public final class IncomingConfig {
                     .translation("incoming.config.drone_power").defineInRange("drone_power", 12, 1, 60);
             missilePower = b.comment("Cruise missile blast power (TNT = 4).")
                     .translation("incoming.config.missile_power").defineInRange("missile_power", 20, 1, 60);
-            rocketPower = b.comment("Blast power of each MLRS rocket in a salvo (122 mm, like the Grad; TNT = 4).")
+            rocketPower = b.comment("Blast power of each Grad rocket in a salvo (122 mm; TNT = 4).")
                     .translation("incoming.config.rocket_power").defineInRange("rocket_power", 7, 1, 60);
-            loiterPower = b.comment("Loitering munition blast power (TNT = 4).")
+            loiterPower = b.comment("Lancet blast power (TNT = 4).")
                     .translation("incoming.config.loiter_power").defineInRange("loiter_power", 8, 1, 60);
             bunkerPower = b.comment("Underground blast power of the bunker buster (TNT = 4).")
                     .translation("incoming.config.bunker_power").defineInRange("bunker_power", 20, 1, 60);
@@ -158,7 +159,7 @@ public final class IncomingConfig {
                     .translation("incoming.config.missile_flight_time").defineInRange("missile_flight_time", 30, 5, 600);
             bomberFlightTime = b.comment("B-2 approach until bomb release, seconds.")
                     .translation("incoming.config.bomber_flight_time").defineInRange("bomber_flight_time", 40, 5, 600);
-            loiterTime = b.comment("How long a loitering munition circles over the target before diving, seconds (±20% for each one in a salvo).")
+            loiterTime = b.comment("How long a Lancet circles over the target before diving, seconds (±20% for each one in a salvo).")
                     .translation("incoming.config.loiter_time").defineInRange("loiter_time", 25, 0, 600);
             b.pop();
 
@@ -173,6 +174,11 @@ public final class IncomingConfig {
                     .translation("incoming.config.nuke_max_yield").defineInRange("max_yield", Loadout.Nuke.MAX_YIELD, 1, Loadout.Nuke.MAX_YIELD);
             nukeEffectsScale = b.comment("Scale of all radii: 1.0 is true to life (1 block = 1 m); lower for small worlds.")
                     .translation("incoming.config.nuke_effects_scale").defineInRange("effects_scale", 1.0, 0.005, 1.0);
+            nukeWaveSpeed = b.comment("Speed of the blast wave and its dust wall away from the fireball, as a share of the speed of sound",
+                            "(1.0 is true to life). Lower gives the server more time to build ruins ahead of the wave and lets players",
+                            "watch the wall roll in. Near the fireball the wave is always true to life; beyond the dust wall only the sound",
+                            "travels on, at the speed of sound.")
+                    .translation("incoming.config.nuke_wave_speed").defineInRange("wave_speed", 0.5, 0.15, 1.0);
             nukeBlockDamage = b.comment("The blast wave destroys buildings and trees. Off: no ruins and no crater.")
                     .translation("incoming.config.nuke_block_damage").define("block_damage", true);
             nukeFires = b.comment("The thermal pulse starts fires.")

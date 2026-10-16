@@ -16,8 +16,13 @@ import java.util.Map;
  */
 public record BlockResponse(float thresholdPsi, Kind kind) {
     public static final float NEVER = Float.MAX_VALUE;
-    /** Порог хрупкого ({@code incoming:nuke_fragile}: стекло, панели, цветы, факелы), psi — самый низкий из всех. */
+    /** Порог хрупкого ({@code incoming:nuke_fragile}: стекло, панели, фонари, факелы), psi — самый низкий из всех. */
     public static final float FRAGILE_PSI = 0.8f;
+    /**
+     * Порог растений ({@code incoming:nuke_plants}: трава, цветы, кусты, посевы), psi: их срывает тот же напор, что
+     * сдирает дёрн ({@code RuinPlanner.STRIP_PSI}); волна слабее их гнёт, а не ломает. Дальше их жжёт свет.
+     */
+    public static final float PLANT_PSI = 8f;
     private static final float JITTER_SPAN = 0.3f;
     /** Разброс порога в {@link #breaksAt}: блок ломается от давления между порог × {@code JITTER_MIN} и порог × {@code JITTER_MAX}. */
     public static final float JITTER_MIN = 0.85f, JITTER_MAX = JITTER_MIN + JITTER_SPAN;
@@ -67,6 +72,7 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
         if (destroy < 0 || destroy >= 50) return NONE;
         if (s.is(ModTags.NUKE_GROUND)) return GROUND;
         if (s.is(ModTags.NUKE_FRAGILE)) return new BlockResponse(FRAGILE_PSI, Kind.BREAK);
+        if (s.is(ModTags.NUKE_PLANTS)) return new BlockResponse(PLANT_PSI, Kind.BREAK);
         if (s.is(BlockTags.LEAVES)) return new BlockResponse(2f, Kind.LEAVES);
         if (s.is(BlockTags.LOGS)) return new BlockResponse(5f, Kind.LOG);
         if (s.is(ModTags.NUKE_LIGHT)) return new BlockResponse(4f, Kind.BREAK);

@@ -100,7 +100,7 @@ public final class ScarQueue {
     /**
      * За сколько тиков до прихода стены к центру чанка его уже можно разрушать: у эпицентра фронт идёт быстро (сотни
      * чанков за тик), и тик раньше под стеной пыли не видно, а работа растягивается на лишний тик; дальше стена идёт
-     * 3 блока за тик — тик раньше это 3 блока.
+     * со скоростью дальней зоны ({@code Detonation.wave}, несколько блоков за тик) — тик раньше это несколько блоков.
      */
     private static final int EARLY = 1;
     /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
@@ -599,8 +599,8 @@ public final class ScarQueue {
     }
 
     /**
-     * Когда до чанка доходит стена: по его центру, не по ближнему краю — фронт идёт 3 блока за тик, и по краю дальняя
-     * сторона чанка менялась бы секунду до стены.
+     * Когда до чанка доходит стена: по его центру, не по ближнему краю — фронт вдали идёт несколько блоков за тик, и по
+     * краю дальняя сторона чанка менялась бы заметно раньше стены.
      */
     static long due(Detonation d, ChunkPos p) {
         double dx = p.getMiddleBlockX() + 0.5 - d.burst().x, dz = p.getMiddleBlockZ() + 0.5 - d.burst().z, dy = d.burst().y - d.groundY();
@@ -675,7 +675,7 @@ public final class ScarQueue {
                 continue;
             }
             // план в работе — ждём; готов или задачи уже нет (план забрала подготовка руин или задачу бросили) — в очередь
-            RuinContext ctx = NuclearWorld.get(level).ruins(job.events.get(job.event), now);
+            RuinContext ctx = NuclearWorld.get(level).ruins(level, job.events.get(job.event), now);
             if (ctx.running(job.chunk) && !ctx.done(job.chunk)) continue;
             it.remove();
             job.ready = true;
@@ -767,7 +767,7 @@ public final class ScarQueue {
             return AGAIN;
         }
         long t0 = System.nanoTime();
-        RuinContext ctx = NuclearWorld.get(level).ruins(d, level.getGameTime());
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, level.getGameTime());
         Parked kept = parked.get(key);
         if (kept != null && kept.detonation() == d.id()) {
             plan = kept.plan();
@@ -892,7 +892,7 @@ public final class ScarQueue {
         ChunkPos pos = new ChunkPos(job.chunk);
         LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
         Detonation d = job.events.get(job.event);
-        RuinContext ctx = NuclearWorld.get(level).ruins(d, now);
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, now);
         boolean ready = hasPlan(d.id(), job.chunk), background = background(ctx, job.chunk);
         if (chunk == null) {
             // сам ниже полной загрузки (край видимости): разрушим, когда поднимется

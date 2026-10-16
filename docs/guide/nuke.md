@@ -38,6 +38,11 @@ Fallout starts to come down about 7 minutes after a 15 kt burst, and later farth
 
 ![A town after a 15 kt strike: ruins and fires](img/nuke-ruins.jpg)
 
+The land around the burst is scorched. Near the centre the wave strips the turf down to bare dirt. Farther out the
+light burns grass, flowers and crops in patches and leaves black char where it was strongest, and the grass, leaves and
+water around turn yellow-brown and grey. The edge is ragged, not a ring. The scorched colours stay for good, also in
+Distant Horizons terrain.
+
 ## How to survive
 
 - **Get underground.** The wave leaves natural ground alone: caves and bunkers stand, and earth stops both the light

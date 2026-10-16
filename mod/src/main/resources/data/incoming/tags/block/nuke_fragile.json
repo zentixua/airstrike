@@ -2,17 +2,8 @@
   "values": [
     "#c:glass_blocks",
     "#c:glass_panes",
-    "#minecraft:small_flowers",
-    "#minecraft:tall_flowers",
-    "#minecraft:saplings",
-    "#minecraft:crops",
     "#minecraft:candles",
     "#minecraft:flower_pots",
-    "minecraft:short_grass",
-    "minecraft:tall_grass",
-    "minecraft:fern",
-    "minecraft:large_fern",
-    "minecraft:dead_bush",
     "minecraft:torch",
     "minecraft:wall_torch",
     "minecraft:soul_torch",
@@ -23,16 +14,7 @@
     "minecraft:soul_lantern",
     "incoming:unlit_lantern",
     "incoming:unlit_soul_lantern",
-    "minecraft:vine",
-    "minecraft:glow_lichen",
-    "minecraft:sugar_cane",
     "minecraft:cobweb",
-    "minecraft:sweet_berry_bush",
-    "minecraft:moss_carpet",
-    "minecraft:pink_petals",
-    "minecraft:snow",
-    "minecraft:hanging_roots",
-    "minecraft:cave_vines",
-    "minecraft:cave_vines_plant"
+    "minecraft:snow"
   ]
 }

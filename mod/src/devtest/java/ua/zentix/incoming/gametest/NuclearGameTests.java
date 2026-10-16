@@ -32,6 +32,7 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.NuclearEvents;
 import ua.zentix.incoming.nuclear.NuclearStrikes;
 import ua.zentix.incoming.nuclear.NuclearWarhead;
+import ua.zentix.incoming.nuclear.model.ThermalModel;
 import ua.zentix.incoming.nuclear.model.CraterModel;
 import ua.zentix.incoming.nuclear.model.PromptRadiationModel;
 import ua.zentix.incoming.nuclear.model.Yield;
@@ -106,7 +107,7 @@ public final class NuclearGameTests {
     private static Detonation raw(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale) {
         BlockPos g = h.absolutePos(at);
         return new Detonation(IDS.incrementAndGet(), new Vec3(g.getX() + 0.5, g.getY() + hob, g.getZ() + 0.5), g.getY(),
-                yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false);
+                yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false, Detonation.OLD_WAVE);
     }
 
     /**
@@ -1115,7 +1116,8 @@ public final class NuclearGameTests {
     /**
      * Руины заранее: пока летит МБР, чанки тяжёлой зоны готовятся; в момент подрыва их руины встают по плану, каждый
      * чанк — не позже чем через 2 тика после прихода фронта к нему (стекло в 16 блоках, 15 кт в воздухе, масштаб 0.02),
-     * а тикеты подготовки отпускаются. Считающие часы: бюджет не зависит от машины CI.
+     * а тикеты подготовки отпускаются. Подрыв берёт место и видимость подготовки, и когда погода сменилась (руины чанков,
+     * загруженных позже, — по подрыву, и они те же). Считающие часы: бюджет не зависит от машины CI.
      */
     @GameTest(template = "range", timeoutTicks = 900, batch = "nuke_prep", skyAccess = true)
     public static void ruinsPreparedDuringFlightFallWithFront(GameTestHelper h) {
@@ -1144,7 +1146,17 @@ public final class NuclearGameTests {
         long[] glassGone = {-1}, tickAt = {0};
         h.onEachTick(() -> {
             String failure = null;
-            if (!events.scheduled().isEmpty()) plannedBefore[0] = w.plannedChunks();
+            if (!events.scheduled().isEmpty()) {
+                plannedBefore[0] = w.plannedChunks();
+                if (plannedBefore[0] > 0) {
+                    // за полёт пошёл дождь: подрыв всё равно с видимостью, по которой готовились руины
+                    Detonation f = NuclearWarhead.geometry(level, target, 15, true, IncomingConfig.SERVER.nukeEffectsScale.get().floatValue());
+                    float other = (float) (f.visibility() == ThermalModel.VISIBILITY_RAIN ? ThermalModel.VISIBILITY_CLEAR : ThermalModel.VISIBILITY_RAIN);
+                    Detonation rainy = new Detonation(f.id(), f.burst(), f.groundY(), f.yieldKt(), f.surface(), f.gameTime(), f.windDir(), f.windSpeed(),
+                            other, f.seed(), f.scale(), f.fallout(), f.wave());
+                    if (w.planned(rainy).visibility() != f.visibility()) failure = "подрыв не берёт видимость подготовки";
+                }
+            }
             // после подрыва — в темпе игры: квадраты подготовки отпускаются по чтениям с диска и фоновым планам, а они идут
             // по часам; без темпа 850 тиков сервера GameTest кончаются раньше, чем квадраты успевают отпуститься
             else if (tickAt[0] == 0) tickAt[0] = System.nanoTime();
@@ -1469,7 +1481,7 @@ public final class NuclearGameTests {
         Cow ahead = h.spawn(EntityType.COW, CENTER.east(26));
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 0.1, true,
-                level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false);
+                level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false, Detonation.OLD_WAVE);
         h.assertTrue(d.frontRadius(1) > 10 && d.frontRadius(2) > 26 && d.frontRadius(1) < 26, "фронт не там, где ждёт проверка");
         NuclearEvents.get(level).add(d);
         // как после перезапуска: ядерные очереди мира — с чистого листа, подрыв — из сохранения
@@ -1754,7 +1766,7 @@ public final class NuclearGameTests {
         // наземный подрыв с осадками двумя игровыми часами раньше; корова у эпицентра — в самом следе
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
-                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
+                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true, Detonation.OLD_WAVE);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);
         long start = level.getGameTime();
@@ -1782,7 +1794,7 @@ public final class NuclearGameTests {
         for (int i = 0; i < 2 * MobFallout.PERIOD + 100; i++) h.spawn(EntityType.SHEEP, CENTER.offset(-20 + i % 41, 0, 5 + i / 41));
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
-                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
+                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true, Detonation.OLD_WAVE);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);
         // когда корова получала дозу (тик и прибавка): по двум соседним прибавкам виден обход целиком
@@ -1842,7 +1854,7 @@ public final class NuclearGameTests {
         // забытый подрыв (осадки спали) по-прежнему разрушает чанки, загруженные позже; «Отбой» забывает и его
         NuclearEvents events = NuclearEvents.get(level);
         Detonation old = new Detonation(d.id(), d.burst(), d.groundY(), d.yieldKt(), d.surface(), level.getGameTime() - NuclearEvents.FORGET_AFTER - 1,
-                d.windDir(), d.windSpeed(), d.visibility(), d.seed(), d.scale(), d.fallout());
+                d.windDir(), d.windSpeed(), d.visibility(), d.seed(), d.scale(), d.fallout(), d.wave());
         events.add(old);
         events.prune(level.getGameTime());
         h.assertFalse(events.detonations().contains(old), "старый подрыв не забыт");

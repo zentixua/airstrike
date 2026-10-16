@@ -438,7 +438,7 @@ public final class GridGameTests {
         // воздушный подрыв в стороне от подстанции (как в ядерных проверках: 15 кт, масштаб 0.1); сам подрыв здесь не нужен
         BlockPos g = h.absolutePos(CENTER.east(8));
         Detonation d = new Detonation(NuclearGameTests.IDS.incrementAndGet(), new Vec3(g.getX() + 0.5, g.getY() + 300, g.getZ() + 0.5), g.getY(),
-                15, false, level.getGameTime(), 0, 0, 20_000, 7, 0.1f, false);
+                15, false, level.getGameTime(), 0, 0, 20_000, 7, 0.1f, false, Detonation.OLD_WAVE);
         h.assertTrue(d.radiusMax() > 64, "радиус подрыва " + d.radiusMax() + " не накрывает площадку");
         Blackouts.nuke(level, d);
         h.assertTrue(PowerGrid.get(level).downOutage(node.id(), level.getGameTime()).isPresent(), "ядерный удар не выбил подстанцию");
