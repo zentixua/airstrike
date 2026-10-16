@@ -362,6 +362,8 @@ final class War {
             c.missileFlightTime.set(5);
             c.bomberFlightTime.set(5);
             c.nukeFlightTime.set(1100);
+            // скорость волны вдали от шара — выбор Артёма 16.10 по трём роликам; копии мира несут свою настройку мира
+            c.nukeWaveSpeed.set(0.42);
             // ядерный удар не оператора (командир расчёта — бот, план 40): по правилам игрока и со вторым ключом
             c.nukeOpsOnly.set(false);
             c.designatorForEveryone.set(true);

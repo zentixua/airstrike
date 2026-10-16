@@ -69,17 +69,28 @@ if [ -n "${INCOMING_FILM:-}" ]; then
   mv "$ALM.tmp" "$ALM"
 fi
 # LOD Distant Horizons у съёмки — только из базы мира и загруженных чанков: генератор DH строил бы их, где их нет в базе,
-# рельефом генератора мира (лес и море поверх города карты) и писал в базу мира (.claude/rules/trailer.md)
+# рельефом генератора мира (лес и море поверх города карты) и писал в базу мира (.claude/rules/trailer.md). Лучей маяков
+# в LOD нет: DH рисует луч и у маяка без пирамиды и за прорисовкой, где игра его не рисует (n11 16.10: светлая черта до
+# неба от маяков Города 1 в 917 блоках)
 if [ -n "${INCOMING_FILM:-}" ] && [ -n "${INCOMING_DH:-}" ]; then
   DHC="$RUN/config/DistantHorizons.toml"
   mkdir -p "$RUN/config"
   touch "$DHC"
   awk '
-    function keys() { print "\tgeneratorPlan = \"DISABLED\""; print "\tchunkGeneratorMode = \"PRE_EXISTING_ONLY\""; done = 1 }
-    /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); gen = (h == "[common.worldGenerator]"); print; if (gen) keys(); next }
+    function gen_keys() { print "\tgeneratorPlan = \"DISABLED\""; print "\tchunkGeneratorMode = \"PRE_EXISTING_ONLY\""; gen_done = 1 }
+    function beam_keys() { print "\tenableBeaconRendering = false"; beam_done = 1 }
+    /^[[:space:]]*\[/ {
+      h = $0; gsub(/[[:space:]]/, "", h)
+      gen = (h == "[common.worldGenerator]"); beam = (h == "[client.advanced.graphics.genericRendering]")
+      print; if (gen) gen_keys(); if (beam) beam_keys(); next
+    }
     gen && /^[[:space:]]*(generatorPlan|chunkGeneratorMode)[[:space:]]*=/ { next }
+    beam && /^[[:space:]]*enableBeaconRendering[[:space:]]*=/ { next }
     { print }
-    END { if (!done) { print ""; print "[common.worldGenerator]"; keys() } }
+    END {
+      if (!gen_done) { print ""; print "[common.worldGenerator]"; gen_keys() }
+      if (!beam_done) { print ""; print "[client.advanced.graphics.genericRendering]"; beam_keys() }
+    }
   ' "$DHC" > "$DHC.tmp"
   mv "$DHC.tmp" "$DHC"
 fi
