@@ -130,6 +130,11 @@ final class RuinContext {
      * @return сколько соседей ещё читается (0 — окно полно, план можно отдавать)
      */
     int requestWindow(ServerLevel level, ChunkPos pos) {
+        return requestWindow(level, pos, RuinWorkers.Priority.NEAR);
+    }
+
+    /** То же; разбор прочитанных соседей — на ступени {@code priority} пула руин. */
+    int requestWindow(ServerLevel level, ChunkPos pos, RuinWorkers.Priority priority) {
         // прочитанные — не больше окна за раз: снимок с диска строится в потоке сервера, а пока игра на паузе, потоки
         // чтения идут и прочитанных копится сколько угодно; остальные возьмут следующие окна. Берёт их только этот поток:
         // подсмотренный (peek) — тот же, что потом снимается (poll)
@@ -154,7 +159,7 @@ final class RuinContext {
                 missing++;
                 if (reading.add(key)) {
                     if (format == null) format = DiskShots.Format.of(level);
-                    DiskShots.read(format, new ChunkPos(key)).thenAccept(reads::add);
+                    DiskShots.read(format, new ChunkPos(key), priority).thenAccept(reads::add);
                 }
             }
         }
@@ -358,15 +363,15 @@ final class RuinContext {
 
     /**
      * Фоновый план чанка: задача (разломы, обрушение и достройка — всё в фоне), чанк, по которому сняты снимки
-     * ({@code identityHashCode}; 0 — снимок с диска), и когда отдана (игровое время).
+     * ({@code identityHashCode}; 0 — снимок с диска), когда отдана (игровое время) и на какой ступени пула.
      */
-    private record Task(java.util.concurrent.Future<RuinPlan> future, int chunkId, long since) {}
+    private record Task(java.util.concurrent.Future<RuinPlan> future, int chunkId, long since, RuinWorkers.Priority priority) {}
 
     /** Сколько тиков ждать фоновый план: дольше — задача брошена, план строит поток сервера. */
     static final int TASK_AGE_LIMIT = 600;
 
     private final Long2ObjectOpenHashMap<Task> tasks = new Long2ObjectOpenHashMap<>();
-    /** Чанки, чей фоновый план упал с ошибкой или завис: их план — в потоке сервера. */
+    /** Чанки, чей фоновый план упал с ошибкой, завис или устарел к подмене ({@link #planOnServer}): их план — в потоке сервера. */
     private final LongOpenHashSet failed = new LongOpenHashSet();
     private int failures;
 
@@ -376,22 +381,29 @@ final class RuinContext {
      * ({@link RuinWorkers#admit}), спросить позже.
      */
     boolean submit(ServerLevel level, LevelChunk chunk) {
-        return submit(level, chunk.getPos(), System.identityHashCode(chunk));
+        return submit(level, chunk, RuinWorkers.Priority.NEAR);
+    }
+
+    /** То же на ступени {@code priority} пула руин. */
+    boolean submit(ServerLevel level, LevelChunk chunk, RuinWorkers.Priority priority) {
+        return submit(level, chunk.getPos(), System.identityHashCode(chunk), priority);
     }
 
     /**
      * Отдать фоновым потокам план чанка, которого нет в памяти (поток сервера): снимки квадрата
-     * {@link RuinPlanner#REACH} прочитаны с диска ({@link #putDisk}) или сняты с чанков в памяти.
+     * {@link RuinPlanner#REACH} прочитаны с диска ({@link #putDisk}) или сняты с чанков в памяти. Это руины заранее
+     * вдали — последняя ступень пула.
      */
     boolean submitDisk(ServerLevel level, ChunkPos pos) {
-        return submit(level, pos, 0);
+        return submit(level, pos, 0, RuinWorkers.Priority.FAR);
     }
 
-    private boolean submit(ServerLevel level, ChunkPos pos, int chunkId) {
+    private boolean submit(ServerLevel level, ChunkPos pos, int chunkId, RuinWorkers.Priority priority) {
         long key = pos.toLong();
         if (tasks.containsKey(key)) return true;
-        // и в пуле, и готовых, но не забранных, — не без края: готовый план держит память
-        if (!RuinWorkers.admit() || tasks.size() >= 2 * RuinWorkers.capacity()) return false;
+        // и в пуле, и готовых, но не забранных, — не без края: готовый план держит память. У видимых игроку — только
+        // край их ступени пула: задачи, которые подготовка отдала подрыву, их не держат
+        if (!RuinWorkers.admit(priority) || priority != RuinWorkers.Priority.SEEN && tasks.size() >= 2 * RuinWorkers.capacity()) return false;
         Grid g = grid(level, pos, true);
         if (g.at(0, 0) == null) throw new IllegalStateException("no snapshot of chunk " + pos);
         tasks.put(key, new Task(RuinWorkers.submit(() -> {
@@ -399,7 +411,7 @@ final class RuinContext {
             Collapse c = Collapse.solve(g);
             RuinWorkers.checkStop();
             return RuinPlanner.finish(g, c);
-        }), chunkId, level.getGameTime()));
+        }, priority), chunkId, level.getGameTime(), priority));
         return true;
     }
 
@@ -422,6 +434,15 @@ final class RuinContext {
     /** Фоновый план чанка упал или завис: строить в потоке сервера. */
     boolean failed(long chunk) {
         return failed.contains(chunk);
+    }
+
+    /**
+     * Фоновый план чанка устарел к подмене — блоки на местах плана сменились, пока его строили (поток сервера): новый план
+     * чанка — в потоке сервера, по чанку как есть. Новый по снимкам мог бы устареть так же (часы из редстоуна,
+     * механизм Create), и чанк ждал бы руин без конца.
+     */
+    void planOnServer(long chunk) {
+        failed.add(chunk);
     }
 
     /**
@@ -457,7 +478,7 @@ final class RuinContext {
         if (t != null && t.chunkId != 0 && t.future.isDone() && System.identityHashCode(chunk) != t.chunkId) {
             // чанк выгрузили и загрузили снова: снимки не того чанка
             tasks.remove(chunk.getPos().toLong());
-            submit(level, chunk);
+            submit(level, chunk, t.priority);
             return null;
         }
         return collect(chunk.getPos());

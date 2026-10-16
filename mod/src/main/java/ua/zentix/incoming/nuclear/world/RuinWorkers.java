@@ -9,10 +9,12 @@ import ua.zentix.incoming.work.WorkScheduler;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -30,6 +32,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>
  * Задач в пуле (в работе и в очереди) не больше {@link #capacity}: очередь — чтобы потоки не простаивали между тиками
  * (задача — 10–50 мс, тик — 50 мс). Поток сервера отдаёт задачи и забирает готовые, мир в фоне не читается.
+ * <p>
+ * Очередь — по важности ({@link Priority}): руины чанков, которые видит игрок, потом остальные руины у волны, потом
+ * дальнее (руины заранее с диска, LOD вдали). Счёт {@link #capacity} — свой у каждой ступени вместе с более важными:
+ * дальние задачи держат пул полным, пока идёт волна (кольцо следа подрыва 15 кт — 200 тыс. чанков), и в общем счёте
+ * план чанка у игрока (готовый устарел, плана не было) ждал бы места, пока дальние не освободят его, а потом стоял бы
+ * за ними в очереди.
  * <p>
  * Память: у каждого потока свои буферы решателей ({@code ThreadLocal}: {@code Collapse.Buffers} — {@code before},
  * {@code after}, {@code ring}; {@code Blast.Buffers} — {@code sky}, {@code gone}), по окну 48×48 на всю высоту мира —
@@ -53,7 +61,21 @@ public final class RuinWorkers {
     /** Задач в пуле на поток в работе: очередь на тик вперёд. */
     private static final int QUEUE_PER_THREAD = 4;
 
+    /** Ступени очереди пула: раньше — важнее. */
+    public enum Priority {
+        /** Руины чанков, которые видит игрок (очередь руин): фоновый план и разбор соседей окна с диска. */
+        SEEN,
+        /** Остальные руины очереди и руины заранее чанков в памяти. */
+        NEAR,
+        /** Руины заранее с диска (тяжёлая зона не в памяти), копии для LOD вдали ({@link FarLods}). */
+        FAR
+    }
+
     private static final AtomicInteger NUMBER = new AtomicInteger();
+    /** Порядок задач одной ступени — по постановке. */
+    private static final AtomicLong SEQUENCE = new AtomicLong();
+    /** Задач каждой ступени в пуле (в работе и в очереди). */
+    private static final AtomicIntegerArray IN_FLIGHT = new AtomicIntegerArray(Priority.values().length);
     @Nullable
     private static ThreadPoolExecutor pool;
     /** Потоков по настройке (или по ядрам) и сколько сейчас в работе (подстройка под тик). */
@@ -91,7 +113,7 @@ public final class RuinWorkers {
         if (pool != null) pool.shutdown();
         size = active = n;
         lowered = raised = 0;
-        pool = new ThreadPoolExecutor(n, n, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), r -> {
+        pool = new ThreadPoolExecutor(n, n, 30, TimeUnit.SECONDS, new PriorityBlockingQueue<>(), r -> {
             Thread t = new Thread(r, "Incoming ruins #" + NUMBER.incrementAndGet());
             t.setDaemon(true);
             t.setPriority(Thread.MIN_PRIORITY);
@@ -112,52 +134,110 @@ public final class RuinWorkers {
         return Math.max(2, active * QUEUE_PER_THREAD);
     }
 
-    /** Можно ли отдать ещё задачу: в пуле меньше {@link #capacity}. */
-    static boolean admit() {
-        return inFlight() < capacity();
+    /**
+     * Можно ли отдать ещё задачу ступени {@code priority}: задач её и более важных в пуле меньше {@link #capacity}.
+     * Менее важные в счёт не идут — очередь пустит эту задачу раньше них.
+     */
+    static boolean admit(Priority priority) {
+        return inFlight(priority) < capacity();
     }
 
-    /** Задач в работе (в потоках и в очереди). */
+    /** Задач ступени {@code priority} и более важных в пуле (в работе и в очереди). */
+    static int inFlight(Priority priority) {
+        int n = 0;
+        for (int i = 0; i <= priority.ordinal(); i++) n += IN_FLIGHT.get(i);
+        return n;
+    }
+
+    /** Всех задач в пуле (в работе и в очереди). */
     static int inFlight() {
-        ThreadPoolExecutor p = pool;
-        return p == null ? 0 : p.getActiveCount() + p.getQueue().size();
+        return inFlight(Priority.FAR);
     }
 
     /**
-     * Для проверок: занять пул задачами, которые ждут {@code release}, пока он не перестанет брать новые ({@link #admit}).
+     * Для проверок: занять пул задачами ступени {@code priority}, которые ждут {@code release}, пока он не перестанет
+     * брать задачи этой ступени ({@link #admit}).
      */
-    public static void fillForTest(java.util.concurrent.CountDownLatch release) {
-        while (admit()) {
+    public static void fillForTest(java.util.concurrent.CountDownLatch release, Priority priority) {
+        while (admit(priority)) {
             submit(() -> {
                 release.await();
                 return null;
-            });
+            }, priority);
         }
     }
 
-    /** Задача в пул (поток сервера). */
-    static <T> Future<T> submit(Callable<T> task) {
-        return pool().submit(() -> {
-            long t0 = System.nanoTime();
-            try {
-                return task.call();
-            } finally {
-                BUSY.addAndGet(System.nanoTime() - t0);
-            }
-        });
+    /**
+     * Для проверок: дождаться (поток сервера стоит, не дольше {@code millis}), пока в пуле нет задач ступени
+     * {@code priority} и более важных.
+     *
+     * @return дождались
+     */
+    public static boolean awaitForTest(Priority priority, long millis) {
+        long until = System.nanoTime() + millis * 1_000_000L;
+        while (inFlight(priority) > 0) {
+            if (System.nanoTime() > until) return false;
+            java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
+        }
+        return true;
     }
 
-    /** Исполнитель для разбора чанков с диска (задача из потока ввода-вывода — в пул). */
-    static Executor executor() {
+    /** Задача в пул (поток сервера) на ступень {@code priority}. */
+    static <T> Future<T> submit(Callable<T> task, Priority priority) {
+        Task<T> t = new Task<>(task, priority);
+        execute(pool(), t);
+        return t;
+    }
+
+    /**
+     * Исполнитель ступени {@code priority}: разбор чанков с диска (задача из потока ввода-вывода — в пул), копии LOD вдали.
+     * Пул — нынешний (поток сервера): задача, пришедшая после остановки, отказана, а не заводит новый пул из чужого потока.
+     */
+    static Executor executor(Priority priority) {
         ThreadPoolExecutor p = pool();
-        return r -> p.execute(() -> {
+        return r -> execute(p, new Task<>(java.util.concurrent.Executors.callable(r, null), priority));
+    }
+
+    private static void execute(ThreadPoolExecutor p, Task<?> t) {
+        try {
+            p.execute(t);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // пул закрыт (остановка): задачи нет — и в счёте её нет
+            IN_FLIGHT.decrementAndGet(t.priority);
+            throw e;
+        }
+    }
+
+    /**
+     * Задача пула: место в очереди — по ступени, внутри ступени — по постановке; счёт задач ступени — от постановки до
+     * конца (и у брошенной: пул всё равно зовёт {@code run}, который сразу выходит).
+     */
+    static final class Task<T> extends FutureTask<T> implements Comparable<Task<?>> {
+        private final int priority;
+        private final long sequence;
+
+        Task(Callable<T> task, Priority priority) {
+            super(task);
+            this.priority = priority.ordinal();
+            this.sequence = SEQUENCE.getAndIncrement();
+            IN_FLIGHT.incrementAndGet(this.priority);
+        }
+
+        @Override
+        public void run() {
             long t0 = System.nanoTime();
             try {
-                r.run();
+                super.run();
             } finally {
                 BUSY.addAndGet(System.nanoTime() - t0);
+                IN_FLIGHT.decrementAndGet(priority);
             }
-        });
+        }
+
+        @Override
+        public int compareTo(Task<?> o) {
+            return priority != o.priority ? Integer.compare(priority, o.priority) : Long.compare(sequence, o.sequence);
+        }
     }
 
     /**
@@ -235,7 +315,10 @@ public final class RuinWorkers {
         pool = null;
         lastAdapt = -ADAPT_EVERY;
         if (p == null) return true;
-        int dropped = p.shutdownNow().size();
+        java.util.List<Runnable> queued = p.shutdownNow();
+        // их run уже не позовут: из счёта ступеней
+        for (Runnable r : queued) if (r instanceof Task<?> t) IN_FLIGHT.decrementAndGet(t.priority);
+        int dropped = queued.size();
         boolean done;
         try {
             done = p.awaitTermination(JOIN_MS, TimeUnit.MILLISECONDS);

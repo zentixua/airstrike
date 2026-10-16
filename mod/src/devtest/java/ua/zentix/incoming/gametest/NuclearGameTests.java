@@ -1422,9 +1422,9 @@ public final class NuclearGameTests {
         // пул может вырасти (число потоков подстраивается по тику сервера): занимать каждый тик. Осмотренные за тик —
         // свои, с тиков после подрыва: очередь та же у всех тестов сервера, и до этого теста в ней мог быть чужой тик
         // на настоящих часах
-        RuinWorkers.fillForTest(release);
+        RuinWorkers.fillForTest(release, RuinWorkers.Priority.NEAR);
         h.onEachTick(() -> {
-            RuinWorkers.fillForTest(release);
+            RuinWorkers.fillForTest(release, RuinWorkers.Priority.NEAR);
             if (level.getGameTime() >= start + 2) maxInspected[0] = Math.max(maxInspected[0], w.scarInspectedLastTick());
         });
         NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
