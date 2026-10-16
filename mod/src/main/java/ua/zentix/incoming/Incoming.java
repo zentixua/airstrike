@@ -112,6 +112,7 @@ public final class Incoming {
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkSent);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.nuclear.flash.FlashSync::onChunkSent);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLogin);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChangeDimension);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onRespawn);

@@ -141,6 +141,10 @@ public final class ClientScenario {
             new GuideShots(); // кадры руководства игрока (docs/guide, tools/guide_images.sh)
             return;
         }
+        if ("flash".equals(scenario)) {
+            new FlashScenario(); // вспышка вблизи: гарь, силуэты, ЭМИ, дымки (FlashScenario)
+            return;
+        }
         if (scenario.startsWith("flyby-")) {
             new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
             return;

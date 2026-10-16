@@ -399,6 +399,21 @@ public final class S2C {
         }
     }
 
+    /**
+     * Следы вспышки на гранях чанка ({@link ua.zentix.incoming.nuclear.flash.FlashMarks}): все, что есть у чанка, — когда
+     * чанк уходит игроку и когда они меняются (руины, силуэты). Пустые — у чанка их больше нет.
+     */
+    public record NukeFlashMarks(long chunk, ua.zentix.incoming.nuclear.flash.FlashMarks marks) implements CustomPacketPayload {
+        public static final Type<NukeFlashMarks> TYPE = new Type<>(Incoming.id("nuke_flash_marks"));
+        public static final StreamCodec<ByteBuf, NukeFlashMarks> CODEC = StreamCodec.composite(ByteBufCodecs.VAR_LONG, NukeFlashMarks::chunk,
+                ua.zentix.incoming.nuclear.flash.FlashMarks.STREAM_CODEC, NukeFlashMarks::marks, NukeFlashMarks::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Вход в мир и смена измерения: действующие подрывы и летящие МБР этого измерения. */
     public record NukeSync(List<Detonation> detonations, List<NukeWarning> warnings)
             implements CustomPacketPayload {

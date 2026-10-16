@@ -144,7 +144,10 @@ public final class ClientNuclear {
         if ((known != null && (known.live || !live)) || level == null) return;
         Active a = new Active(d, live, level.getGameTime());
         DETONATIONS.put(d.id(), a);
-        if (live) NukeFlash.detonation(a);
+        if (live) {
+            NukeFlash.detonation(a);
+            FlashAftermath.detonation(d);
+        }
     }
 
     /** Вход в мир или смена измерения: всё, что уже есть, без вспышки и удара (они уже прошли). */

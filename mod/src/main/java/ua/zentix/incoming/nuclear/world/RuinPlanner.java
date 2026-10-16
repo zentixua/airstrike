@@ -290,7 +290,10 @@ public final class RuinPlanner {
         if (own != null) for (int i = 0; i < own.trees().size(); i++) lay(s, own.trees().get(i), own.treeLogs().get(i));
         // после всего, что ложится на землю (завал, стволы)
         for (int column = 0; column < 256; column++) if (c.ground[column] != Integer.MIN_VALUE) snowy(s, column & 15, c.ground[column], column >> 4);
-        return s.finish(g.ctx(), c.fluidTicks.toLongArray(), biomes(g.ctx().noise, c.ground, heat, shot.x << 4, shot.z << 4));
+        RuinPlan plan = s.finish(g.ctx(), c.fluidTicks.toLongArray(), biomes(g.ctx().noise, c.ground, heat, shot.x << 4, shot.z << 4));
+        // гарь вспышки на гранях того, что уцелеет: по миру до волны, ставится с руинами
+        if (plan != RuinPlan.EMPTY) plan.flash(FlashFaces.chars(g, s));
+        return plan;
     }
 
     /**

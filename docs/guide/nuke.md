@@ -43,6 +43,12 @@ light burns grass, flowers and crops in patches and leaves black char where it w
 water around turn yellow-brown and grey. The edge is ragged, not a ring. The scorched colours stay for good, also in
 Distant Horizons terrain.
 
+The flash also marks what it lights. Wood, wool and hay that face the fireball char black in patches, and brick,
+concrete, stone bricks and sandstone darken with soot. A player, a mob, an armor stand or a boat standing in the light
+leaves a pale shadow of its shape on the wood or masonry behind it. These marks stay until the block is broken or
+replaced. In the same instant lit lamps and substations of the [power grid](blackout.md) short out with sparks, and
+grass, leaves and wood in the light start to smoke before the wave comes.
+
 ## How to survive
 
 - **Get underground.** The wave leaves natural ground alone: caves and bunkers stand, and earth stops both the light
