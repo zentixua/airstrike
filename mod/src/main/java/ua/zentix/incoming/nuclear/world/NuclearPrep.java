@@ -537,7 +537,7 @@ public final class NuclearPrep {
                     }
                     p.reading.add(k);
                     ConcurrentLinkedQueue<DiskShots.Read> out = p.reads;
-                    DiskShots.read(p.format, new ChunkPos(k)).thenAccept(out::add);
+                    DiskShots.read(p.format, new ChunkPos(k), RuinWorkers.Priority.FAR).thenAccept(out::add);
                 }
             }
             if (!all) break;
@@ -568,7 +568,7 @@ public final class NuclearPrep {
                 continue;
             }
             // после подрыва половина пула — очереди руин: чанки у игроков важнее дальних колец
-            if (missing > 0 || !RuinWorkers.admit() || p.detonation >= 0 && RuinWorkers.inFlight() >= RuinWorkers.capacity() / 2) break;
+            if (missing > 0 || !RuinWorkers.admit(RuinWorkers.Priority.FAR) || p.detonation >= 0 && RuinWorkers.inFlight() >= RuinWorkers.capacity() / 2) break;
             long c0 = shared.begin();
             try {
                 if (!p.ruins.submitDisk(level, new ChunkPos(c))) break;
@@ -611,7 +611,7 @@ public final class NuclearPrep {
 
     /** Чанки по порядку — фоновым потокам (снимки — единицей работы), пока у подрыва есть место под задачи. */
     private void submit(ServerLevel level, Prep p, WorkClock shared) {
-        while (p.nextTodo < p.todo.size() && RuinWorkers.admit() && clock.canStart() && shared.canStart()) {
+        while (p.nextTodo < p.todo.size() && RuinWorkers.admit(RuinWorkers.Priority.NEAR) && clock.canStart() && shared.canStart()) {
             long c = p.todo.getLong(p.nextTodo++);
             if (p.plans.containsKey(c) || p.ruins.running(c)) continue;
             // чанк без загруженных соседей (край загруженного мира) план заранее не получает: окно не прочитать

@@ -127,7 +127,7 @@ public final class FarLods {
             this.ruins = new RuinContext(level, d);
             this.skip = skip;
             this.reach = RuinPlanner.scorchReach(d);
-            this.order = java.util.concurrent.CompletableFuture.supplyAsync(() -> layout(d, skip, reach), RuinWorkers.executor()).exceptionally(e -> {
+            this.order = java.util.concurrent.CompletableFuture.supplyAsync(() -> layout(d, skip, reach), RuinWorkers.executor(RuinWorkers.Priority.FAR)).exceptionally(e -> {
                 Incoming.LOG.error("Far scorch of detonation #{}: ring layout failed", d.id(), e);
                 return new long[0];
             });
@@ -420,7 +420,7 @@ public final class FarLods {
         for (int i = 0; i < taken.size(); i++) {
             Read r = taken.get(i);
             RuinContext.Grid g = r.ring.ruins.scorchGrid(level, made.get(i), view);
-            java.util.concurrent.CompletableFuture.supplyAsync(() -> build(f, r.scorch.sections(), RuinPlanner.scorch(g), fires, r.lights, true), RuinWorkers.executor())
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> build(f, r.scorch.sections(), RuinPlanner.scorch(g), fires, r.lights, true), RuinWorkers.executor(RuinWorkers.Priority.FAR))
                     .exceptionally(e -> new Built(r.chunk, null, false, r.lights, "error: " + e)).thenAccept(built::add);
         }
     }

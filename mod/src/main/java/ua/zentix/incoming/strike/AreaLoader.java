@@ -182,6 +182,24 @@ public final class AreaLoader {
         return releasing.size();
     }
 
+    /**
+     * Взятые районы строкой (сообщения проверок): тип тикета, центр, размер и докуда вырос тикет региона (−1 — только
+     * грузится), без тика, срок; потом отпущенные, чьи чанки ещё держит очередь.
+     */
+    public String describe() {
+        StringBuilder b = new StringBuilder("held ").append(requests.size()).append(':');
+        requests.forEach((a, taken) -> {
+            b.append(' ').append(a.type()).append(' ').append(a.centre()).append(" d").append(a.distance()).append('/').append(taken);
+            if (!a.ticks()) b.append(" no tick");
+            Long until = expiring.get(a);
+            if (until != null) b.append(" until ").append(until);
+            b.append(';');
+        });
+        b.append(" releasing ").append(releasing.size()).append(':');
+        releasing.keySet().forEach(a -> b.append(' ').append(a.type()).append(' ').append(a.centre()).append(';'));
+        return b.toString();
+    }
+
     /** Районов взято или растёт (проверки). */
     public int size() {
         return requests.size();

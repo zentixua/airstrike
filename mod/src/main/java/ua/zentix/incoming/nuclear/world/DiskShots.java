@@ -133,12 +133,12 @@ final class DiskShots {
 
     /**
      * Прочитать и разобрать чанк (поток сервера отдаёт, ответ — в фоновом потоке руин): чтение — поток ввода-вывода,
-     * разбор — {@link RuinWorkers}. Чанка нет на диске — {@code skip}.
+     * разбор — {@link RuinWorkers} на ступени {@code priority}. Чанка нет на диске — {@code skip}.
      */
-    static CompletableFuture<Read> read(Format f, ChunkPos pos) {
+    static CompletableFuture<Read> read(Format f, ChunkPos pos, RuinWorkers.Priority priority) {
         long diag = NukeDiag.readStart();
         return f.storage.read(pos).whenComplete((t, e) -> NukeDiag.readDone(diag)).thenApplyAsync(tag -> tag.map(t -> parse(f, pos, t)).orElseGet(() -> Read.skipped(pos, "not on disk")),
-                RuinWorkers.executor()).exceptionally(e -> Read.skipped(pos, "read error: " + e));
+                RuinWorkers.executor(priority)).exceptionally(e -> Read.skipped(pos, "read error: " + e));
     }
 
     /** Разобрать данные чанка (любой поток). */
@@ -224,7 +224,7 @@ final class DiskShots {
 
     static CompletableFuture<Sections> readSections(Format f, ChunkPos pos) {
         return f.storage.read(pos).thenApplyAsync(tag -> tag.map(t -> parseSections(f, pos, t)).orElseGet(() -> new Sections(pos, new LevelChunkSection[0], "not on disk")),
-                RuinWorkers.executor()).exceptionally(e -> new Sections(pos, new LevelChunkSection[0], "read error: " + e));
+                RuinWorkers.executor(RuinWorkers.Priority.FAR)).exceptionally(e -> new Sections(pos, new LevelChunkSection[0], "read error: " + e));
     }
 
     static Sections parseSections(Format f, ChunkPos pos, CompoundTag raw) {
@@ -275,7 +275,7 @@ final class DiskShots {
 
     static CompletableFuture<Scorch> readScorch(Format f, ChunkPos pos) {
         return f.storage.read(pos).thenApplyAsync(tag -> tag.map(t -> parseScorch(f, pos, t)).orElseGet(() -> skippedScorch(pos, "not on disk")),
-                RuinWorkers.executor()).exceptionally(e -> skippedScorch(pos, "read error: " + e));
+                RuinWorkers.executor(RuinWorkers.Priority.FAR)).exceptionally(e -> skippedScorch(pos, "read error: " + e));
     }
 
     static Scorch parseScorch(Format f, ChunkPos pos, CompoundTag raw) {
