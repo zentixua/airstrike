@@ -458,7 +458,7 @@
   "incoming.config.far_range.tooltip": "Beyond render distance players see and hear projectiles in flight and conventional blasts up to this range (haze still hides them by the weather)",
   "incoming.config.performance": "Performance",
   "incoming.config.work_budget": "Mod work per tick (ms)",
-  "incoming.config.work_budget.tooltip": "At most how many milliseconds of each server tick the mod spends on heavy work in total: strike destruction, then the nuke, then blackout lights. The full budget only comes from the time left in the tick; a server that is behind gets about 2 ms per kind of work.",
+  "incoming.config.work_budget.tooltip": "At most how many milliseconds of each server tick the mod spends on heavy work in total: strike destruction, then the nuke, then blackout lights. The full budget only comes from the time left in the tick; a server that is behind gets about 2 ms per kind of work, and 6 ms more for nuclear ruins a player can see.",
   "incoming.help.12": "/incoming grid status|blackout|restore|node …: power grid status, cut power to an area, restore power, map nodes",
   "incoming.help.13": "/incoming salvo … [from x z] [via x z …] — launch point (operators) and route points, as on the map; a single round — salvo <weapon> 1 0 …",
   "incoming.help.14": "/incoming launcher <x y z> [fire|clear|load N|owner …|mission <weapon> N spread x z|x y z [via …]] — fixed launcher (operators)",

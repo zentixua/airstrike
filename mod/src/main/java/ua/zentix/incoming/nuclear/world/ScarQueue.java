@@ -126,7 +126,7 @@ public final class ScarQueue {
      * времени, полосе доставалось 1–3 мс на всю ядерку, очередь брала 0–2 видимых чанка за тик, их копилось до 255,
      * и руины вставали до 64 тиков после фронта — при подмене по готовому плану 0,24 мс в среднем. 6 мс — 20–30 таких
      * подмен за тик, больше, чем фронт открывает игроку (около 10 чанков за тик); к тику — не больше 6 мс и только пока
-     * видимые ждут.
+     * видимые ждут или волна подходит к ним (проверка заранее).
      */
     private static final long SEEN_BUSY_NANOS = 6_000_000L;
     /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
@@ -1041,18 +1041,6 @@ public final class ScarQueue {
         }
     }
 
-    /**
-     * Первый в очереди чанк (его срок пришёл): руины одной единицей работы. Что нужно от соседей, зависит от плана:
-     * готовому (заранее или из фоновой задачи) — ничего, кроме радиуса 1 у подмены через мир у края и у аппаратов
-     * и радиуса {@link RuinPlanner#REACH} у блок-сущностей не из ванили ({@link RuinPlan#neighbourRadius}); плану
-     * в фоне — снимки окна 5×5 ({@link RuinPlanner#REACH}): соседи в памяти —
-     * снимком, остальные — с диска ({@link RuinContext#requestWindow}), не загружаясь в мир; соседа нет на диске целым
-     * (не сгенерирован) — в окне он сплошной массив, как край мира; плану в потоке сервера (разрушения выключены или
-     * фоновый план упал) — загруженное окно, соседи грузятся тикетом.
-     *
-     * @return {@link #LOOKED} — ждёт, ничего не сделав; {@link #PLANNED_WAITS} — план на месте посчитан, подмена ждёт
-     *     соседей; {@link #WORKED} — руины, разлом соседа или снимки окна
-     */
     /** Причина ожидания — в общий счёт «DIAG ruin queue» и в счёт работы ({@link Job#diagWaits}). */
     private static void waited(Job job, NukeDiag.Wait w) {
         NukeDiag.waited(w);
@@ -1061,13 +1049,20 @@ public final class ScarQueue {
         job.diagWaits[w.ordinal()]++;
     }
 
-    /** Строка «DIAG late seen chunk»: видимый чанк, чьи руины встали позже волны, — почему (только с {@link NukeDiag#ON}). */
+    /** Руины чанка встали (только с {@link NukeDiag#ON}): в счёт тика, а видимый позже волны — строкой ({@link #diagLate}). */
     private void diagRuined(ServerLevel level, Job job, ChunkPos pos, long lag, boolean seen) {
         if (seen) {
             diagSeen++;
             diagSeenLag = Math.max(diagSeenLag, lag);
         } else diagUnseen++;
-        if (!seen || lag <= 5) return;
+        if (seen && lag > 5) diagLate(level, job, pos, lag);
+        // счёт ожиданий — одного подрыва: у чанка, который ждёт следующий подрыв, он начинается заново
+        job.diagWaits = null;
+        job.diagSkipped = 0;
+    }
+
+    /** Строка «DIAG late seen chunk»: видимый чанк, чьи руины встали позже волны, — почему. */
+    private void diagLate(ServerLevel level, Job job, ChunkPos pos, long lag) {
         int near = Integer.MAX_VALUE;
         for (ServerPlayer p : level.players()) {
             ChunkPos at = p.chunkPosition();
@@ -1083,10 +1078,20 @@ public final class ScarQueue {
         }
         Incoming.LOG.info("DIAG late seen chunk {}: lag {} ticks, {} chunks from the nearest player, plan {}, ticks left in the ready queue {}, waited: {}",
                 pos, lag, near, diagSource, job.diagSkipped, waits.isEmpty() ? "nothing" : waits);
-        job.diagWaits = null;
-        job.diagSkipped = 0;
     }
 
+    /**
+     * Первый в очереди чанк (его срок пришёл): руины одной единицей работы. Что нужно от соседей, зависит от плана:
+     * готовому (заранее или из фоновой задачи) — ничего, кроме радиуса 1 у подмены через мир у края и у аппаратов
+     * и радиуса {@link RuinPlanner#REACH} у блок-сущностей не из ванили ({@link RuinPlan#neighbourRadius}); плану
+     * в фоне — снимки окна 5×5 ({@link RuinPlanner#REACH}): соседи в памяти —
+     * снимком, остальные — с диска ({@link RuinContext#requestWindow}), не загружаясь в мир; соседа нет на диске целым
+     * (не сгенерирован) — в окне он сплошной массив, как край мира; плану в потоке сервера (разрушения выключены или
+     * фоновый план упал) — загруженное окно, соседи грузятся тикетом.
+     *
+     * @return {@link #LOOKED} — ждёт, ничего не сделав; {@link #PLANNED_WAITS} — план на месте посчитан, подмена ждёт
+     *     соседей; {@link #WORKED} — руины, разлом соседа или снимки окна
+     */
     private int work(ServerLevel level, Job job, long now) {
         if (NuclearTickets.inMemory(level, job.chunk) == null) {
             // выгружен (onChunkUnload уже убрал бы работу) — загрузится снова, поставит onChunkLoad
@@ -1151,10 +1156,13 @@ public final class ScarQueue {
         }
         int r = ruin(level, d, chunk, budget, Math.max(0, now - job.wave), seen);
         if (r == AGAIN) {
-            // посчитан разлом соседа или план устарел: следующей единицей, первым в той же очереди
+            // посчитан разлом соседа или план устарел: следующей единицей, но за теми, что уже ждут в той же очереди.
+            // Первым он держал бы их всех: план на месте — до 9 разломов окна по единице и обрушение, по несколько мс
+            // каждая, а подмена готового плана — 0,2 мс; на netcup 16.10 один такой чанк держал 60–85 видимых чанков
+            // с готовым планом 38 тиков. Порядок чанков плану не важен (RuinContext)
             waited(job, NukeDiag.Wait.AGAIN);
             job.ready = true;
-            (seen ? readySeen : readyUnseen).addFirst(job);
+            (seen ? readySeen : readyUnseen).addLast(job);
             return WORKED;
         }
         if (r == WAIT) {
