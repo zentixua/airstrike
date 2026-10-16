@@ -63,6 +63,10 @@ class NewisleCutTest(unittest.TestCase):
         self.assertEqual("start", by_plan[need[2]]["anchor"])
         self.assertNotIn(need[0], plan["takes"])
         self.assertTrue(all(c["kind"] == "fill" for c in cuts if "card" in str(c.get("id", ""))))
+        styles = {tuple(c["text"]["lines"]): c["text"]["style"] for c in cuts
+                  if "card" in str(c.get("id", "")) and c.get("text")}
+        self.assertEqual("title", styles.get(("INCOMING",)), "название — кеглем логотипа, а не строкой титров")
+        self.assertTrue(all(v == "end" for k, v in styles.items() if k != ("INCOMING",)))
         ids = {c.get("id") or c.get("take") for c in cuts}
         for piece in plan["music"]:
             self.assertIn(piece["start"], ids)

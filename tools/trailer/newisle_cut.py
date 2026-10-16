@@ -97,7 +97,8 @@ def plan_of(sheet, dirs, broken=(), music=None, later=(), gated=None):
         if "card" in s:
             c = {"kind": "fill", "level": 0, "dur": dur, "id": f"card{i + 1}"}
             if s["card"]:
-                c["text"] = {"lines": s["card"].split("\n"), "style": "end"}
+                # название — кеглем логотипа (style "title"), титры — строками конечного титра
+                c["text"] = {"lines": s["card"].split("\n"), "style": s.get("style", "end")}
             cuts.append(c)
             continue
         plan = s["plan"]

@@ -200,6 +200,7 @@
   {
    "act": "end",
    "card": "INCOMING",
+   "style": "title",
    "dur": 1.92
   },
   {
