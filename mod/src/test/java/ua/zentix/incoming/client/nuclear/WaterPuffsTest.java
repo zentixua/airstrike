@@ -125,6 +125,32 @@ class WaterPuffsTest {
         }
     }
 
+    /** Самый дальний передний край клубов гриба и стены в кадре, блоков от эпицентра по горизонтали. */
+    private static double farthestEdge(CloudPuffs puffs, double t) {
+        double[] most = {0};
+        puffs.sprites(t, 1, 1, (x, y, z, size, rot, r, g, b, a, gr, gg, gb, ga, tex) -> {
+            if (a > 0.01) most[0] = Math.max(most[0], Math.hypot(x - SEA.burst().x, z - SEA.burst().z) + 0.3 * size);
+        });
+        return most[0];
+    }
+
+    /**
+     * Стена над водой — брызги позади тёмного кольца: её передний край отстаёт от головы стены на путь фронта за
+     * {@link WaterModel#SPRAY_LAG} (капли встают не сразу), а стена пыли над сушей идёт с головой.
+     */
+    @Test
+    void sprayWallTrailsTheDarkRing() {
+        for (double t : new double[]{3, 6}) {
+            CloudPuffs dry = new CloudPuffs(SEA, 750, false), wet = new CloudPuffs(SEA, 750, false);
+            wet.burst(1, 0);
+            double head = dry.wall(t).head(), lag = dry.wall(t + WaterModel.SPRAY_LAG).head() - head;
+            double dryEdge = farthestEdge(dry, t), wetEdge = farthestEdge(wet, t);
+            assertTrue(lag > 30, t + " с: путь фронта за время подъёма брызг " + lag);
+            assertTrue(dryEdge > head - 0.25 * lag, t + " с: пыль с головой: край " + dryEdge + ", голова " + head);
+            assertTrue(wetEdge < head - 0.7 * lag, t + " с: брызги позади кольца: край " + wetEdge + ", голова " + head + ", отставание " + lag);
+        }
+    }
+
     /** Догадка без данных: первый воздух над землёй ровно на уровне моря — море, выше — суша. */
     @Test
     void seaLevelGuess() {

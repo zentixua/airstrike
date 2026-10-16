@@ -130,7 +130,8 @@ final class WaterPuffs {
                     double f = p.b / CROWN, h = f * m.top;
                     r = (m.colR + m.wall * (p.c - 0.5) * 2) * (1 + 0.6 * Math.pow(1 - f, 4));
                     s.py = h;
-                    s.size = m.wall * 1.7 * (1 + 1.2 * Math.pow(1 - f, 4)) * p.size * detail;
+                    // клубы стенки перекрываются втрое: столб — сплошная стена воды, а не гроздь шаров
+                    s.size = m.wall * 2.3 * (1 + 1.2 * Math.pow(1 - f, 4)) * p.size * detail;
                     s.shade *= 0.72 + 0.32 * f;
                     // низ столба освещён шаром изнутри
                     s.heat = 0.8 * m.fireball * (1 - f);

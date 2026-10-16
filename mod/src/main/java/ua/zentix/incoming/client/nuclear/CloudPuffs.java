@@ -543,10 +543,12 @@ public final class CloudPuffs {
         // над водой: брызги с гребней по ветру на голове стены, ниже стены пыли
         double wind = BlastModel.windSpeed(BlastModel.overpressureKpa(Math.hypot(m.head, hob), d.yieldKt()));
         double spray = WaterModel.spray(wind), low = Mth.clamp(WaterModel.sprayHeight(wind) / Math.max(1, m.headWall), 0.15, 1);
+        // брызги встают за фронтом не сразу: стена брызг отстаёт на путь головы за это время
+        double lag = Math.max(0, head(m.t + WaterModel.SPRAY_LAG) - m.head);
         for (int i = 0; i < puffs.length; i++) {
             Puff p = puffs[i];
             if (!place(p, m, s)) continue;
-            if (p.kind.onGround()) wetten(i, m, s, spray, low);
+            if (p.kind.onGround()) wetten(i, m, s, spray, low, lag);
             else if (burstWet > 0 && p.kind != Kind.WILSON) s.rgb = lerpRgb(s.rgb, STEAM, burstWet * (p.kind == Kind.STEM ? 0.8 : 0.45));
             double a = s.a * m.life;
             if (a < 0.01) continue;
@@ -635,13 +637,25 @@ public final class CloudPuffs {
 
     /**
      * Клуб у земли над водой: пыли там нет — брызги и водяная пыль: белые, ниже стены пыли (на высоту срыва брызг,
-     * {@code low} её доли), гуще, где ветер срывает гребни ({@code spray}), без огня. Юбка у эпицентра — пар и брызги
+     * {@code low} её доли), гуще, где ветер срывает гребни ({@code spray}), без огня, позади фронта на {@code lag} м
+     * ({@link WaterModel#SPRAY_LAG}): впереди стены брызг по воде бежит тёмное кольцо. Юбка у эпицентра — пар и брызги
      * подрыва, вся.
      */
-    private void wetten(int i, Moment m, Spot s, double spray, double low) {
+    private void wetten(int i, Moment m, Spot s, double spray, double low, double lag) {
         double w = Float.isNaN(wet[i]) ? burstUnder : wet[i];
         if (w <= 0) return;
         boolean skirt = puffs[i].kind == Kind.SKIRT;
+        if (!skirt) {
+            // стена брызг ниже стены пыли — и клубы мельче; встаёт позади тёмного кольца на lag м
+            s.size *= Mth.lerp(w, 1, Mth.clamp(low * 1.5, 0.5, 1));
+            double rr = Math.sqrt(s.px * s.px + s.pz * s.pz);
+            double to = puffs[i].kind == Kind.RING ? rr - w * lag : Math.min(rr, m.head - w * lag - 0.3 * s.size);
+            if (rr > 1e-6) {
+                double back = Math.max(0, to) / rr;
+                s.px *= back;
+                s.pz *= back;
+            }
+        }
         double k = skirt ? 1 : puffs[i].kind == Kind.CURTAIN ? 0.6 * spray : spray;
         s.py *= Mth.lerp(w, 1, skirt ? 1 : low);
         s.a *= Mth.lerp(w, 1, k);

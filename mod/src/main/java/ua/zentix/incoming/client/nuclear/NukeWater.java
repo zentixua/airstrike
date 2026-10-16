@@ -146,12 +146,14 @@ public final class NukeWater {
         double half = l < 1 ? Math.PI : Math.acos(Mth.clamp((l * l + r * r - NukeDust.NEAR * NukeDust.NEAR) / (2 * l * r), -1, 1));
         double toward = Math.atan2(ez, ex);
         double speed = Math.min(SPRAY_SPEED, d.frontRadius(ticks + 1) - slant);
+        // брызги встают позади тёмного кольца: на путь фронта за время подъёма брызг (WaterModel.SPRAY_LAG)
+        double lag = Math.max(0, slant - d.frontRadius(Math.max(0, ticks - WaterModel.SPRAY_LAG * 20 * d.scale())));
         int n = Math.min(MAX_SPOTS, (int) Math.round(2 * half * r / STEP * spray * Fx.density(eye)));
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (int i = 0; i < n; i++) {
             double ang = toward + (RANDOM.nextDouble() * 2 - 1) * half;
             double cos = Math.cos(ang), sin = Math.sin(ang);
-            double rr = r - RANDOM.nextDouble() * Math.min(10, height * 0.4);
+            double rr = r - lag - RANDOM.nextDouble() * Math.min(10, height * 0.4);
             double x = d.burst().x + cos * rr, z = d.burst().z + sin * rr;
             if ((x - eye.x) * (x - eye.x) + (z - eye.z) * (z - eye.z) > NukeDust.NEAR * NukeDust.NEAR) continue;
             int bx = Mth.floor(x), bz = Mth.floor(z);
@@ -212,7 +214,7 @@ public final class NukeWater {
         return most > 0.004f;
     }
 
-    /** Строка сценария: вода под подрывами, колец на воде в последнем кадре, мест брызг за тик. */
+    /** Строка сценария: вода под подрывами, колец на воде в последнем кадре, мест брызг за тик, частиц брызг и пыли у земли. */
     public static String describe() {
         StringBuilder sb = new StringBuilder();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
@@ -223,6 +225,8 @@ public final class NukeWater {
         }
         Minecraft mc = Minecraft.getInstance();
         int live = mc.level == null ? 0 : ua.zentix.incoming.client.fx.particle.FxPool.INSTANCE.live(FxBudget.SPRAY);
-        return String.format(Locale.ROOT, "decal %s, spray spots %d, spray particles %d%s", WaterDecal.describe(), lastSpots, live, sb);
+        int dust = mc.level == null ? 0 : ua.zentix.incoming.client.fx.particle.FxPool.INSTANCE.live(FxBudget.GROUND);
+        return String.format(Locale.ROOT, "decal %s, spray spots %d, spray particles %d, ground dust particles %d%s", WaterDecal.describe(), lastSpots,
+                live, dust, sb);
     }
 }

@@ -77,16 +77,21 @@ void main() {
     float foot = max(0.2, len * Pixel / max(abs(ray.y) / len, 0.02));
     float dark = 0.0;
     float foam = 0.0;
+    // куда дует ветер за фронтом (от центра кольца с самой густой пеной): пена тянется полосами по ветру
+    vec2 wind = vec2(1.0, 0.0);
     int rings = int(WaterParams.z + 0.5);
     for (int i = 0; i < 4; i++) {
         if (i >= rings) break;
         vec4 rg = ring(i);
-        float behind = rg.z - length(p.xz - rg.xy);
+        vec2 off = p.xz - rg.xy;
+        float r = length(off);
+        float behind = rg.z - r;
         if (behind < -foot) continue;
         float edge = smoothstep(-foot, foot, behind);
         float u = sqrt(clamp(behind / rg.w, 0.0, 1.0));
         vec2 prof = textureLod(Sampler1, vec2((u * 63.0 + 0.5) / 64.0, (float(i) + 0.5) / 4.0), 0.0).rg;
         dark = 1.0 - (1.0 - dark) * (1.0 - prof.r * edge);
+        if (prof.g * edge > foam && r > 1e-3) wind = off / r;
         foam = max(foam, prof.g * edge);
     }
     if (dark <= 0.002 && foam <= 0.002) discard;
@@ -96,9 +101,10 @@ void main() {
     float paws = noise(w / 23.0) * 0.6 + noise(w / 7.0) * 0.4;
     paws = mix(paws, 0.5, clamp(foot / 7.0, 0.0, 1.0));
     dark = clamp(dark * (0.65 + 0.7 * paws), 0.0, 1.0);
-    // пена барашками: пятна, доля которых — пена профиля; мельче пикселя — сама доля
-    float caps = noise(w / 2.5) * 0.55 + noise(w / 9.0) * 0.45;
-    foam = mix(smoothstep(1.0 - foam, 1.15 - foam, caps), foam, clamp(foot / 2.5, 0.0, 1.0));
+    // пена барашками: мелкие пятна, вытянутые по ветру полосами, доля которых — пена профиля; мельче пикселя — сама доля
+    vec2 q = vec2(dot(w, wind), dot(w, vec2(-wind.y, wind.x)));
+    float caps = noise(q / vec2(3.5, 1.2)) * 0.55 + noise(q / vec2(12.0, 4.0)) * 0.45;
+    foam = mix(smoothstep(1.0 - foam, 1.12 - foam, caps), foam, clamp(foot / 1.5, 0.0, 1.0));
 
     // дымка воздуха и туман Minecraft гасят наклейку, как частицы
     float fd = Haze.w > 0.5 ? max(length(p.xz), abs(p.y)) : length(p);
