@@ -8,7 +8,9 @@
 montage.py (проверка verdict.py: склейка, которую проверка не пропускает, в черновике становится заливкой).
 
     python3 tools/trailer/newisle_cut.py --work ПАПКА_РАБОТЫ [--draft | --final] [--sheet ЛИСТ.json] [--music Juggernaut.mp3]
-                                         [--check]
+                                         [--check] [--take ПЛАН=ПАПКА ...]
+
+--take   — дубль плана из этой папки (другой вывод того же повтора, прежняя попытка): сильнее выбора по состоянию
 
 --draft  — 1280×720, 30 кадров: только прошедшие планы, дыры — заливкой
 --final  — в размере записи: только если прошли все планы листа, иначе отказ со списком
@@ -36,8 +38,9 @@ def load(path):
         return json.load(f)
 
 
-def best(path):
-    """Строки best.txt вывода: план → папка кандидата, если PASS."""
+def best(path, accepted=()):
+    """Строки best.txt вывода: план → папка кандидата, если PASS или план в `accepted` (конвейер взял выведенный план
+    последней попытки в монтаж с предупреждением, а в best.txt у него FAIL)."""
     out = {}
     if not os.path.exists(path):
         return out
@@ -45,7 +48,7 @@ def best(path):
         lines = f.read().splitlines()
     for line in lines:
         parts = line.split(maxsplit=3)
-        if len(parts) >= 3 and parts[2] == "PASS" and parts[1] != "-":
+        if len(parts) >= 3 and (parts[2] == "PASS" or parts[0] in accepted) and parts[1] != "-":
             out[parts[0]] = parts[1]
     return out
 
@@ -65,7 +68,8 @@ def shot_dirs(state, takes):
     dirs = {}
     for take, a in runs:
         rec = a["rec"]
-        for plan, d in best(os.path.join(rec, "render", "best.txt")).items():
+        accepted = {p for p, v in (a.get("plans") or {}).items() if v and v[0] == "PASS"}
+        for plan, d in best(os.path.join(rec, "render", "best.txt"), accepted).items():
             dirs[plan] = d
         for s in by_id[take]["shots"]:
             if not s.get("cover"):
@@ -137,11 +141,16 @@ def main(argv=None):
     ap.add_argument("--sheet", default=SHEET, help="монтажный лист (по умолчанию scenes/newisle-90.json)")
     ap.add_argument("--music")
     ap.add_argument("--check", action="store_true", help="только план монтажа и проверка")
+    ap.add_argument("--take", action="append", default=[], metavar="ПЛАН=ПАПКА",
+                    help="дубль плана — эта папка (кандидат вывода или запись), а не последняя попытка конвейера")
     a = ap.parse_args(argv)
     state = load(os.path.join(a.work, "state.json"))
     takes = load(os.path.join(SCENES, "newisle-takes.json"))
     sheet = load(a.sheet)
     dirs = shot_dirs(state, takes)
+    for t in a.take:
+        plan, _, d = t.partition("=")
+        dirs[plan] = d
     scenario = load(os.path.join(SCENES, "newisle.json")) or {}
     gated = cut_checks.gates(sheet, takes, scenario, dirs, state, REPO)
     if gated:

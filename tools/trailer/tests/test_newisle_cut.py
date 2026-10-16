@@ -36,6 +36,13 @@ class NewisleCutTest(unittest.TestCase):
             for p in plans[1:]:
                 self.assertNotIn(p, dirs, "FAIL в монтаж не идёт")
             self.assertNotIn("zz", dirs, "пропущенный дубль в монтаж не идёт")
+            # последняя попытка: выведенный план конвейер взял в монтаж с предупреждением — в best.txt у него FAIL
+            with open(os.path.join(ok["rec"], "render", "best.txt"), "a") as f:
+                f.write(f"{plans[-1]} /x/{plans[-1]}/tripod FAIL удар виден 5%\n")
+            if len(plans) > 1:
+                ok["plans"] = {plans[-1]: ["PASS", "предупреждение: удар виден 5%"]}
+                dirs = C.shot_dirs(state, TAKES)
+                self.assertEqual(f"/x/{plans[-1]}/tripod", dirs[plans[-1]], "PASS с предупреждением — в монтаж")
 
     def test_plan_follows_sheet_and_fills_holes(self):
         need = [s["plan"] for s in SHEET["shots"] if "plan" in s]
