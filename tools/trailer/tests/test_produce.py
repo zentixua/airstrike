@@ -523,6 +523,18 @@ class ProduceTest(unittest.TestCase):
         self.assertIn("nw-C-a0", c.state["released"], "прежний снимок — в очередь удаления")
         self.assertTrue(os.path.exists(os.path.join(self.cfg["work"], "retake.txt.done")))
 
+    def test_retake_copy_never_takes_the_name_of_a_protected_world(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        # прогон вслепую: снимок C из другой работы под защитой, а состояние о нём не знает
+        self.cfg["protected"].append(os.path.join(self.cfg["saves"], "nw-C-a0r1"))
+        c2, m2 = self.conveyor()
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c2.run(["C"]))
+        self.assertEqual("nw-C-a0r2", os.path.basename(m2.copies[-1][1]), "имя защищённого мира — занято")
+        self.assertEqual("passed", c2.state["takes"]["C"]["status"])
+
     def test_retake_of_a_chain_take_uses_the_previous_chain_snapshot(self):
         c, m = self.conveyor()
         self.assertEqual(0, c.run(["A", "B", "C", "D"]))

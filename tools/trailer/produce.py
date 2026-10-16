@@ -244,6 +244,10 @@ class Guard:
         self.protected = [p for p in protected if p]
         self.writable = [p for p in writable if p]
 
+    def protects(self, path):
+        """Путь под защищённым корнем: писать и удалять туда нельзя."""
+        return any(under(path, p) for p in self.protected)
+
     def check(self, path, what):
         for p in self.protected:
             if under(path, p):
@@ -413,12 +417,14 @@ class Conveyor:
     def world_name(self, take, n, src):
         """Имя копии мира попытки: nw-<дубль>-a<n>, а занятое входом или снимком — с суффиксом r1, r2… Дубль снова в
         очереди начинает попытки с a0, а его прежний мир a0 бывает входом цепочки: копия поверх себя стёрла вход (15.10).
-        Пересъёмка то же держит: её прежний снимок (retake_of) остаётся чьим-то входом — живого дубля Артёма."""
+        Пересъёмка то же держит: её прежний снимок (retake_of) остаётся чьим-то входом — живого дубля Артёма. Защищённый
+        мир (`protected` машины) — тоже занят: прогон вслепую с копией состояния ночи не знает снимков, которые ночь
+        сменила при прошлой пересъёмке, и брал имя её прежнего снимка (16.10, T07: копия в nw-T07-a0r1 — отказ)."""
         used = {os.path.basename(src), self.state.get("chain")}
         for st in self.state["takes"].values():
             used |= {st.get("snapshot"), st.get("kept"), st.get("before"), st.get("retake_of")}
         name, k = f"nw-{take}-a{n}", 0
-        while name in used:
+        while name in used or self.guard.protects(os.path.join(self.saves, name)):
             k += 1
             name = f"nw-{take}-a{n}r{k}"
         return name
