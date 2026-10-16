@@ -51,6 +51,8 @@ public final class FlashAftermath {
     static final int ARC_WINDOW = 50;
     /** Голубовато-белый свет дуги и его синий край — как у подстанции ({@code GridEffects}). */
     private static final int ARC = 0xDCE8FF, ARC_EDGE = 0x5A7CFF;
+    /** Точек на звено ломаной разряда. */
+    private static final int BOLT_DOTS = 4;
     /** Докуда от камеры ищутся дымки, блоки, и проб за тик. */
     static final double SMOKE_RANGE = 128;
     static final int SMOKE_TRIES = 96;
@@ -181,6 +183,17 @@ public final class FlashAftermath {
             Vec3 at = Vec3.atCenterOf(a.pos).add(rnd.nextGaussian() * 0.15, (a.substation ? 1 : 0.2) + rnd.nextGaussian() * 0.1, rnd.nextGaussian() * 0.15);
             Fx.flash().color(ARC, ARC_EDGE).size(1.4f * big * strength, 2.6f * big * strength).life(2 + rnd.nextInt(2)).spawn(level, at);
             Fx.flash().color(0xFFFFFF, ARC).size(0.5f * big, 0.9f * big).life(2).spawn(level, at);
+            // сам разряд — ломаная из ярких точек: у фонаря — вниз по столбу, у подстанции — вверх между вводами. Светлое
+            // пятно на земле, которую вспышка и так залила светом, почти не видно, а ломаная видна и днём
+            Vec3 p = at;
+            for (int seg = a.substation ? 7 : 5; seg > 0; seg--) {
+                Vec3 q = p.add(rnd.nextGaussian() * 0.16 * big, (a.substation ? 0.2 : -0.18) * big, rnd.nextGaussian() * 0.16 * big);
+                for (int k = 0; k < BOLT_DOTS; k++) {
+                    Fx.flash().budget(FxBudget.SPARK).color(0xFFFFFF, ARC_EDGE).size(0.09f * big * strength, 0.05f * big).life(2)
+                            .spawn(level, p.lerp(q, (double) k / BOLT_DOTS));
+                }
+                p = q;
+            }
             int n = (int) ((a.substation ? 18 : 6) * strength);
             for (int i = 0; i < n; i++) {
                 Fx.spark().color(0xFFFFFF, 0x80A0FF).vel(rnd.nextGaussian() * 0.18, 0.05 + rnd.nextDouble() * 0.25, rnd.nextGaussian() * 0.18)
