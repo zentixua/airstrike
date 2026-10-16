@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Съёмка трейлера: клиент без окна проигрывает сценарий (mod/src/devtest/.../scenario/trailer/Trailer) и пишет
 # кадры 60 fps по времени игры и журнал звуков в mod/run/scenario/trailer/; монтаж — tools/trailer/edit.py.
-#   tools/trailer/record.sh [shaders]
+#   tools/trailer/record.sh [shaders|sodium]
 #   shaders — Sodium, Iris и шейдерпак хоста из инстанса (только на ПК с инстансом и KWin)
+#   sodium  — Sodium и Iris без шейдерпака (enableShaders=false): черновой вывод тем же движком, что чистовой; без них
+#             ванильная сборка секций при прорисовке 32 не успевает, и «мир достраивается в кадре» (16.10: n41 — 71 %)
 # Размер кадра — INCOMING_SIZE (по умолчанию 1920x1080). Без инстанса (облако) Create/Sable/Aeronautics
 # скачиваются tools/fetch_runtime_mods.py, клиент идёт под xvfb-run с программной отрисовкой.
 set -euo pipefail
@@ -115,7 +117,11 @@ elif [ ! -d "$MC/mods" ]; then
   python3 "$ROOT/tools/fetch_runtime_mods.py"
   GRADLE_ARGS+=(-PmcModsDir=run/ci-mods)
 fi
-if [ "${1:-}" = shaders ]; then
+if [ "${1:-}" = sodium ]; then
+  export INCOMING_SHADERS=1
+  mkdir -p "$RUN/config"
+  printf 'enableShaders=false\ndisableUpdateMessage=true\n' > "$RUN/config/iris.properties"
+elif [ "${1:-}" = shaders ]; then
   export INCOMING_SHADERS=1
   PACK="$(sed -n 's/^shaderPack=//p' "$MC/config/iris.properties")"
   mkdir -p "$RUN/shaderpacks" "$RUN/config"

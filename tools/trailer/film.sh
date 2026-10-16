@@ -2,7 +2,7 @@
 # Съёмка трейлера по данным игры, в два прохода одной папки (INCOMING_TRAILER_DIR):
 #   tools/trailer/film.sh record [shaders]  — сценарий трейлера пишет каждый план повтором Flashback с журналом снарядов,
 #                                             людей и отметок (replays/<план>.zip, .events.jsonl); кадров нет
-#   tools/trailer/film.sh render [shaders]  — планы из повторов (ReplayFilm, таблица Coverage): камеры по журналу,
+#   tools/trailer/film.sh render [shaders|sodium] — планы из повторов (ReplayFilm, таблица Coverage): камеры по журналу,
 #                                             вывод Flashback кадр на тик, проверка каждого кадра и пересъёмка;
 #                                             render/report.jsonl, render/best.txt — папки планов для edit.py --rec
 # Нужны Flashback 0.39 (Fabric), Flashback NeoForge Fixed, Sinytra Connector и Forgified Fabric API в каталоге модов
@@ -35,7 +35,7 @@ case "$mode" in
     size="${INCOMING_SIZE:-1920x1080}"
     export INCOMING_WINDOW="${INCOMING_WINDOW:-$(( ${size%x*} / 2 ))x$(( ${size#*x} / 2 ))}"
     ;;
-  *) echo "film.sh record|render [shaders]" >&2; exit 2 ;;
+  *) echo "film.sh record|render [shaders|sodium]" >&2; exit 2 ;;
 esac
 if [ "$mode" = render ]; then
   # клиент, у которого память не вернулась после закрытия повтора, уходит на границе повторов и оставляет файл restart
