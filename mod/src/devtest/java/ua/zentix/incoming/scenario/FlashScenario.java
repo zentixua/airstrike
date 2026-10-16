@@ -196,10 +196,14 @@ final class FlashScenario {
             look(f.getX() + 0.5, f.getY() + 11, f.getZ() + 0.5, f.getX() - 60, f.getY() - 2, f.getZ() - 12);
         });
         shot(FAR, 230, "smoke_before");
-        // дуги — вблизи, с теневой стороны (шар — сзади слева): фонари в 3–17 блоках и подстанция в 12
+        // дуги — вблизи, с теневой стороны (шар — сзади слева): фонари в 3–17 блоках и подстанция в 12; игра — в 4 тика
+        // в секунду: после подрыва клиент без видеокарты рисует 3 кадра в секунду, и на 20 тиках кадр за тик не успевал
+        // (одинаковые снимки подряд, двухтиковая вспышка дуги — между ними)
         at(FAR, 232, () -> {
             BlockPos f = far;
+            Minecraft.getInstance().player.getAbilities().flying = true;
             look(f.getX() - 14, f.getY() + 3.5, f.getZ() - 8, f.getX() - 24, f.getY() + 1, f.getZ() + 1);
+            cmd("tick rate 4");
         });
         shot(FAR, 238, "emp_before");
         at(FAR, 240, () -> {
@@ -214,6 +218,7 @@ final class FlashScenario {
         for (int dt : new int[]{1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 19, 22}) shot(FAR, 240 + dt, "emp_arcs");
         at(FAR, 264, () -> {
             BlockPos f = far;
+            cmd("tick rate 20");
             look(f.getX() + 0.5, f.getY() + 11, f.getZ() + 0.5, f.getX() - 60, f.getY() - 2, f.getZ() - 12);
         });
         for (int dt : new int[]{28, 40, 55, 70, 85, 100}) shot(FAR, 240 + dt, "smoke");
