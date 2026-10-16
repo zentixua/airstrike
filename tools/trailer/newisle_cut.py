@@ -102,7 +102,9 @@ def plan_of(sheet, dirs, broken=(), music=None, later=(), gated=None):
             continue
         plan = s["plan"]
         if plan in dirs and plan not in broken and plan not in gated:
-            c = {"take": plan, "kind": "scene", "anchor": "start", "dur": dur, "hold": False, "plan": plan}
+            # кусок окна — с начала, или с якоря листа (montage.py: "start+2.0", "launch-0.3")
+            c = {"take": plan, "kind": "scene", "anchor": s.get("anchor", "start"), "dur": dur, "hold": False,
+                 "plan": plan}
         else:
             why = (f"ворота монтажа: {gated[plan]}" if plan in gated
                    else "утром с Артёмом" if plan in later and plan not in broken else "not shot")

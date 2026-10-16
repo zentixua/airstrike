@@ -58,6 +58,9 @@ class NewisleCutTest(unittest.TestCase):
         self.assertEqual("fill", by_plan[need[1]]["kind"], "неснятый — заливкой")
         self.assertIn("not shot", by_plan[need[1]]["text"]["lines"][0])
         self.assertEqual(need[2], by_plan[need[2]]["take"])
+        hook = C.plan_of(SHEET, {need[0]: "/r/hook", need[2]: "/r/x"})["cuts"]
+        self.assertEqual("start+2.0", next(c for c in hook if c.get("plan") == need[0])["anchor"], "якорь куска — из листа")
+        self.assertEqual("start", by_plan[need[2]]["anchor"])
         self.assertNotIn(need[0], plan["takes"])
         self.assertTrue(all(c["kind"] == "fill" for c in cuts if "card" in str(c.get("id", ""))))
         ids = {c.get("id") or c.get("take") for c in cuts}
