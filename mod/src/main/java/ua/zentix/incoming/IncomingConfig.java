@@ -251,8 +251,8 @@ public final class IncomingConfig {
             workBudgetMs = b.comment("At most how many milliseconds of each tick the server spends on the mod's heavy work in total (5–45):",
                             "strike destruction, then the nuke (up to destruction_ms_per_tick), then blackout lights (up to",
                             "their ms_per_tick). The full budget comes only from time left free in the tick: a server behind schedule",
-                            "gets 2 ms for each of the three. More: salvo damage and nuclear ruins appear sooner;",
-                            "less: a steadier tick, craters and ruins take longer to finish.")
+                            "gets 2 ms for each of the three, and 6 ms more for nuclear ruins in a player's view. More: salvo damage and",
+                            "nuclear ruins appear sooner; less: a steadier tick, craters and ruins take longer to finish.")
                     .translation("incoming.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
             b.pop();
 

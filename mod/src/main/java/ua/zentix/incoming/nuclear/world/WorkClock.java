@@ -136,6 +136,26 @@ public final class WorkClock {
         return spare.getAsBoolean() ? now + estimate < deadline : now < busyDeadline;
     }
 
+    /**
+     * Как {@link #canStart()}, но без свободного времени в тике малый срок дальше на {@code extraBusyNanos} (не дальше
+     * полного срока): работа, которую игрок видит в этом же тике (руины чанка у него на экране), идёт и на сервере,
+     * отстающем от расписания. Со свободным временем — то же, что {@link #canStart()}.
+     */
+    public boolean canStartVisible(long extraBusyNanos) {
+        if (!worked) return true;
+        long now = time.getAsLong();
+        return spare.getAsBoolean() ? now + (long) estimate < deadline : now < visibleBusyDeadline(extraBusyNanos);
+    }
+
+    /** Как {@link #overdue()}, со сроком {@link #canStartVisible}. */
+    public boolean overdueVisible(long extraBusyNanos) {
+        return time.getAsLong() >= (spare.getAsBoolean() ? deadline : visibleBusyDeadline(extraBusyNanos));
+    }
+
+    private long visibleBusyDeadline(long extraBusyNanos) {
+        return Math.min(deadline, busyDeadline + extraBusyNanos);
+    }
+
     private double kindEstimate(int kind) {
         return kind < kindEstimate.length ? kindEstimate[kind] : 0;
     }
