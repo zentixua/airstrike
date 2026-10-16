@@ -131,18 +131,28 @@ public final class StrikeGameTests {
      * Неровный навес над округой стрелка {@code c} (±48 блоков, дальше всех мест пусковой {@code LaunchSite}): полосы на
      * двух высотах над самым высоким блоком округи — под ним нет неба, на нём нет ровного места. Высота — от самого
      * высокого блока, а не от стрелка: сетка GameTest не убирает площадки прошлых партий, и место нашлось бы на соседней
-     * выше навеса (CI 16.10, другой состав части: пусковая на y −17 у края площадки над навесом на −46).
+     * выше навеса (CI 16.10, другой состав части: пусковая на y −17 у края площадки над навесом на −46). После проверки
+     * навес убирается: над чужой постройкой он выше, чем расчищает площадка следующей партии, и шахед соседней проверки
+     * разбивался о него (CI 16.10, {@code drone_dive_mast} сразу после {@code operator_route}).
      */
-    private static void roofOver(ServerLevel level, BlockPos c) {
+    private static void roofOver(GameTestHelper h, BlockPos c) {
+        ServerLevel level = h.getLevel();
         int top = c.getY();
         for (int x = -48; x <= 48; x++) for (int z = -48; z <= 48; z++) {
             BlockPos q = c.offset(x, 0, z);
             if (Terrain.ready(level, q)) top = Math.max(top, level.getHeight(Heightmap.Types.MOTION_BLOCKING, q.getX(), q.getZ()));
         }
+        List<BlockPos> roof = new ArrayList<>();
         for (int x = -48; x <= 48; x++) for (int z = -48; z <= 48; z++) {
             BlockPos r = new BlockPos(c.getX() + x, top + (Math.floorMod(x, 3) == 0 ? 10 : 13), c.getZ() + z);
-            if (Terrain.ready(level, r)) level.setBlock(r, Blocks.STONE.defaultBlockState(), 2);
+            if (Terrain.ready(level, r) && level.getBlockState(r).isAir()) {
+                level.setBlock(r, Blocks.STONE.defaultBlockState(), 2);
+                roof.add(r);
+            }
         }
+        afterTest(h, () -> roof.forEach(r -> {
+            if (Terrain.ready(level, r) && level.getBlockState(r).is(Blocks.STONE)) level.setBlock(r, Blocks.AIR.defaultBlockState(), 2);
+        }));
     }
 
     /** Верх блока цели. */
@@ -918,7 +928,7 @@ public final class StrikeGameTests {
         h.assertTrue(Math.abs(first.x - gate.x) < 1.5 && Math.abs(first.z - gate.z) < 1.5, "первая точка не на курсе пусковой: " + first + " против " + gate);
         launcher.discard();
         // навес над всей округой, полосами на двух высотах: ни одного места под пусковую ни под ним, ни на нём
-        roofOver(level, BlockPos.containing(shooter.position()));
+        roofOver(h, BlockPos.containing(shooter.position()));
         StrikeProjectile far = StrikeService.launchGuided(level, WeaponType.DRONE, point, 0, shooter, Waypoints.NONE);
         h.assertTrue(far != null && far.isVirtual(), "без места пусковой шахед не зашёл издалека: " + far);
         h.assertTrue(level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), LauncherEntity::isAlive).isEmpty(), "пусковая поставлена под навес");
@@ -956,7 +966,7 @@ public final class StrikeGameTests {
         h.assertTrue(p.rangeLeft() >= 1.5 * planned, "запас хода " + p.rangeLeft() + " меньше полутора путей по точкам " + planned);
         launcher.discard();
         // места пусковой нет — заход издалека
-        roofOver(level, BlockPos.containing(shooter.position()));
+        roofOver(h, BlockPos.containing(shooter.position()));
         StrikeProjectile far = StrikeService.launchGuided(level, WeaponType.DRONE, point, 0, shooter, via);
         h.assertTrue(far != null && far.isVirtual(), "без места пусковой шахед по маршруту не зашёл издалека: " + far);
         Vec3 entry = via.afar(point, WeaponType.DRONE.spec().route().finalLeg());
