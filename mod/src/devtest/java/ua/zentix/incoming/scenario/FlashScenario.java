@@ -39,8 +39,8 @@ import java.util.Locale;
  * брони, житель и корова, вдоль площади — фонари на столбах и подстанция. 15 кт в воздухе в масштабе 0.03
  * (у стены ~3 psi и ~19 кал/см²: стена стоит, дерево обугливается, камень темнеет), пожары на время ближнего подрыва
  * выключены — огонь закрыл бы стену. Кадры: до, первые тики, стена с силуэтами издали, вблизи и вдоль. Потом —
- * подрыв в настоящем масштабе в 1,3 км от зрителя на другой равнине: дымки с травы и листвы и дуги ЭМИ у фонарей перед
- * зрителем до прихода волны (в малом масштабе волна приходит за тики и закрывает их пылью).
+ * подрыв в настоящем масштабе в 1,3 км от зрителя на другой равнине: дуги ЭМИ у фонарей вблизи в первые тики, потом
+ * дымки с травы и листвы издали до прихода волны (в малом масштабе волна приходит за тики и закрывает их пылью).
  * Строки {@code SCENARIO flash …} — сколько следов у сервера и у клиента, дуг ЭМИ и дымков.
  */
 final class FlashScenario {
@@ -196,6 +196,12 @@ final class FlashScenario {
             look(f.getX() + 0.5, f.getY() + 11, f.getZ() + 0.5, f.getX() - 60, f.getY() - 2, f.getZ() - 12);
         });
         shot(FAR, 230, "smoke_before");
+        // дуги — вблизи, с теневой стороны (шар — сзади слева): фонари в 3–17 блоках и подстанция в 12
+        at(FAR, 232, () -> {
+            BlockPos f = far;
+            look(f.getX() - 14, f.getY() + 3.5, f.getZ() - 8, f.getX() - 24, f.getY() + 1, f.getZ() + 1);
+        });
+        shot(FAR, 238, "emp_before");
         at(FAR, 240, () -> {
             BlockPos f = far;
             MinecraftServer server = server();
@@ -205,7 +211,12 @@ final class FlashScenario {
                         String.format(Locale.ROOT, "%.1f", d.fluence(Vec3.atCenterOf(f))), String.format(Locale.ROOT, "%.0f", d.arrivalTicks(1300)));
             });
         });
-        for (int dt : new int[]{6, 12, 20, 30, 40, 55, 70, 85, 100}) shot(FAR, 240 + dt, "smoke");
+        for (int dt : new int[]{1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 19, 22}) shot(FAR, 240 + dt, "emp_arcs");
+        at(FAR, 264, () -> {
+            BlockPos f = far;
+            look(f.getX() + 0.5, f.getY() + 11, f.getZ() + 0.5, f.getX() - 60, f.getY() - 2, f.getZ() - 12);
+        });
+        for (int dt : new int[]{28, 40, 55, 70, 85, 100}) shot(FAR, 240 + dt, "smoke");
         at(FAR, 360, () -> {
             Incoming.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();

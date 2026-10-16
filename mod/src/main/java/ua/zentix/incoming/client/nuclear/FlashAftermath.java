@@ -34,7 +34,7 @@ import java.util.List;
  * <ul>
  *     <li>ЭМИ — фонари и лампы сети (те, что гасит блэкаут, {@link GridLights}) и подстанции в радиусе отключения
  *     коротят: голубая дуга и искры, вразнобой, чаще сразу, до прихода волны к лампе и не позже {@link #ARC_WINDOW}
- *     тиков. Клиент сам ищет их в своих чанках по палитрам секций, не больше {@link #SECTIONS_PER_TICK} секций за тик;
+ *     тиков; дуга трещит — 2–4 разряда через 1–3 тика, у части ламп потом ещё раз. Клиент сам ищет их в своих чанках по палитрам секций, не больше {@link #SECTIONS_PER_TICK} секций за тик;
  *     дуг — не больше {@link #MAX_ARCS} ближних к камере;</li>
  *     <li>дымки с того, что свет поджёг: крыши, земля с травой, листва и деревянные стены лицом к шару курятся тонкими
  *     струйками, пока до них не дойдёт волна. Места — случайные точки перед камерой (в кадре, до {@link #SMOKE_RANGE}
@@ -122,21 +122,35 @@ public final class FlashAftermath {
                 Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
                 found.sort(Comparator.comparingDouble(a -> a.pos.distSqr(BlockPos.containing(cam))));
                 arcs = new ArrayList<>(found.subList(0, Math.min(MAX_ARCS, found.size())));
-                // короткое замыкание — вразнобой, чаще сразу (лампа коротит, пока не перегорит), некоторые — дважды; до
-                // прихода волны к лампе: после неё лампа в пыли и обломках (в малом масштабе удара волна — за тики)
+                // короткое замыкание — вразнобой, чаще сразу, до прихода волны к лампе: после неё лампа в пыли и обломках
+                // (в малом масштабе удара волна — за тики, тогда — только первый разряд). Дуга не гаснет сразу: разряд
+                // проскакивает снова, пока цепь не разомкнётся (2–4 раза через 1–3 тика); у части ламп замыкание
+                // повторяется позже, слабее
                 for (Arc a : arcs) {
                     double dist = Math.hypot(a.pos.getX() + 0.5 - d.burst().x, a.pos.getZ() + 0.5 - d.burst().z);
-                    int window = Mth.clamp((int) d.arrivalTicks(dist) - t, 3, ARC_WINDOW);
+                    int wave = (int) d.arrivalTicks(dist);
+                    int window = Mth.clamp(wave - t, 3, ARC_WINDOW);
                     float r = rnd.nextFloat();
-                    a.at = t + (int) (r * r * window);
-                    a.again = rnd.nextFloat() < 0.4f ? a.at + 3 + rnd.nextInt(16) : -1;
+                    int at = t + (int) (r * r * window);
+                    int again = rnd.nextFloat() < 0.4f ? at + 8 + rnd.nextInt(16) : -1;
+                    int first = 2 + rnd.nextInt(3), second = again < 0 ? 0 : 1 + rnd.nextInt(2);
+                    a.strikes = new int[first + second];
+                    a.strength = new float[first + second];
+                    for (int i = 0, when = at; i < a.strikes.length; i++) {
+                        boolean late = i >= first;
+                        when = i == 0 ? at : i == first ? again : when + 1 + rnd.nextInt(3);
+                        a.strikes[i] = i > 0 && when >= wave ? -1 : when;
+                        a.strength[i] = (late ? 0.6f : 1) * (i == 0 || i == first ? 1 : 0.55f + 0.35f * rnd.nextFloat());
+                    }
                 }
                 lastArcs = arcs.size();
             }
             boolean left = false;
             for (Arc a : arcs) {
-                if (a.at == t || a.again == t) arc(level, a, a.again == t ? 0.6f : 1);
-                if (a.at > t || a.again > t) left = true;
+                for (int i = 0; i < a.strikes.length; i++) {
+                    if (a.strikes[i] == t) arc(level, a, a.strength[i]);
+                    if (a.strikes[i] > t) left = true;
+                }
             }
             return left;
         }
@@ -175,11 +189,12 @@ public final class FlashAftermath {
         }
     }
 
-    /** Лампа сети или подстанция: дуга и её время. */
+    /** Лампа сети или подстанция: тики разрядов дуги и их сила. */
     private static final class Arc {
         final BlockPos pos;
         final boolean substation;
-        int at, again;
+        int[] strikes = new int[0];
+        float[] strength = new float[0];
 
         Arc(BlockPos pos, boolean substation) {
             this.pos = pos;
