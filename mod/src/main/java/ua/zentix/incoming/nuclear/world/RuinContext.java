@@ -363,7 +363,8 @@ final class RuinContext {
 
     /**
      * Фоновый план чанка: задача (разломы, обрушение и достройка — всё в фоне), чанк, по которому сняты снимки
-     * ({@code identityHashCode}; 0 — снимок с диска), когда отдана (игровое время) и на какой ступени пула.
+     * ({@code identityHashCode}; 0 — снимок с диска), когда отдана или, пока ждёт в очереди, последний тик ожидания
+     * (игровое время; от него — срок {@link #TASK_AGE_LIMIT}) и на какой ступени пула.
      */
     private record Task(java.util.concurrent.Future<RuinPlan> future, int chunkId, long since, RuinWorkers.Priority priority) {}
 
@@ -420,6 +421,17 @@ final class RuinContext {
         return tasks.containsKey(chunk);
     }
 
+    /**
+     * Фоновый план чанка, который ещё ждёт в очереди пула на менее важной ступени, — на ступень {@code priority}
+     * (поток сервера; {@link RuinWorkers#promote}).
+     */
+    void promote(long chunk, RuinWorkers.Priority priority) {
+        Task t = tasks.get(chunk);
+        if (t == null || t.priority.compareTo(priority) <= 0) return;
+        java.util.concurrent.Future<RuinPlan> moved = RuinWorkers.promote(t.future, priority);
+        if (moved != null) tasks.put(chunk, new Task(moved, t.chunkId, t.since, priority));
+    }
+
     /** Сколько фоновых планов в работе или готовы и не забраны. */
     int tasks() {
         return tasks.size();
@@ -446,9 +458,10 @@ final class RuinContext {
     }
 
     /**
-     * Фоновые планы дольше {@link #TASK_AGE_LIMIT} тиков (поток сервера, раз в тик): задача бросается
+     * Фоновые планы дольше {@link #TASK_AGE_LIMIT} тиков работы (поток сервера, раз в тик): задача бросается
      * ({@code cancel(true)}: поток решателя, если застрял, получает прерывание), чанк — в {@link #failed}, его план строит
-     * поток сервера.
+     * поток сервера. Срок — от начала работы: дальняя задача ждёт в очереди пула, пока есть задачи важнее, и это не
+     * зависание.
      */
     void expire(long now) {
         this.now = now;
@@ -457,7 +470,13 @@ final class RuinContext {
         while (it.hasNext()) {
             var e = it.next();
             Task t = e.getValue();
-            if (t.future.isDone() || now - t.since < TASK_AGE_LIMIT) continue;
+            if (t.future.isDone()) continue;
+            if (!RuinWorkers.started(t.future)) {
+                // ещё в очереди
+                if (t.since != now) e.setValue(new Task(t.future, t.chunkId, now, t.priority));
+                continue;
+            }
+            if (now - t.since < TASK_AGE_LIMIT) continue;
             t.future.cancel(true);
             it.remove();
             failed.add(e.getLongKey());

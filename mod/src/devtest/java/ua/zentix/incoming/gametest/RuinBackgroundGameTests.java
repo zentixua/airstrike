@@ -1051,6 +1051,52 @@ public final class RuinBackgroundGameTests {
     }
 
     /**
+     * Задача пула, которая ждёт в очереди на дальней ступени (план, отданный подготовкой руин заранее), переносится на
+     * ступень чанка у волны и идёт раньше всех дальних, что стоят перед ней; начатая и уже важная — не переносятся.
+     * Потоки заняты задачами, которые ждут защёлку; задачи очереди за ними ждут вторую: без переноса освободившиеся
+     * потоки взяли бы их и дальняя задача не началась бы, пока держится вторая защёлка.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "ruin_pool_promote", skyAccess = true)
+    public static void queuedFarTaskPromoted(GameTestHelper h) {
+        var far = ua.zentix.incoming.nuclear.world.RuinWorkers.Priority.FAR;
+        var seen = ua.zentix.incoming.nuclear.world.RuinWorkers.Priority.SEEN;
+        int threads = ua.zentix.incoming.nuclear.world.RuinWorkers.threadsForTest();
+        java.util.concurrent.CountDownLatch running = new java.util.concurrent.CountDownLatch(1), queued = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.Callable<Boolean> filler = () -> (started.getAndIncrement() < threads ? running : queued).await(30, java.util.concurrent.TimeUnit.SECONDS);
+        List<java.util.concurrent.Future<Boolean>> fillers = new ArrayList<>();
+        // задачи прежних партий (кольцо следа, руины заранее) заняли бы потоки
+        h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.awaitForTest(far, 30_000), "пул руин не освободился от прежних задач");
+        try {
+            for (int i = 0; i < 3 * threads; i++) fillers.add(ua.zentix.incoming.nuclear.world.RuinWorkers.submitForTest(filler, far));
+            java.util.concurrent.Future<String> task = ua.zentix.incoming.nuclear.world.RuinWorkers.submitForTest(() -> "plan", far);
+            // все потоки заняты: задача ещё в очереди
+            long until = System.nanoTime() + 10_000_000_000L;
+            while (started.get() < threads && System.nanoTime() < until) java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
+            h.assertTrue(started.get() == threads, "потоки пула не заняты: начато " + started.get() + " из " + threads);
+            h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.promoteForTest(fillers.get(0), seen) == null, "начатая задача перенесена");
+            java.util.concurrent.Future<String> moved = ua.zentix.incoming.nuclear.world.RuinWorkers.promoteForTest(task, seen);
+            h.assertTrue(moved != null, "задача в очереди не перенесена");
+            h.assertTrue(ua.zentix.incoming.nuclear.world.RuinWorkers.promoteForTest(moved, seen) == null, "задача перенесена на свою же ступень");
+            running.countDown();
+            String result = moved.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            h.assertTrue("plan".equals(result), "перенесённая задача дала " + result);
+            h.assertFalse(task.isDone(), "прежняя задача тоже выполнилась");
+            h.assertTrue(started.get() <= 2 * threads, "перенесённая задача шла за дальними: начато задач очереди " + (started.get() - threads));
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            throw new net.minecraft.gametest.framework.GameTestAssertException("перенесённая задача не выполнилась за 10 с, пока задачи очереди ждут: " + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new net.minecraft.gametest.framework.GameTestAssertException("прервано");
+        } finally {
+            running.countDown();
+            queued.countDown();
+            ua.zentix.incoming.nuclear.world.RuinWorkers.awaitForTest(far, 10_000);
+        }
+        h.succeed();
+    }
+
+    /**
      * Зона за волной у края исследованного мира: чанк, чьё окно руин целое на диске, получает план с диска, и квадрат
      * зоны, где хоть один чанк окон его чанков не целый, не пропускается целиком (иначе план ждёт до конца зоны и
      * пропадает, руин на диске нет: «unplaced … chunks»). Здесь место удара (9×9 вокруг цели,

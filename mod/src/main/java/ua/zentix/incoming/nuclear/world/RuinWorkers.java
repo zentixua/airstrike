@@ -74,8 +74,11 @@ public final class RuinWorkers {
     private static final AtomicInteger NUMBER = new AtomicInteger();
     /** Порядок задач одной ступени — по постановке. */
     private static final AtomicLong SEQUENCE = new AtomicLong();
-    /** Задач каждой ступени в пуле (в работе и в очереди). */
-    private static final AtomicIntegerArray IN_FLIGHT = new AtomicIntegerArray(Priority.values().length);
+    /**
+     * Задач каждой ступени в пуле (в работе и в очереди). Свой у каждого запуска пула до остановки ({@link #shutdown}):
+     * задача, которая не заметила остановку, считается в счёте своего запуска, а не следующего мира.
+     */
+    private static volatile AtomicIntegerArray IN_FLIGHT = new AtomicIntegerArray(Priority.values().length);
     @Nullable
     private static ThreadPoolExecutor pool;
     /** Потоков по настройке (или по ядрам) и сколько сейчас в работе (подстройка под тик). */
@@ -144,8 +147,9 @@ public final class RuinWorkers {
 
     /** Задач ступени {@code priority} и более важных в пуле (в работе и в очереди). */
     static int inFlight(Priority priority) {
+        AtomicIntegerArray counts = IN_FLIGHT;
         int n = 0;
-        for (int i = 0; i <= priority.ordinal(); i++) n += IN_FLIGHT.get(i);
+        for (int i = 0; i <= priority.ordinal(); i++) n += counts.get(i);
         return n;
     }
 
@@ -182,6 +186,23 @@ public final class RuinWorkers {
         return true;
     }
 
+    /** Для проверок: задача в пул на ступень {@code priority} ({@link #submit}). */
+    public static <T> Future<T> submitForTest(Callable<T> task, Priority priority) {
+        return submit(task, priority);
+    }
+
+    /** Для проверок: {@link #promote}. */
+    @Nullable
+    public static <T> Future<T> promoteForTest(Future<T> task, Priority priority) {
+        return promote(task, priority);
+    }
+
+    /** Для проверок: потоков пула в работе. */
+    public static int threadsForTest() {
+        if (pool == null) pool();
+        return active;
+    }
+
     /** Задача в пул (поток сервера) на ступень {@code priority}. */
     static <T> Future<T> submit(Callable<T> task, Priority priority) {
         Task<T> t = new Task<>(task, priority);
@@ -203,9 +224,38 @@ public final class RuinWorkers {
             p.execute(t);
         } catch (java.util.concurrent.RejectedExecutionException e) {
             // пул закрыт (остановка): задачи нет — и в счёте её нет
-            IN_FLIGHT.decrementAndGet(t.priority);
+            t.uncount();
             throw e;
         }
+    }
+
+    /**
+     * Задачу, которая ещё ждёт в очереди, — на более важную ступень (поток сервера): та же работа на новом месте
+     * в очереди. Иначе чанк, чей план подготовка руин отдала дальней ступенью, ждал бы его за всеми задачами чанков
+     * у игроков, когда до чанка дойдёт волна.
+     *
+     * @return задача на новой ступени; null — начатая, уже на этой ступени или важнее, или не этого пула: как есть
+     */
+    @Nullable
+    static <T> Future<T> promote(Future<T> future, Priority priority) {
+        ThreadPoolExecutor p = pool;
+        if (p == null || !(future instanceof Task<T> t) || t.priority <= priority.ordinal() || !p.remove(t)) return null;
+        // из очереди снята до начала: её run не позовут
+        t.uncount();
+        Task<T> moved = new Task<>(t.callable, priority);
+        try {
+            execute(p, moved);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // остановка: брошена, как и задачи в очереди
+            t.cancel(false);
+            return null;
+        }
+        return moved;
+    }
+
+    /** Задача пула уже начата (или не задача пула): срок фонового плана считается от начала работы. */
+    static boolean started(Future<?> future) {
+        return !(future instanceof Task<?> t) || t.started;
     }
 
     /**
@@ -213,25 +263,35 @@ public final class RuinWorkers {
      * конца (и у брошенной: пул всё равно зовёт {@code run}, который сразу выходит).
      */
     static final class Task<T> extends FutureTask<T> implements Comparable<Task<?>> {
+        private final Callable<T> callable;
         private final int priority;
         private final long sequence;
+        private final AtomicIntegerArray counts;
+        private volatile boolean started;
 
         Task(Callable<T> task, Priority priority) {
             super(task);
+            this.callable = task;
             this.priority = priority.ordinal();
             this.sequence = SEQUENCE.getAndIncrement();
-            IN_FLIGHT.incrementAndGet(this.priority);
+            this.counts = IN_FLIGHT;
+            counts.incrementAndGet(this.priority);
         }
 
         @Override
         public void run() {
+            started = true;
             long t0 = System.nanoTime();
             try {
                 super.run();
             } finally {
                 BUSY.addAndGet(System.nanoTime() - t0);
-                IN_FLIGHT.decrementAndGet(priority);
+                uncount();
             }
+        }
+
+        private void uncount() {
+            counts.decrementAndGet(priority);
         }
 
         @Override
@@ -317,7 +377,8 @@ public final class RuinWorkers {
         if (p == null) return true;
         java.util.List<Runnable> queued = p.shutdownNow();
         // их run уже не позовут: из счёта ступеней
-        for (Runnable r : queued) if (r instanceof Task<?> t) IN_FLIGHT.decrementAndGet(t.priority);
+        for (Runnable r : queued) if (r instanceof Task<?> t) t.uncount();
+        IN_FLIGHT = new AtomicIntegerArray(Priority.values().length);
         int dropped = queued.size();
         boolean done;
         try {

@@ -178,7 +178,7 @@ public final class IncomingConfig {
                             "(1.0 is true to life). Lower gives the server more time to build ruins ahead of the wave and lets players",
                             "watch the wall roll in. Near the fireball the wave is always true to life; beyond the dust wall only the sound",
                             "travels on, at the speed of sound.")
-                    .translation("incoming.config.nuke_wave_speed").defineInRange("wave_speed", 0.5, 0.15, 1.0);
+                    .translation("incoming.config.nuke_wave_speed").defineInRange("wave_speed", 0.42, 0.15, 1.0);
             nukeBlockDamage = b.comment("The blast wave destroys buildings and trees. Off: no ruins and no crater.")
                     .translation("incoming.config.nuke_block_damage").define("block_damage", true);
             nukeFires = b.comment("The thermal pulse starts fires.")

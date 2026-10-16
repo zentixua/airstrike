@@ -73,7 +73,7 @@ public final class ScarQueue {
          * просился): от этого — срок удержания и сколько игрок ждал руин.
          */
         long asked = Long.MIN_VALUE;
-        /** Подрыв ({@link #event}), по которому чанк уже в {@link #ahead}: −1 — ни по какому. */
+        /** Номер подрыва ({@link Detonation#id}), по которому чанк уже в {@link #ahead}: −1 — ни по какому. */
         int aheadEvent = -1;
 
         Job(long chunk, boolean mayHold) {
@@ -158,7 +158,8 @@ public final class ScarQueue {
     /** Работы по приходу волны: проверка заранее ({@link #lookAhead}) — за {@link #LOOKAHEAD} тиков до него. */
     private final PriorityQueue<Ahead> ahead = new PriorityQueue<>(Comparator.comparingLong(Ahead::wave));
 
-    private record Ahead(Job job, int event, long wave) {}
+    /** Работа, номер подрыва ({@link Detonation#id}: место подрыва в {@code events} меняется, если пришёл более ранний) и приход волны. */
+    private record Ahead(Job job, int detonation, long wave) {}
     /**
      * Чанки, чей срок пришёл: сперва те, что видит игрок ({@link #watched}: их руины — ровно с фронтом, изменения
      * уходят ему в том же тике), потом остальные (их никто не видит — отставание на несколько тиков не заметно; они всё
@@ -470,9 +471,10 @@ public final class ScarQueue {
 
     /** Проверить чанк заранее ({@link #lookAhead}) перед приходом волны его текущего подрыва — один раз на подрыв. */
     private void lookAheadLater(Job job) {
-        if (job.aheadEvent == job.event) return;
-        job.aheadEvent = job.event;
-        ahead.add(new Ahead(job, job.event, job.wave));
+        int id = job.events.get(job.event).id();
+        if (job.aheadEvent == id) return;
+        job.aheadEvent = id;
+        ahead.add(new Ahead(job, id, job.wave));
     }
 
     /**
@@ -767,7 +769,8 @@ public final class ScarQueue {
             ahead.poll();
             Job job = a.job();
             // снят, уже по другому подрыву, срок уже пришёл
-            if (jobs.get(job.chunk) != job || job.event != a.event() || job.ready || job.wave <= now + EARLY) continue;
+            if (jobs.get(job.chunk) != job || job.event >= job.events.size() || job.events.get(job.event).id() != a.detonation()
+                    || job.ready || job.wave <= now + EARLY) continue;
             ChunkPos pos = new ChunkPos(job.chunk);
             if (!watched(level, pos)) continue;
             long c0 = clock.begin();
@@ -813,7 +816,12 @@ public final class ScarQueue {
             st[1]++;
         }
         RuinContext ctx = NuclearWorld.get(level).ruins(level, d, now);
-        if (!background(ctx, job.chunk) || ctx.running(job.chunk)) return plan != null;
+        if (background(ctx, job.chunk) && ctx.running(job.chunk)) {
+            // план уже строится (подготовка отдала его дальней ступенью) — если ещё ждёт в очереди, то первым
+            ctx.promote(job.chunk, RuinWorkers.Priority.SEEN);
+            return plan != null;
+        }
+        if (!background(ctx, job.chunk)) return plan != null;
         if (ctx.requestWindow(level, pos, RuinWorkers.Priority.SEEN) > 0) return plan != null;
         if (!ctx.submit(level, chunk, RuinWorkers.Priority.SEEN)) return plan != null;
         st[26]++;
@@ -1023,15 +1031,17 @@ public final class ScarQueue {
             return LOOKED;
         }
         job.waitsNeighbours = false;
+        boolean seen = watched(level, pos);
+        // чанк, который видит игрок, — первым в пуле руин: дальние задачи (LOD вдали, руины с диска) держат пул полным
+        RuinWorkers.Priority priority = seen ? RuinWorkers.Priority.SEEN : RuinWorkers.Priority.NEAR;
         boolean submit = !ready && background && !ctx.running(job.chunk);
         if (!ready && background && ctx.running(job.chunk) && !ctx.done(job.chunk)) {
+            // план строится; отданный подготовкой дальней ступенью и ещё не начатый — на ступень чанка у волны
+            ctx.promote(job.chunk, priority);
             NukeDiag.waited(NukeDiag.Wait.BACKGROUND);
             this.background.add(job);
             return LOOKED;
         }
-        boolean seen = watched(level, pos);
-        // чанк, который видит игрок, — первым в пуле руин: дальние задачи (LOD вдали, руины с диска) держат пул полным
-        RuinWorkers.Priority priority = seen ? RuinWorkers.Priority.SEEN : RuinWorkers.Priority.NEAR;
         int reading = submit ? ctx.requestWindow(level, pos, priority) : 0;
         long[] st = preparedStats.get(d.id());
         if (st != null) {
