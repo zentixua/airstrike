@@ -23,10 +23,12 @@ import org.lwjgl.openal.EXTEfx;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.nuclear.Deafness;
+import ua.zentix.incoming.client.nuclear.NukePall;
 
 /**
  * Фильтр нижних частот OpenAL EFX на наши звуки: воздух по дороге «съедает» верха (чем дальше, тем глуше),
- * холм или дом между источником и ухом глушит ещё сильнее, а после близкой ударной волны всё глухо (оглушение).
+ * холм или дом между источником и ухом глушит ещё сильнее, а после близкой ударной волны всё глухо (оглушение);
+ * в пелене пыли после ядерной волны звуки вдали глуше ({@link NukePall#muffle}).
  * <p>
  * Звук с фильтром — {@link Muffled}: разовый получает фильтр при старте ({@link PlaySoundSourceEvent}),
  * мотор снаряда — каждый тик ({@link #update}). Всё, что трогает OpenAL, идёт в звуковом потоке, где контекст
@@ -117,9 +119,9 @@ public final class SoundFilters {
         }
         // оглушение: только короткие звуки — фильтр остаётся на источнике до конца, а петли мы ведём сами
         if (!(sound instanceof Muffled) && sound.isLooping()) return;
-        float k = Deafness.depth(sound);
-        gain *= 1 - 0.55f * k;
-        highs *= Math.max(0.01f, 1 - 0.99f * k);
+        float k = Deafness.depth(sound), m = NukePall.muffle(sound);
+        gain *= (1 - 0.55f * k) * (1 - 0.3f * m);
+        highs *= Math.max(0.01f, (1 - 0.99f * k) * (1 - 0.75f * m));
         if (gain < 0.999f || highs < 0.999f) set(source, gain, highs);
     }
 
@@ -127,8 +129,8 @@ public final class SoundFilters {
     static void update(SoundInstance sound, float gain, float highs) {
         ChannelAccess.ChannelHandle handle = Minecraft.getInstance().getSoundManager().soundEngine.instanceToChannel.get(sound);
         if (handle == null) return;
-        float k = Deafness.depth(sound);
-        float g = gain * (1 - 0.55f * k), h = highs * Math.max(0.01f, 1 - 0.99f * k);
+        float k = Deafness.depth(sound), m = NukePall.muffle(sound);
+        float g = gain * (1 - 0.55f * k) * (1 - 0.3f * m), h = highs * Math.max(0.01f, (1 - 0.99f * k) * (1 - 0.75f * m));
         handle.execute(channel -> set(channel.source, g, h));
     }
 

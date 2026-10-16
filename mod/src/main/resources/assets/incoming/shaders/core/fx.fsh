@@ -9,6 +9,10 @@ uniform sampler2D Sampler0;
 uniform sampler2D Sampler1;
 // атлас дальних моделей (client/render/FarModels), с умноженной альфой и уменьшенными копиями
 uniform sampler2D Sampler3;
+// пелена на кадре (PallPass, мельче экрана): свет её до мира за пикселем (rgb) и сколько она пропускает (a)
+uniform sampler2D Sampler6;
+// средний свет пелены (rgb); w — 1, если пелена на кадре есть
+uniform vec4 PallAmbient;
 
 uniform vec4 ColorModulator;
 uniform vec2 ScreenSize;
@@ -23,6 +27,7 @@ in float softness;
 in float fog;
 in float nearest;
 in float opacity;
+in float pallFront;
 
 out vec4 fragColor;
 
@@ -50,6 +55,16 @@ void main() {
     // в мутную дымку вокруг облака. Вдали (клуб мельче 16 пикселей) — без среза: дальний дым и так бледный
     if (nearest > 0.5 && tex.a * opacity < 0.1 * clamp(2.0 - lod, 0.0, 1.0)) discard;
     vec4 color = vec4(vertexColor.rgb * tex.rgb, vertexColor.a * tex.a);
+    if (PallAmbient.w > 0.5) {
+        // пелена перед квадратом: его свет ослаблен, а закрытое им — уже её свет до него (пелена на кадре — до мира).
+        // Квадрат ближе мира: перед ним пелены не больше, чем на кадре до мира, — и её свет до него — доля света пелены
+        // на кадре по доле ослабления. Средний свет годится только там, где пелены на кадре почти нет: иначе клуб за
+        // густой пеленой выходил бы пятном другого цвета (вдали — светлыми точками на тёмной пелене)
+        vec4 frame = texture(Sampler6, gl_FragCoord.xy / ScreenSize);
+        float front = max(pallFront, frame.a);
+        vec3 before = mix(PallAmbient.rgb, frame.rgb / max(1.0 - frame.a, 1e-3), smoothstep(0.02, 0.15, 1.0 - frame.a));
+        color.rgb = color.rgb * front + color.a * before * (1.0 - front);
+    }
     if (FxScene > 0.5 && softness > 0.0) {
         // клуб тает, входя в землю и стены, и пропадает за рельефом (и за LOD Distant Horizons)
         float scene = texture(Sampler1, gl_FragCoord.xy / ScreenSize).r;

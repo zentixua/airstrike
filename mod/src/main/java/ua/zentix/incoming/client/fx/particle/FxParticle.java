@@ -40,7 +40,8 @@ public final class FxParticle {
     private int life;
     private float r0, g0, b0, r1, g1, b1, colorCurve, alpha;
     private int fadeIn, fadeAfter;
-    private float fadeFrom, glow, glowTicks, drag, rise, gravity, wind;
+    private float fadeFrom, glow, glowTicks, drag, rise, gravity, wind, driftX, driftZ;
+    private boolean paper;
     private boolean collide, smooth;
     /** Цепочка клубов ({@link Fx.Spec#chain}): направление пути и шаг между клубами; шаг 0 — не цепочка. */
     private float chainX, chainY, chainZ, chainGap;
@@ -88,6 +89,9 @@ public final class FxParticle {
         rise = s.rise;
         gravity = s.gravity;
         wind = s.wind;
+        driftX = s.driftX;
+        driftZ = s.driftZ;
+        paper = s.paper;
         collide = s.collide;
         smooth = s.smooth;
         chainX = s.chainX;
@@ -125,14 +129,21 @@ public final class FxParticle {
         }
         // горячее всплывает быстро, остывшее — едва
         yd += rise * (0.15 + 0.85 * Math.exp(-age / 40.0)) - gravity;
-        xd += Fx.WIND_X * wind;
-        zd += Fx.WIND_Z * wind;
+        xd += Fx.WIND_X * wind + driftX;
+        zd += Fx.WIND_Z * wind + driftZ;
+        if (kind == Fx.Kind.FLAKE && !onGround) {
+            // хлопья вьются, падая
+            xd += 0.003 * Mth.sin(age * 0.21f + variant);
+            zd += 0.003 * Mth.cos(age * 0.17f + variant * 1.3f);
+        }
         move(level, xd, yd, zd);
         xd *= drag;
         yd *= drag;
         zd *= drag;
         roll += spin;
-        spin *= 0.985f;
+        // хлопья кувыркаются, пока не легли
+        if (kind != Fx.Kind.FLAKE) spin *= 0.985f;
+        else if (onGround) spin = 0;
         if (onGround && collide) {
             xd *= 0.7;
             zd *= 0.7;
@@ -263,6 +274,13 @@ public final class FxParticle {
         out.opacity(a);
         switch (kind) {
             case SPARK -> streak(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, light, fog);
+            case FLAKE -> {
+                // кувыркается: одна ось квадрата то во всю ширину, то ребром
+                float turn = Mth.lerp(partial, oRoll, roll);
+                float edge = Math.max(0.12f, Math.abs(Mth.cos(turn * 2.3f + variant)));
+                out.billboard((float) px, (float) py, (float) pz, (float) d, quadSize, quadSize * edge * (paper ? 0.7f : 1), turn, sprite, r, g, b, cover,
+                        0, 1, light, fog);
+            }
             case RING -> ring(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, cover, light, fog);
             default -> {
                 // огненный шар — объём: квадрат у передней половины, как и вдали (FarSprites.BALL_FRONT)
@@ -282,6 +300,7 @@ public final class FxParticle {
             case FLASH -> FxAtlas.flash();
             case RING -> FxAtlas.ring();
             case FIREBALL -> FxAtlas.fireball((age + partial) / life);
+            case FLAKE -> paper ? FxAtlas.paper() : FxAtlas.flake();
         };
     }
 

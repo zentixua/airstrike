@@ -287,6 +287,7 @@ public final class IncomingConfig {
         public final ModConfigSpec.BooleanValue autoCamera;
         public final ModConfigSpec.DoubleValue zoom;
         public final ModConfigSpec.EnumValue<CloudQuality> nukeCloudQuality;
+        public final ModConfigSpec.EnumValue<DustQuality> nukeDustQuality;
         public final ModConfigSpec.BooleanValue nukeTinnitus;
         public final ModConfigSpec.BooleanValue soundMuffling;
         public final ModConfigSpec.BooleanValue mapPrefetch;
@@ -299,6 +300,11 @@ public final class IncomingConfig {
             CloudQuality(int puffs) {
                 this.puffs = puffs;
             }
+        }
+
+        /** Пелена пыли и дыма после ядерной волны: выключена или объёмом с качеством (client/fx/layer/PallPass). */
+        public enum DustQuality {
+            OFF, LOW, MEDIUM, HIGH
         }
 
         Client(ModConfigSpec.Builder b) {
@@ -314,6 +320,9 @@ public final class IncomingConfig {
                     .translation("incoming.config.zoom").defineInRange("zoom", 4.0, 1.5, 10.0);
             nukeCloudQuality = b.comment("Mushroom cloud detail: LOW / MEDIUM / HIGH = 750 / 1500 / 2500 puffs (plus 4/5 as many for the dust wall).")
                     .translation("incoming.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
+            nukeDustQuality = b.comment("Dust and smoke pall after a nuclear blast wave: OFF / LOW / MEDIUM / HIGH. LOW is lighter on a weak graphics card;",
+                            "OFF leaves only the dust wall and falling ash.")
+                    .translation("incoming.config.nuke_dust_quality").defineEnum("nuke_dust_quality", DustQuality.MEDIUM);
             nukeTinnitus = b.comment("Ringing ears and muffled hearing after a nearby blast wave.")
                     .translation("incoming.config.nuke_tinnitus").define("nuke_tinnitus", true);
             soundMuffling = b.comment("Strike sounds lose high tones with distance and are muffled behind hills and walls. With Sound Physics Remastered, that mod does it.")

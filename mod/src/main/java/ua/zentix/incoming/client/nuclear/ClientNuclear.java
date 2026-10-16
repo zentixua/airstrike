@@ -33,26 +33,30 @@ public final class ClientNuclear {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
+        /** Пелена после волны ({@link NukePall}): «до утра» считается от времени суток в миг подрыва. */
+        public final PallField pall;
         /** Сколько тиков прошло до прихода пакета (у пришедших при входе в мир — с самого подрыва). */
         private final long before;
         private long age;
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d));
+            this(d, live, clientNow, new CloudPuffs(d), null);
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
         Active(Active a, long clientNow) {
-            this(a.d, false, clientNow, a.puffs);
+            this(a.d, false, clientNow, a.puffs, a.pall);
             puffs.untrack();
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs) {
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, @Nullable PallField pall) {
             this.d = d;
             this.live = live;
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
             this.puffs = puffs;
+            ClientLevel level = Minecraft.getInstance().level;
+            this.pall = pall != null ? pall : new PallField(d, level == null ? 0 : level.getDayTime() - before);
             this.sounds = new NukeSounds.Schedule(this);
         }
 
@@ -156,6 +160,7 @@ public final class ClientNuclear {
         for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, now));
         for (S2C.NukeWarning w : p.warnings()) WARNINGS.put(w.strikeId(), w);
         NukeDust.reset();
+        NukePall.reset();
     }
 
     /**
@@ -175,6 +180,7 @@ public final class ClientNuclear {
         NukeFlash.reset();
         Deafness.reset();
         NukeDust.reset();
+        NukePall.reset();
     }
 
     public static void radiation(S2C.Radiation p) {
@@ -197,6 +203,7 @@ public final class ClientNuclear {
         NukeSky.reset();
         Deafness.reset();
         NukeDust.reset();
+        NukePall.reset();
     }
 
     // ---------------------------------------------------------------- тик
@@ -232,7 +239,7 @@ public final class ClientNuclear {
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
             if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
             NukeDust.front(a, eye);
-            if (a.ticks(0) > lifeTicks(a.d)) it.remove();
+            if (a.ticks(0) > lifeTicks(a.d) && !a.pall.visible(a.ticks(0))) it.remove();
         }
         // предупреждение живёт, пока не придёт подрыв (или отбой — сервер пришлёт всё заново), но не дольше срока ожидания места
         WARNINGS.values().removeIf(w -> now > w.detonateTime() + NuclearStrikes.GIVE_UP_TICKS + 100);
@@ -241,6 +248,7 @@ public final class ClientNuclear {
         NukeFlash.tick();
         Deafness.tick();
         NukeDust.tick();
+        NukePall.tick(level, eye);
         Geiger.tick();
     }
 

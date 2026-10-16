@@ -23,7 +23,9 @@ public final class Fx {
 
     public enum Kind {
         SMOKE(true, false, FxBudget.CLOUD), FIRE(false, false, FxBudget.CLOUD), SPARK(false, true, FxBudget.SPARK),
-        FLASH(false, true, FxBudget.FLASH), RING(true, false, FxBudget.GROUND), FIREBALL(false, false, FxBudget.CLOUD);
+        FLASH(false, true, FxBudget.FLASH), RING(true, false, FxBudget.GROUND), FIREBALL(false, false, FxBudget.CLOUD),
+        /** Хлопья пепла и клочки бумаги: плоские, кувыркаются (сжатая ось), освещаются миром. */
+        FLAKE(true, false, FxBudget.ASH);
 
         /** Освещается миром (дым, пыль) или светится сам (огонь, искры). */
         final boolean lit;
@@ -68,6 +70,13 @@ public final class Fx {
     }
 
     /**
+     * Хлопья пепла и клочки бумаги ({@code paper}): падают медленно, вьются, кувыркаются; снос — {@link Spec#drift}.
+     */
+    public static Spec flake(boolean paper) {
+        return new Spec(Kind.FLAKE).paper(paper).alpha(1).fadeIn(4).fadeFrom(0.85f).drag(0.9f).gravity(0.004f).wind(0).spin(0.12f).collide();
+    }
+
+    /**
      * Доля частиц по настройке «Частицы» и расстоянию до камеры: вдали мелочь не видна, её можно не рождать.
      */
     public static float density(Vec3 at) {
@@ -104,6 +113,7 @@ public final class Fx {
                 case FLASH -> flash().size(4, 6).life(4);
                 case RING -> ring().size(1, 20).life(20);
                 case FIREBALL -> fireball().size(5, 5.5f).life(16);
+                case FLAKE -> flake(false).size(0.06f, 0.06f).life(200);
             };
             s.vel(dx, dy, dz).spawn(level, x, y, z);
             // в ванильный движок ничего не добавляется
@@ -128,6 +138,10 @@ public final class Fx {
         float glow, glowTicks = 10;
         float drag = 0.96f;
         float rise, gravity, wind = 1, spin = 0.03f;
+        /** Свой постоянный снос (блоки/тик²): ветер подрыва, а не общий ветер частиц. */
+        float driftX, driftZ;
+        /** Хлопья: клочок бумаги (светлый прямоугольник), а не пепел. */
+        boolean paper;
         boolean collide, smooth;
         float chainX, chainY, chainZ, chainGap;
         float streak;
@@ -255,6 +269,19 @@ public final class Fx {
 
         public Spec spin(float s) {
             spin = s;
+            return this;
+        }
+
+        /** Постоянное ускорение по горизонтали (блоки/тик²): с сопротивлением {@link #drag} — снос со скоростью a·d/(1 − d). */
+        public Spec drift(double ax, double az) {
+            driftX = (float) ax;
+            driftZ = (float) az;
+            return this;
+        }
+
+        /** Хлопья — клочок бумаги, а не пепел ({@link Fx#flake}). */
+        public Spec paper(boolean p) {
+            paper = p;
             return this;
         }
 

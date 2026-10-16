@@ -115,7 +115,7 @@ public final class NukeSounds {
         private final Detonation d;
         private final boolean live;
         private final RandomSource random;
-        private boolean arrived, rumbled;
+        private boolean arrived, rumbled, shook;
         private long arrivalTick;
         private double psi;
         private final double[] rumbles;
@@ -136,6 +136,7 @@ public final class NukeSounds {
             Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
             long now = (long) a.ticks(0);
             double since = now;
+            if (!shook) seismic(ear, since);
             if (!arrived) {
                 double dist = ear.distanceTo(d.burst());
                 if (d.frontRadius(since) < dist) {
@@ -162,6 +163,27 @@ public final class NukeSounds {
                 ClientSounds.atEar(ModSounds.NUKE_RUMBLE.get(), ear.add(Math.cos(ang) * 50, 0, Math.sin(ang) * 50), v, 0.9f + random.nextFloat() * 0.2f);
                 CameraShake.quake(20);
                 nextRumble++;
+            }
+        }
+
+        /**
+         * Наземный взрыв: толчок грунта дошёл раньше волны в воздухе ({@link CameraShake#seismic}) — с ним низкий гул
+         * (у воздушного — гул с первой дрожью перед стеной пыли, {@link #approach}).
+         */
+        private void seismic(Vec3 ear, double since) {
+            if (!d.surface()) {
+                shook = true;
+                return;
+            }
+            double metres = d.metres(ear.distanceTo(d.burst()));
+            if (since < CameraShake.seismicTicks(metres, d.scale())) return;
+            shook = true;
+            double amp = CameraShake.seismicAmplitude(metres, d.yieldKt());
+            if (amp <= 0) return;
+            CameraShake.seismic(amp);
+            if (!rumbled) {
+                rumbled = true;
+                ClientSounds.atEar(ModSounds.BOMB_QUAKE.get(), ear.add(0, -4, 0), (float) Mth.clamp(amp / 4, 0.4, 1), 0.7f);
             }
         }
 

@@ -16,7 +16,8 @@ paths:
   остаётся на источнике до конца звука, поэтому чужие петли не трогаем, а моторы снарядов обновляем каждый тик через
   `SoundEngine.instanceToChannel`; `Channel.source`, `SoundManager.soundEngine`, `instanceToChannel` открыты AT
   (`META-INF/accesstransformer.cfg`). После перезапуска звукового движка фильтр — заново. С Sound Physics Remastered
-  воздух и преграды — его, наше только оглушение.
+  воздух и преграды — его, наше только оглушение. В пелене после ядерной волны всё вдали глуше
+  (`NukePall.muffle`: по плотности пыли у уха и расстоянию до звука), вместе с оглушением.
 - Звуки — только моно (стерео Minecraft не размещает в пространстве); исключение — эхо взрыва `blast.tail`, оно
   играется без места (`ClientSounds.around`); `SoundAssetsTest` это проверяет. libsndfile
   падает, если писать Vorbis одним большим блоком, — `build_sounds.py` пишет кусками.

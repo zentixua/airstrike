@@ -16,6 +16,7 @@ Each player has their own, stored in `config/incoming-client.toml`.
 | Projectile camera on launch | off | the camera shows every launch by itself |
 | Binocular zoom | 4 | from 1.5 to 10 |
 | Mushroom cloud detail | MEDIUM | lower is lighter on a weak computer |
+| Nuclear dust pall | MEDIUM | dust and smoke over the area after a nuclear blast; lower is lighter on a weak graphics card, OFF turns it off |
 | Deafness and ringing ears | on | muffled hearing after a nearby blast wave |
 
 The mod's sounds follow the Ambient/Environment volume slider.

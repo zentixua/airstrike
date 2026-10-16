@@ -62,6 +62,9 @@ public final class ClientScenario {
     private int tick = -1;
     private Vec3 target = Vec3.ZERO;
     private boolean nuke;
+    /** Сценарий {@code pall}: пелена после волны; эпицентр. */
+    private boolean pall;
+    private Vec3 pallAt = Vec3.ZERO;
     private int detTick = -1;
     /** Ядерный сценарий: точка в следе осадков и игровой тик, когда туда идти (−1 — не ждём). */
     private Vec3 falloutSpot = Vec3.ZERO;
@@ -149,6 +152,7 @@ public final class ClientScenario {
         NeoForge.EVENT_BUS.addListener(this::onRenderLevel);
         String mode = scenario;
         if ("nuke".equals(mode)) planNuke();
+        else if ("pall".equals(mode)) planPall();
         else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("replay".equals(mode)) {
@@ -219,6 +223,7 @@ public final class ClientScenario {
             if (s.at == tick) s.action.run();
         }
         if (nuke) nukeEvents();
+        if (pall) pallEvents();
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
@@ -311,6 +316,95 @@ public final class ClientScenario {
         for (int t : new int[]{270, 300, 340, 400, 500}) shot(t, "launch");
         at(520, () -> cmd("tp @s ~ ~ ~ 180 -8"));
         // дальше — от настоящих событий: сервер может отставать от счётчика кадров клиента
+    }
+
+    /**
+     * Пелена после ядерной волны (план «ядерка уровня кино», шаг 2): наземные 15 кт в полдень (эпицентр на суше,
+     * в 1,5 км к северу от точки появления). Кадры с холма в 4 км к югу (пелена встаёт за фронтом, накрывает город;
+     * подрыв — когда чанки холма уже построены), изнутри пелены в 900 м от эпицентра (над руинами, к краю, вверх —
+     * к солнцу), с высоты, в сумерки и ночью (пожары снизу). Качество пелены — {@code INCOMING_PALL} (LOW по умолчанию:
+     * программный OpenGL медленный); в лог — строки {@code SCENARIO pall}.
+     */
+    private void planPall() {
+        pall = true;
+        at(40, () -> {
+            String q = System.getenv().getOrDefault("INCOMING_PALL", "LOW");
+            ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.valueOf(q));
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 2500 180 0");
+        });
+        at(600, () -> {
+            Minecraft mc = Minecraft.getInstance();
+            LocalPlayer p = mc.player;
+            int x = (int) Math.floor(p.getX()), z = (int) Math.floor(p.getZ());
+            // холм: площадка над землёй и над всем, что впереди (к эпицентру) в прорисовке, — в 4 км к югу от эпицентра
+            int y = Math.max(mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z), 64) + 40;
+            for (int ahead = 8; ahead <= 160; ahead += 8) {
+                for (int side = -48; side <= 48; side += 16) y = Math.max(y, mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x + side, z - ahead) + 12);
+            }
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y - 1, z - 1, x + 1, y - 1, z + 1));
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 180 -4", x, y, z));
+            pallAt = new Vec3(x + 0.5, 320, z - 4000 + 0.5);
+        });
+        at(660, () -> cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %.1f %.1f %.1f 15 ground", pallAt.x, pallAt.y, pallAt.z)));
+    }
+
+    /** Сценарий {@code pall}: кадры — от прихода подрыва к клиенту. */
+    private void pallEvents() {
+        if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
+        detTick = tick;
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}", tick, xyz(d.burst()));
+        int ex = (int) Math.floor(d.burst().x), ez = (int) Math.floor(d.burst().z);
+        // с холма: пелена встаёт за фронтом и идёт к зрителю
+        for (int dt : new int[]{60, 200, 400, 700, 1000, 1300}) pallShot(tick + dt, "hill");
+        // изнутри: в 900 м к юго-востоку от эпицентра, площадка в 10 блоках над руинами (видно, как они тонут в пыли)
+        int ix = ex + 400, iz = ez + 800;
+        at(tick + 1340, () -> {
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 220 %d.5 180 0", ix, iz));
+            // дальше камера в полёте до конца (каждый тик): с высоты и ночью над пожарами — кадр с того места, куда перенесли
+            hover = true;
+        });
+        at(tick + 1480, () -> {
+            int y = Minecraft.getInstance().level.getHeight(Heightmap.Types.MOTION_BLOCKING, ix, iz) + 10;
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", ix - 1, y - 1, iz - 1, ix + 1, y - 1, iz + 1));
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 155 0", ix, y, iz));
+        });
+        pallShot(tick + 1600, "inside");
+        at(tick + 1610, () -> cmd("tp @s ~ ~ ~ -25 -2"));
+        pallShot(tick + 1700, "inside_edge");
+        at(tick + 1710, () -> cmd("tp @s ~ ~ ~ 155 -75"));
+        pallShot(tick + 1800, "inside_up");
+        // с высоты: 500 блоков, в 2 км к юго-востоку, взгляд на эпицентр (в полёте — не падать)
+        at(tick + 1820, () -> {
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d 500 %d facing %d 70 %d", ex + 1500, ez + 1500, ex, ez));
+        });
+        pallShot(tick + 2000, "altitude");
+        pallShot(tick + 2100, "altitude");
+        // ночь с холма: мгла над городом, пожары снизу
+        at(tick + 2120, () -> {
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d 160 %d facing %d 120 %d", ex, ez + 4000, ex, ez));
+            cmd("time set 13000");
+        });
+        pallShot(tick + 2300, "dusk");
+        at(tick + 2310, () -> cmd("time set 18000"));
+        pallShot(tick + 2450, "night");
+        at(tick + 2470, () -> {
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d 120 %d facing %d 60 %d", ex + 300, ez + 900, ex, ez));
+        });
+        pallShot(tick + 2650, "night_inside");
+        at(tick + 2700, () -> {
+            Incoming.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /** Кадр сценария {@code pall} со строкой о пелене у камеры и в кадре. */
+    private void pallShot(int t, String name) {
+        at(t, () -> Incoming.LOG.info("SCENARIO pall {} at {}: {}; layer {}", name, xyz(Minecraft.getInstance().gameRenderer.getMainCamera().getPosition()),
+                ua.zentix.incoming.client.nuclear.NukePall.describe(), ua.zentix.incoming.client.fx.layer.FxLayer.describeTiming()));
+        shot(t, "pall_" + name);
     }
 
     /** Ядерный сценарий: кадры входа боеголовки и после подрыва — от момента, когда клиент получил подрыв. */
