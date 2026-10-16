@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -34,8 +35,9 @@ import java.util.UUID;
  * вывода. Тик журнала — тик повтора ({@link FlashbackApi#writtenTicks}): запись Flashback кончает тик клиента после
  * {@code ClientTickEvent.Post}, в котором журнал пишет тот же номер.
  * <p>
- * Строки JSON: {@code {"t":N,"me":[x,y,z],"cam":[x,y,z,yaw,pitch,roll,fov],"p":[[имя,x,y,z],…]}} каждый тик (записывающий,
- * кинокамера плана, если она есть, и люди);
+ * Строки JSON: {@code {"t":N,"me":[x,y,z],"cam":[x,y,z,yaw,pitch,roll,fov],"p":[[имя,x,y,z,курс,тангаж],…]}} каждый тик
+ * (записывающий, кинокамера плана, если она есть, и люди: место ног и взгляд — курс головы и тангаж, куда человек смотрит в
+ * кадре; журналы до 17.10 — без взгляда);
  * {@code {"t":N,"f":[[i,x,y,z,фаза,сущность],…]}} — где снаряды в тик N (пишется с отставанием {@link #LAG}); {@code {"t":N,"new":i,
  * "id":UUID,"weapon":…,"bomber":…}} — новый путь; {@code {"t":N,"impact":i,"pos":[…]}} — взрыв (путь кончился пакетом
  * взрыва) или {@code "lost"} — путь кончился без взрыва (ушёл из данных); {@code {"t":N,"nuke":[x,y,z],"kt":…}};
@@ -103,7 +105,8 @@ final class EventLog {
             for (Player pl : mc.level.players()) {
                 if (pl == mc.player) continue;
                 if (!people.isEmpty()) people.append(',');
-                people.append(String.format(Locale.ROOT, "[\"%s\",%.2f,%.2f,%.2f]", pl.getGameProfile().getName(), pl.getX(), pl.getY(), pl.getZ()));
+                people.append(String.format(Locale.ROOT, "[\"%s\",%.2f,%.2f,%.2f,%.1f,%.1f]", pl.getGameProfile().getName(), pl.getX(), pl.getY(), pl.getZ(),
+                        Mth.wrapDegrees(pl.getYHeadRot()), pl.getXRot()));
             }
         }
         Vec3 me = mc.player == null ? Vec3.ZERO : mc.player.position();

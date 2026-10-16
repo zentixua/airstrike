@@ -54,4 +54,16 @@ class EventLogTest {
         Rig.Subject s = Rig.impact("missile", null, 0).apply(EventLog.read(file, false));
         assertEquals(new Vec3(18, 70, 0), s.keyPos);
     }
+
+    @Test
+    void peopleRowsWithAndWithoutGazeReadTheSamePlace(@TempDir Path dir) throws IOException {
+        // с 17.10 у человека в строке ещё курс головы и тангаж (n43: смотрят ли люди на ракеты), прежние журналы — без них
+        Path file = dir.resolve("n43.events.jsonl");
+        Files.write(file, List.of(
+                "{\"t\":0,\"me\":[0.0,70.0,0.0],\"p\":[[\"Des6\",-580.90,76.00,-1033.90]]}",
+                "{\"t\":1,\"me\":[0.0,70.0,0.0],\"p\":[[\"Des6\",-580.90,76.00,-1033.80,-54.2,-12.5]]}"), StandardCharsets.UTF_8);
+        EventLog.Data d = EventLog.read(file, false);
+        assertEquals(new Vec3(-580.9, 76, -1033.9), d.people.get("Des6").get(0));
+        assertEquals(new Vec3(-580.9, 76, -1033.8), d.people.get("Des6").get(1));
+    }
 }
