@@ -30,10 +30,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Чанки не в мире, которые мод изменил бы при загрузке, — в LOD Distant Horizons сразу ({@link DhUpdates#offer}): руины
- * ядерки за волной ({@link NuclearPrep}: план уже готов, а сам чанк грузится, только когда к нему подойдут) и лампы
- * погасшего или вновь зажжённого квартала ({@code BlackoutWorld}). Чанк читается с диска (поток ввода-вывода чанков,
- * разбор — {@link RuinWorkers}), в копию его секций ({@link DiskShots#readSections}) кладутся руины по готовому плану
- * ({@link RuinPlan#applyToCopy}: план устарел — копия не годится) и лампы — по сети сейчас ({@link ChunkLights#applyToCopy}),
+ * ядерки за волной ({@link NuclearPrep}: план уже готов, а сам чанк грузится, только когда к нему подойдут), след
+ * подрыва на земле дальше тяжёлой зоны ({@link #scorch}) и лампы погасшего или вновь зажжённого квартала
+ * ({@code BlackoutWorld}). Чанк читается с диска (поток ввода-вывода чанков, разбор — {@link RuinWorkers}), в копию его
+ * секций ({@link DiskShots#readSections}) кладутся руины по готовому плану ({@link RuinPlan#applyToCopy}: план устарел —
+ * копия не годится) или след по плану, построенному тут же по той же копии ({@link DiskShots#readScorch}: снимок — в
+ * потоке сервера, план {@link RuinPlanner#scorch} — в фоне), и лампы — по сети сейчас ({@link ChunkLights#applyToCopy}),
  * копия уходит в DH как {@link ProtoChunk}. Мир копия не трогает: чанк, который загрузят потом, получит те же руины и
  * лампы своим путём. Копия без изменений против диска в DH не уходит — его LOD по этим же блокам уже есть.
  * <p>
@@ -71,21 +73,100 @@ public final class FarLods {
 
     /**
      * Почему чанк в очереди: за волной ядерки — ждать его плана руин ({@link #RUINS}); квартал сменил свет — LOD уходит
-     * и без изменений против диска: у DH мог остаться погашенный квартал ({@link #LIGHTS}). Бывает и то и другое.
+     * и без изменений против диска: у DH мог остаться погашенный квартал ({@link #LIGHTS}); след подрыва на земле без
+     * руин — кольцо за тяжёлой зоной ({@link #SCORCH}, {@link #scorch}). Бывает и несколько сразу.
      */
-    private static final byte RUINS = 1, LIGHTS = 2;
+    private static final byte RUINS = 1, LIGHTS = 2, SCORCH = 4;
+    /** Запросов следа в очереди, не больше: кольцо подаёт следующие по мере того, как очередь читает. */
+    static final int SCORCH_QUEUE = 2 * VISITS;
+    /**
+     * Снимков следа в потоке сервера за тик, в чанках с картами высот на диске ({@link DiskShots.Read#cost}): снимок —
+     * десятки микросекунд, досчёт карт высот — до 1,4 мс.
+     */
+    static final int SHOTS_PER_TICK = 2 * PER_TICK;
+    /**
+     * Чанков кольца за тик, не больше: и тех, что далеко от игроков (их запрос не ставится): за 30 с волна проходит
+     * сотни тысяч чанков кольца, и обход в одном тике стоил бы десятков мс.
+     */
+    static final int FEED_PER_TICK = 4 * VISITS;
 
     /** Запрос в очереди: с какого тика стоит. */
     private record Request(long chunk, long since) {}
 
-    /** Готовая копия (или почему её нет) из фонового потока. */
-    private record Built(long chunk, @Nullable ProtoChunk copy, boolean ruined, boolean lights, @Nullable String skip) {}
+    /** Готовая копия (или почему её нет) из фонового потока; {@code scorched} — в ней след подрыва без руин. */
+    private record Built(long chunk, @Nullable ProtoChunk copy, boolean ruined, boolean lights, @Nullable String skip, boolean scorched) {
+        Built(long chunk, @Nullable ProtoChunk copy, boolean ruined, boolean lights, @Nullable String skip) {
+            this(chunk, copy, ruined, lights, skip, false);
+        }
+    }
+
+    /** Прочитанный чанк следа: снимок — в потоке сервера ({@link #shoot}), план и копия — в фоне. */
+    private record Read(long chunk, Ring ring, DiskShots.Scorch scorch, boolean lights) {}
+
+    /**
+     * След подрыва на земле вдали ({@link #scorch}): чанки до {@link RuinPlanner#scorchReach} по приходу волны, ближние
+     * первыми; тяжёлая зона, к которой готовились, — не здесь: её LOD — руины по готовым планам ({@link #RUINS}).
+     */
+    private static final class Ring {
+        final Detonation d;
+        /** Свой контекст подрыва: шум мира и край руин; снимков, разломов и карт высот он не держит. */
+        final RuinContext ruins;
+        /** Чанки (ближняя точка по горизонтали, {@link NuclearPrep#horizontal}) в {@code (skip, reach]}. */
+        final double skip, reach;
+        /** Чанки кольца по расстоянию — считаются в фоне; прошли все — пусто (память). */
+        java.util.concurrent.CompletableFuture<long[]> order;
+        int next;
+
+        Ring(ServerLevel level, Detonation d, double skip) {
+            this.d = d;
+            this.ruins = new RuinContext(level, d);
+            this.skip = skip;
+            this.reach = RuinPlanner.scorchReach(d);
+            this.order = java.util.concurrent.CompletableFuture.supplyAsync(() -> layout(d, skip, reach), RuinWorkers.executor()).exceptionally(e -> {
+                Incoming.LOG.error("Far scorch of detonation #{}: ring layout failed", d.id(), e);
+                return new long[0];
+            });
+        }
+
+        /** След кольца на чанке: в радиусе, и волна дошла (тяжёлая зона тоже: её чанк, не дождавшийся плана). */
+        boolean covers(long chunk, long now) {
+            ChunkPos pos = new ChunkPos(chunk);
+            return NuclearPrep.horizontal(pos, d) <= reach && ScarQueue.due(d, pos) <= now;
+        }
+
+        boolean done() {
+            long[] o = order.getNow(null);
+            return o != null && next >= o.length;
+        }
+    }
+
+    /** Чанки кольца по расстоянию от эпицентра (любой поток): ключ — расстояние, одна сортировка чисел. */
+    private static long[] layout(Detonation d, double skip, double reach) {
+        int cx = net.minecraft.util.Mth.floor(d.burst().x) >> 4, cz = net.minecraft.util.Mth.floor(d.burst().z) >> 4;
+        int r = net.minecraft.util.Mth.ceil(reach / 16) + 1;
+        it.unimi.dsi.fastutil.longs.LongArrayList keyed = new it.unimi.dsi.fastutil.longs.LongArrayList();
+        for (int x = cx - r; x <= cx + r; x++) {
+            for (int z = cz - r; z <= cz + r; z++) {
+                double h = NuclearPrep.horizontal(new ChunkPos(x, z), d);
+                // ключ: расстояние (1/16 блока) в старших битах, сдвиг чанка от эпицентра — в младших
+                if (h > skip && h <= reach) keyed.add((long) (h * 16) << 32 | (long) (x - cx + 0x8000) << 16 | (z - cz + 0x8000));
+            }
+        }
+        long[] out = keyed.toLongArray();
+        java.util.Arrays.sort(out);
+        for (int i = 0; i < out.length; i++) out[i] = ChunkPos.asLong(cx + (int) (out[i] >> 16 & 0xFFFF) - 0x8000, cz + (int) (out[i] & 0xFFFF) - 0x8000);
+        return out;
+    }
 
     /**
      * Очереди: руины — первыми, свет — остатком просмотров (не меньше четверти, {@link #VISITS}). Блэкаут ставит весь
      * свой радиус сразу (до 159 тыс. запросов света), и в общей очереди руины за волной стояли бы за ним.
      */
-    private final ArrayDeque<Request> ruinQueue = new ArrayDeque<>(), lightQueue = new ArrayDeque<>();
+    private final ArrayDeque<Request> ruinQueue = new ArrayDeque<>(), lightQueue = new ArrayDeque<>(), scorchQueue = new ArrayDeque<>();
+    /** Кольца следа подрывов этого мира ({@link #scorch}): и после того, как прошли, — для запросов света в них. */
+    private final java.util.List<Ring> rings = new java.util.ArrayList<>();
+    /** Прочитанные чанки следа, ждущие снимка в потоке сервера. */
+    private final ConcurrentLinkedQueue<Read> shots = new ConcurrentLinkedQueue<>();
     /**
      * Что просили у чанка в очереди ({@link #RUINS}, {@link #LIGHTS}): второй запрос того же чанка добавляет свой вид, а
      * не теряется: иначе запрос руин чанка, уже стоящего в очереди света, пропал бы, и он прошёл бы без руин.
@@ -108,7 +189,7 @@ public final class FarLods {
      * Для строки в лог и проверок: ушло в DH (с руинами), без изменений, план устарел, не прочитаны, не дождались плана,
      * не целые на диске.
      */
-    private long sent, sentRuins, unchanged, stale, unread, noPlan, partial;
+    private long sent, sentRuins, sentScorch, unchanged, stale, unread, noPlan, partial;
     /** Для проверок: больше всего запросов, просмотренных за один тик. */
     private int visitsMax;
     private long nextReport;
@@ -129,19 +210,60 @@ public final class FarLods {
      * @param ruins чанк за волной ядерки — ждать его плана руин ({@link #PLAN_WAIT}); иначе квартал сменил свет
      */
     public static void request(ServerLevel level, long chunk, boolean ruins) {
+        get(level).request(level, chunk, ruins ? RUINS : LIGHTS);
+    }
+
+    private void request(ServerLevel level, long chunk, byte kind) {
         if (!DhUpdates.enabled(level) || !nearPlayer(level, chunk)) return;
-        FarLods lods = get(level);
-        byte kind = ruins ? RUINS : LIGHTS;
-        if (lods.reading.contains(chunk)) {
-            lods.again.put(chunk, (byte) (lods.again.get(chunk) | kind));
+        if (reading.contains(chunk)) {
+            again.put(chunk, (byte) (again.get(chunk) | kind));
             return;
         }
-        byte was = lods.queued.get(chunk);
+        byte was = queued.get(chunk);
         if ((was & kind) != 0) return;
-        lods.queued.put(chunk, (byte) (was | kind));
-        // чанк с руинами проходит очередь руин (и свет — с ним); в очереди света он, если был, пропускается
-        if (ruins) lods.ruinQueue.add(new Request(chunk, level.getGameTime()));
-        else if (was == 0) lods.lightQueue.add(new Request(chunk, level.getGameTime()));
+        queued.put(chunk, (byte) (was | kind));
+        // чанк с руинами проходит очередь руин (свет и след — с ним), со следом — очередь следа (свет — с ним); в
+        // остальных очередях он, если был, пропускается
+        long now = level.getGameTime();
+        if (kind == RUINS) ruinQueue.add(new Request(chunk, now));
+        else if (kind == SCORCH && (was & RUINS) == 0) scorchQueue.add(new Request(chunk, now));
+        else if (kind == LIGHTS && was == 0) lightQueue.add(new Request(chunk, now));
+    }
+
+    /**
+     * Подрыв в мире с DH: след на земле без руин ({@link RuinPlanner#scorch}: выгоревший дёрн, гарь, опалённые биомы) —
+     * в LOD чанков не в мире до {@link RuinPlanner#scorchReach} (у 15 кт — около 7,5 км), по мере прихода волны, ближние
+     * первыми. Без него LOD вдали за тяжёлой зоной оставался бы зелёным: план руин заранее строится только для неё.
+     *
+     * @param prepared к подрыву готовились ({@link NuclearPrep}): тяжёлая зона уходит в LOD руинами по готовым планам
+     */
+    public static void scorch(ServerLevel level, Detonation d, boolean prepared) {
+        if (!DhUpdates.enabled(level)) return;
+        get(level).rings.add(new Ring(level, d, prepared ? NuclearPrep.heavyRadius(d) + 16 : -1));
+    }
+
+    /** Кольца следа подают чанки, до которых дошла волна, пока в очереди следа есть место. */
+    private void feedRings(ServerLevel level, long now) {
+        for (Ring ring : rings) {
+            long[] order = ring.order.getNow(null);
+            if (order == null || ring.done()) continue;
+            for (int n = FEED_PER_TICK; n > 0 && ring.next < order.length && scorchQueue.size() < SCORCH_QUEUE; n--, ring.next++) {
+                if (ScarQueue.due(ring.d, new ChunkPos(order[ring.next])) > now) break;
+                request(level, order[ring.next], SCORCH);
+            }
+            if (ring.next >= order.length) {
+                Incoming.LOG.info("Far scorch of detonation #{}: all {} chunks to {} m handed to the LOD queue", ring.d.id(), order.length, Math.round(ring.reach));
+                ring.order = java.util.concurrent.CompletableFuture.completedFuture(new long[0]);
+                ring.next = 0;
+            }
+        }
+    }
+
+    /** Последнее кольцо, чей след лежит на чанке (поток сервера); null — нет такого. */
+    @Nullable
+    private Ring ringOf(long chunk, long now) {
+        for (int i = rings.size() - 1; i >= 0; i--) if (rings.get(i).covers(chunk, now)) return rings.get(i);
+        return null;
     }
 
     /** Чанк в дальности DH ({@link #FAR_CHUNKS}) от игрока этого мира. */
@@ -165,10 +287,12 @@ public final class FarLods {
             // в очередях остались только снятые запросы
             ruinQueue.clear();
             lightQueue.clear();
+            scorchQueue.clear();
         }
-        if (queued.isEmpty() && reading.isEmpty() && scanning == 0 && !zone.busy()) return;
+        if (queued.isEmpty() && reading.isEmpty() && scanning == 0 && !zone.busy() && !ringsFeeding()) return;
         long now = level.getGameTime();
         for (Built b; (b = built.poll()) != null; ) harvest(level, b);
+        shoot(level);
         for (long[] s; (s = scanned.poll()) != null; ) {
             scanning--;
             // ответ на чанк, который уже не ждёт (отбой, загружен), не нужен
@@ -180,15 +304,26 @@ public final class FarLods {
             clear(level);
             return;
         }
+        feedRings(level, now);
         int room = DhUpdates.room(level) - reading.size();
         NuclearWorld nuclear = NuclearWorld.get(level);
         NuclearEvents events = NuclearEvents.get(level);
         int started = 0, visits = 0;
-        // руины — первыми; свету остаток, но не меньше четверти просмотров: запросы руин, ждущие плана, ходят по кругу
+        // руины — первыми, за ними след; свету остаток, но не меньше четверти просмотров: запросы руин, ждущие плана,
+        // ходят по кругу
         int ruinVisits = Math.min(ruinQueue.size(), lightQueue.isEmpty() ? VISITS : VISITS - VISITS / 4);
         for (int n = ruinVisits; n > 0 && started < PER_TICK && reading.size() < READS && room > 0; n--) {
             visits++;
             if (visit(level, ruinQueue, nuclear, events, now)) {
+                started++;
+                room--;
+            }
+        }
+        // след ждёт снимка, пока пул руин занят: тогда он не берёт больше половины чтений — руинам и свету остаётся
+        for (int n = Math.min(scorchQueue.size(), (lightQueue.isEmpty() ? VISITS : VISITS - VISITS / 4) - visits);
+             n > 0 && started < PER_TICK && reading.size() < READS && shots.size() < READS / 2 && room > 0; n--) {
+            visits++;
+            if (visit(level, scorchQueue, nuclear, events, now)) {
                 started++;
                 room--;
             }
@@ -206,9 +341,57 @@ public final class FarLods {
         else zone.clear(level);
         if (now >= nextReport && sent + unchanged + stale + unread + noPlan + partial > 0) {
             nextReport = now + 600;
-            Incoming.LOG.info("Far Distant Horizons LODs ({}): sent {} chunks ({} with ruins), unchanged {}, stale plan {}, unread {}, "
-                            + "no plan in time {}, incomplete on disk {} (into the world: {}); queued {} (ruins {}), reading {}", level.dimension().location(), sent,
-                    sentRuins, unchanged, stale, unread, noPlan, partial, zone.summary(), queued.size(), ruinQueue.size(), reading.size());
+            Incoming.LOG.info("Far Distant Horizons LODs ({}): sent {} chunks ({} with ruins, {} scorched), unchanged {}, stale plan {}, unread {}, "
+                            + "no plan in time {}, incomplete on disk {} (into the world: {}); queued {} (ruins {}, scorch {}), reading {}{}", level.dimension().location(),
+                    sent, sentRuins, sentScorch, unchanged, stale, unread, noPlan, partial, zone.summary(), queued.size(), ruinQueue.size(), scorchQueue.size(),
+                    reading.size(), ringSummary());
+        }
+    }
+
+    /** Кольцо следа ещё подаёт чанки (или его порядок считается). */
+    private boolean ringsFeeding() {
+        for (Ring ring : rings) if (!ring.done()) return true;
+        return !shots.isEmpty();
+    }
+
+    private String ringSummary() {
+        StringBuilder b = new StringBuilder();
+        for (Ring ring : rings) {
+            long[] o = ring.order.getNow(null);
+            if (o != null && ring.next < o.length) b.append(String.format(java.util.Locale.ROOT, "; scorch of detonation #%d: %d of %d chunks to %.0f m", ring.d.id(), ring.next, o.length, ring.reach));
+        }
+        return b.toString();
+    }
+
+    /**
+     * Прочитанные чанки следа — снимком в поток сервера (состояния палитр — в таблицу свойств), не больше
+     * {@link #SHOTS_PER_TICK} и пока пул руин берёт задачи; план следа и копия — в фоне.
+     */
+    private void shoot(ServerLevel level) {
+        if (shots.isEmpty()) return;
+        java.util.List<Read> taken = new java.util.ArrayList<>();
+        java.util.List<ChunkShot> made = new java.util.ArrayList<>();
+        int cost = 0;
+        for (Read r; cost < SHOTS_PER_TICK && RuinWorkers.inFlight() + taken.size() < RuinWorkers.capacity() && (r = shots.poll()) != null; ) {
+            if (r.scorch.read().skip() != null) {
+                built.add(new Built(r.chunk, null, false, r.lights, r.scorch.read().skip()));
+                continue;
+            }
+            DiskShots.Read read = r.scorch.read();
+            cost += read.cost();
+            taken.add(r);
+            made.add(ChunkShot.fromDisk(read.primed(Blast.SERVER), null));
+        }
+        if (taken.isEmpty()) return;
+        RuinPlanner.ensureOwnStates();
+        Blast.PropsView view = Blast.publish();
+        boolean fires = IncomingConfig.SERVER.nukeFires.get();
+        DiskShots.Format f = format;
+        for (int i = 0; i < taken.size(); i++) {
+            Read r = taken.get(i);
+            RuinContext.Grid g = r.ring.ruins.scorchGrid(level, made.get(i), view);
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> build(f, r.scorch.sections(), RuinPlanner.scorch(g), fires, r.lights, true), RuinWorkers.executor())
+                    .exceptionally(e -> new Built(r.chunk, null, false, r.lights, "error: " + e)).thenAccept(built::add);
         }
     }
 
@@ -219,8 +402,8 @@ public final class FarLods {
     private boolean visit(ServerLevel level, ArrayDeque<Request> from, NuclearWorld nuclear, NuclearEvents events, long now) {
         Request r = from.poll();
         byte kind = queued.get(r.chunk);
-        // снят раньше или попросился и с руинами — его проходит очередь руин
-        if (kind == 0 || from == lightQueue && (kind & RUINS) != 0) return false;
+        // снят раньше или попросился и с руинами (со следом) — его проходит очередь руин (следа)
+        if (kind == 0 || from != ruinQueue && (kind & RUINS) != 0 || from == lightQueue && (kind & SCORCH) != 0) return false;
         boolean ruins = (kind & RUINS) != 0;
         ChunkPos pos = new ChunkPos(r.chunk);
         if (inWorld(level, r.chunk)) {
@@ -253,18 +436,24 @@ public final class FarLods {
                 if (IncomingConfig.SERVER.nukeFarZone.get()) zone.offer(r.chunk);
                 return false;
             }
-            if ((kind & LIGHTS) == 0) {
+            if ((kind & LIGHTS) == 0 && ringOf(r.chunk, now) == null) {
                 done(r.chunk);
                 return false;
             }
-            // квартал сменил свет: копия уходит и без руин
+            // квартал сменил свет или на чанке след подрыва: копия уходит и без руин
         }
         done(r.chunk);
         if (format == null) format = DiskShots.Format.of(level);
         reading.add(r.chunk);
         DiskShots.Format f = format;
         boolean fires = IncomingConfig.SERVER.nukeFires.get(), lights = (kind & LIGHTS) != 0;
-        DiskShots.readSections(f, pos).thenApply(s -> build(f, s, plan, fires, lights)).exceptionally(e -> new Built(r.chunk, null, false, false, "error: " + e))
+        // без плана руин на чанке может лежать след подрыва (свет квартала — с ним): снимок, план следа, копия
+        Ring ring = plan == null ? ringOf(r.chunk, now) : null;
+        if (ring != null) {
+            DiskShots.readScorch(f, pos).thenAccept(s -> shots.add(new Read(r.chunk, ring, s, lights)));
+            return true;
+        }
+        DiskShots.readSections(f, pos).thenApply(s -> build(f, s, plan, fires, lights, false)).exceptionally(e -> new Built(r.chunk, null, false, false, "error: " + e))
                 .thenAccept(built::add);
         return true;
     }
@@ -287,8 +476,8 @@ public final class FarLods {
         }}));
     }
 
-    /** Копия чанка с руинами (фоновый поток): секции с диска, места плана. */
-    private static Built build(DiskShots.Format f, DiskShots.Sections s, @Nullable RuinPlan plan, boolean fires, boolean lights) {
+    /** Копия чанка с руинами или следом (фоновый поток): секции с диска, места плана. */
+    private static Built build(DiskShots.Format f, DiskShots.Sections s, @Nullable RuinPlan plan, boolean fires, boolean lights, boolean scorch) {
         long chunk = s.pos().toLong();
         if (s.skip() != null) return new Built(chunk, null, false, lights, s.skip());
         int biomes = plan == null ? 0 : plan.applyToCopy(s.sections(), fires, f.biomes(), f.minSection());
@@ -296,15 +485,14 @@ public final class FarLods {
         ProtoChunk copy = new ProtoChunk(s.pos(), UpgradeData.EMPTY, s.sections(), new ProtoChunkTicks<>(), new ProtoChunkTicks<>(),
                 LevelHeightAccessor.create(f.minY(), f.height()), f.biomes(), null);
         copy.setPersistedStatus(ChunkStatus.FULL);
-        return new Built(chunk, copy, plan != null && plan.changedBlocks() + plan.fireCount() + biomes > 0, lights, null);
+        return new Built(chunk, copy, plan != null && plan.changedBlocks() + plan.fireCount() + biomes > 0, lights, null, scorch);
     }
 
     /** Поток сервера: лампы — к сети сейчас; изменилось против диска (или квартал сменил свет) — в DH. */
     private void harvest(ServerLevel level, Built b) {
         reading.remove(b.chunk);
         byte asked = again.remove(b.chunk);
-        if ((asked & RUINS) != 0) request(level, b.chunk, true);
-        if ((asked & LIGHTS) != 0) request(level, b.chunk, false);
+        for (byte kind : new byte[]{RUINS, SCORCH, LIGHTS}) if ((asked & kind) != 0) request(level, b.chunk, kind);
         if (b.copy == null) {
             if ("stale plan".equals(b.skip)) stale++;
             else unread++;
@@ -321,7 +509,8 @@ public final class FarLods {
         }
         DhUpdates.offer(level, b.copy);
         sent++;
-        if (b.ruined) sentRuins++;
+        if (b.ruined && b.scorched) sentScorch++;
+        else if (b.ruined) sentRuins++;
     }
 
     /**
@@ -332,10 +521,24 @@ public final class FarLods {
     public static ProtoChunk testCopy(ServerLevel level, LevelChunk chunk, @Nullable RuinPlan plan, boolean fires) {
         DiskShots.Format f = DiskShots.Format.of(level);
         CompoundTag tag = ChunkSerializer.write(level, chunk);
-        Built b = build(f, DiskShots.parseSections(f, chunk.getPos(), tag), plan, fires, false);
+        Built b = build(f, DiskShots.parseSections(f, chunk.getPos(), tag), plan, fires, false, false);
         if (b.copy == null) return null;
         if (PowerGrid.get(level).dark(chunk.getPos().x, chunk.getPos().z, level.getGameTime())) ChunkLights.applyToCopy(b.copy.getSections(), true);
         return b.copy;
+    }
+
+    /**
+     * Проверки: копия загруженного чанка со следом подрыва {@code d} без руин ({@link RuinPlanner#scorch}) — как у
+     * кольца: данные сохранения, разобранные как чанк не в мире, снимок по тем же палитрам, план следа. Поток сервера.
+     */
+    public static ProtoChunk testScorchCopy(ServerLevel level, LevelChunk chunk, Detonation d, boolean fires) {
+        DiskShots.Format f = DiskShots.Format.of(level);
+        DiskShots.Scorch s = DiskShots.parseScorch(f, chunk.getPos(), ChunkSerializer.write(level, chunk));
+        if (s.read().skip() != null) throw new IllegalStateException(s.read().skip());
+        ChunkShot shot = ChunkShot.fromDisk(s.read().primed(Blast.SERVER), null);
+        RuinPlanner.ensureOwnStates();
+        RuinPlan plan = RuinPlanner.scorch(new RuinContext(level, d).scorchGrid(level, shot, Blast.publish()));
+        return build(f, s.sections(), plan, fires, false, true).copy;
     }
 
     /**
@@ -355,6 +558,9 @@ public final class FarLods {
     public void clear(ServerLevel level) {
         ruinQueue.clear();
         lightQueue.clear();
+        scorchQueue.clear();
+        // прочитанные чанки следа (в shots) доходят до конца, как и чтения в работе
+        rings.clear();
         queued.clear();
         again.clear();
         disk.long2ByteEntrySet().removeIf(e -> e.getByteValue() != SCANNING);
@@ -378,10 +584,10 @@ public final class FarLods {
 
     /**
      * Для проверок: ушло, с руинами, без изменений, план устарел, не прочитаны, не дождались плана, не целые на диске,
-     * в очереди, читаются.
+     * в очереди, читаются, со следом.
      */
     public long[] stats() {
-        return new long[] {sent, sentRuins, unchanged, stale, unread, noPlan, partial, queued.size(), reading.size()};
+        return new long[] {sent, sentRuins, unchanged, stale, unread, noPlan, partial, queued.size(), reading.size(), sentScorch};
     }
 
     /** Для проверок: квадраты в мир ({@link FarZone#stats}): ждут, держатся, взято, отпущено, по сроку, брошено, пик загрузки. */
@@ -391,6 +597,6 @@ public final class FarLods {
 
     /** Для проверок: дождаться чтений, заголовков и квадратов в работе. */
     public boolean busy() {
-        return !queued.isEmpty() || !reading.isEmpty() || scanning > 0 || zone.busy();
+        return !queued.isEmpty() || !reading.isEmpty() || scanning > 0 || zone.busy() || ringsFeeding();
     }
 }

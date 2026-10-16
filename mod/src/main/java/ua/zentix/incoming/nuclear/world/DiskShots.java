@@ -146,15 +146,38 @@ final class DiskShots {
         return parse(Format.of(level), pos, tag);
     }
 
-    @SuppressWarnings("unchecked")
     static Read parse(Format f, ChunkPos pos, CompoundTag raw) {
         Checked checked = check(f, raw);
         if (checked.skip != null) return Read.skipped(pos, checked.skip);
-        CompoundTag tag = checked.tag;
-        // карты высот: все виды плана, в формате самой карты (биты на значение — по высоте мира); нет карты или она
-        // не того размера — посчитается по блокам (Read.primed), как у ванили при загрузке
-        CompoundTag maps = tag.getCompound("Heightmaps");
         int[] heights = new int[RuinPlan.HEIGHTMAP_TYPES.length * 256];
+        int unprimed = heights(f, checked.tag, heights);
+        PalettedContainer<BlockState>[] states = blankStates(f);
+        ListTag list = checked.tag.getList("sections", Tag.TAG_COMPOUND);
+        for (int i = 0; i < list.size(); i++) {
+            CompoundTag section = list.getCompound(i);
+            int index = section.getByte("Y") - f.minSection;
+            if (index < 0 || index >= f.sections || !section.contains("block_states", Tag.TAG_COMPOUND)) continue;
+            Optional<PalettedContainer<BlockState>> parsed = BLOCK_STATE_CODEC.parse(NbtOps.INSTANCE, section.getCompound("block_states")).result();
+            if (parsed.isEmpty()) return Read.skipped(pos, "section " + index + " not parsed");
+            PalettedContainer<BlockState> c = parsed.get();
+            if (c.maybeHas(st -> !st.isAir())) states[index] = c;
+        }
+        return new Read(pos, f.minY, states, heights, unprimed, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PalettedContainer<BlockState>[] blankStates(Format f) {
+        return (PalettedContainer<BlockState>[]) new PalettedContainer<?>[f.sections];
+    }
+
+    /**
+     * Карты высот: все виды плана, в формате самой карты (биты на значение — по высоте мира), в {@code out}; нет карты
+     * или она не того размера — посчитается по блокам ({@link Read#primed}), как у ванили при загрузке.
+     *
+     * @return карты, которых нет ({@link Read#unprimed})
+     */
+    private static int heights(Format f, CompoundTag tag, int[] out) {
+        CompoundTag maps = tag.getCompound("Heightmaps");
         int bits = Mth.ceillog2(f.height + 1), unprimed = 0;
         for (int t = 0; t < RuinPlan.HEIGHTMAP_TYPES.length; t++) {
             String key = RuinPlan.HEIGHTMAP_TYPES[t].getSerializationKey();
@@ -170,20 +193,9 @@ final class DiskShots {
                 unprimed |= 1 << t;
                 continue;
             }
-            for (int c = 0; c < 256; c++) heights[t * 256 + c] = data.get(c) + f.minY;
+            for (int c = 0; c < 256; c++) out[t * 256 + c] = data.get(c) + f.minY;
         }
-        PalettedContainer<BlockState>[] states = (PalettedContainer<BlockState>[]) new PalettedContainer<?>[f.sections];
-        ListTag list = tag.getList("sections", Tag.TAG_COMPOUND);
-        for (int i = 0; i < list.size(); i++) {
-            CompoundTag section = list.getCompound(i);
-            int index = section.getByte("Y") - f.minSection;
-            if (index < 0 || index >= f.sections || !section.contains("block_states", Tag.TAG_COMPOUND)) continue;
-            Optional<PalettedContainer<BlockState>> parsed = BLOCK_STATE_CODEC.parse(NbtOps.INSTANCE, section.getCompound("block_states")).result();
-            if (parsed.isEmpty()) return Read.skipped(pos, "section " + index + " not parsed");
-            PalettedContainer<BlockState> c = parsed.get();
-            if (c.maybeHas(st -> !st.isAir())) states[index] = c;
-        }
-        return new Read(pos, f.minY, states, heights, unprimed, null);
+        return unprimed;
     }
 
     /** Данные чанка, обновлённые до текущей версии, или почему чанк не годится ({@code skip}). */
@@ -218,10 +230,15 @@ final class DiskShots {
     static Sections parseSections(Format f, ChunkPos pos, CompoundTag raw) {
         Checked checked = check(f, raw);
         if (checked.skip != null) return new Sections(pos, new LevelChunkSection[0], checked.skip);
+        return sections(f, pos, checked.tag);
+    }
+
+    /** Секции чанка из данных, уже обновлённых до текущей версии ({@link #check}). */
+    private static Sections sections(Format f, ChunkPos pos, CompoundTag tag) {
         Codec<PalettedContainerRO<Holder<Biome>>> biomeCodec = PalettedContainer.codecRO(f.biomes.asHolderIdMap(), f.biomes.holderByNameCodec(),
                 PalettedContainer.Strategy.SECTION_BIOMES, f.biomes.getHolderOrThrow(Biomes.PLAINS));
         LevelChunkSection[] sections = new LevelChunkSection[f.sections];
-        ListTag list = checked.tag.getList("sections", Tag.TAG_COMPOUND);
+        ListTag list = tag.getList("sections", Tag.TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) {
             CompoundTag section = list.getCompound(i);
             int index = section.getByte("Y") - f.minSection;
@@ -247,5 +264,36 @@ final class DiskShots {
         // секций, которых нет в данных, нет и в мире: воздух с биомом по умолчанию, как у ванили
         for (int i = 0; i < sections.length; i++) if (sections[i] == null) sections[i] = new LevelChunkSection(f.biomes);
         return new Sections(pos, sections, null);
+    }
+
+    /**
+     * Чанк для следа подрыва без руин в LOD вдали ({@link FarLods}): секции копии и снимок по тем же палитрам — одно
+     * чтение и один разбор. Снимок читает палитры копии: план следа ({@link RuinPlanner#scorch}) строится до того, как
+     * в копию лягут его места. {@code read.skip} — почему чанк не годится (тогда и секций нет).
+     */
+    record Scorch(Sections sections, Read read) {}
+
+    static CompletableFuture<Scorch> readScorch(Format f, ChunkPos pos) {
+        return f.storage.read(pos).thenApplyAsync(tag -> tag.map(t -> parseScorch(f, pos, t)).orElseGet(() -> skippedScorch(pos, "not on disk")),
+                RuinWorkers.executor()).exceptionally(e -> skippedScorch(pos, "read error: " + e));
+    }
+
+    static Scorch parseScorch(Format f, ChunkPos pos, CompoundTag raw) {
+        Checked checked = check(f, raw);
+        if (checked.skip != null) return skippedScorch(pos, checked.skip);
+        Sections sections = sections(f, pos, checked.tag);
+        if (sections.skip() != null) return skippedScorch(pos, sections.skip());
+        int[] heights = new int[RuinPlan.HEIGHTMAP_TYPES.length * 256];
+        int unprimed = heights(f, checked.tag, heights);
+        PalettedContainer<BlockState>[] states = blankStates(f);
+        for (int i = 0; i < states.length; i++) {
+            PalettedContainer<BlockState> c = sections.sections()[i].getStates();
+            if (c.maybeHas(st -> !st.isAir())) states[i] = c;
+        }
+        return new Scorch(sections, new Read(pos, f.minY, states, heights, unprimed, null));
+    }
+
+    private static Scorch skippedScorch(ChunkPos pos, String why) {
+        return new Scorch(new Sections(pos, new LevelChunkSection[0], why), Read.skipped(pos, why));
     }
 }

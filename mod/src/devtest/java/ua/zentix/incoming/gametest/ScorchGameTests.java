@@ -66,18 +66,7 @@ public final class ScorchGameTests {
         fillBiome(h, 40, 47, Biomes.SNOWY_PLAINS);
         fillBiome(h, 48, 55, Biomes.RIVER);
         fillBiome(h, 56, 63, Biomes.DESERT);
-        // растения над дёрном: трава, через два — высокая трава в два блока
-        for (int x = 0; x < 64; x++) {
-            for (int z = 0; z < 64; z++) {
-                BlockPos p = h.absolutePos(new BlockPos(x, 12, z));
-                if ((x + z) % 3 == 0) {
-                    level.setBlock(p, Blocks.TALL_GRASS.defaultBlockState(), Block.UPDATE_CLIENTS);
-                    level.setBlock(p.above(), Blocks.TALL_GRASS.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER), Block.UPDATE_CLIENTS);
-                } else {
-                    level.setBlock(p, Blocks.SHORT_GRASS.defaultBlockState(), Block.UPDATE_CLIENTS);
-                }
-            }
-        }
+        plants(h);
         // биом в 12 блоках под землёй (под камнем площадки) — до удара; равнина ли у земли: клетки биома — 4×4 по сетке
         // мира, а площадка стоит как придётся — у границы полос в «равнинном» ряду бывает клетка снега
         int[] deep = new int[64 * 64];
@@ -200,8 +189,56 @@ public final class ScorchGameTests {
         h.succeed();
     }
 
+    /**
+     * След без руин ({@code RuinPlanner.scorch}: LOD вдали за тяжёлой зоной) — тот же, что у плана руин, там, где волна
+     * ничего не сломала: поле травы на ровной земле за тяжёлой зоной, от ~1,4 км (дёрн выгорает) до ~5 км. Свет, склон,
+     * пятна, растения, пожары и биомы — одни и те же; план без руин — по снимку одного чанка, без окна соседей. Сравниваются
+     * чанки целиком на площадке: в крайних — стена барьеров, кнопка блока структуры и постройки соседних партий, их волна
+     * бьёт.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_scorch_far", skyAccess = true)
+    public static void scorchWithoutRuinsSameAsRuins(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        fillBiome(h, 0, 63, Biomes.PLAINS);
+        plants(h);
+        double scale = 0.0182;
+        Detonation d = NuclearGameTests.detonation(h, new BlockPos(-24, 12, 32), Yield.optimalBurstHeight(15) * scale, 15, (float) scale);
+        int changed = 0, biomes = 0;
+        BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
+        for (LevelChunk chunk : NuclearGameTests.chunks(h)) {
+            // только чанки целиком на площадке: в крайних — стена барьеров и постройки соседних партий (их стёкла волна бьёт)
+            net.minecraft.world.level.ChunkPos c = chunk.getPos();
+            if (c.getMinBlockX() < Math.min(a.getX(), b.getX()) || c.getMaxBlockX() > Math.max(a.getX(), b.getX())
+                    || c.getMinBlockZ() < Math.min(a.getZ(), b.getZ()) || c.getMaxBlockZ() > Math.max(a.getZ(), b.getZ())) continue;
+            RuinPlan ruins = RuinPlanner.plan(level, d, chunk), scorch = RuinPlanner.testScorch(level, d, chunk);
+            String diff = scorch.differs(ruins);
+            if (diff != null) h.fail("чанк " + chunk.getPos() + ": след без руин не тот, что у руин (след | руины; y — от низа мира): " + diff);
+            changed += ruins.changedBlocks();
+            if (ruins.recolours()) biomes++;
+        }
+        h.assertTrue(changed > 0 && biomes > 0, "след не лёг: мест " + changed + ", чанков с биомами " + biomes);
+        Incoming.LOG.info("След без руин совпал с руинами: {} мест, чанков с биомами {}", changed, biomes);
+        h.succeed();
+    }
+
+    /** Растения над дёрном площадки: трава, через два — высокая трава в два блока. */
+    private static void plants(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        for (int x = 0; x < 64; x++) {
+            for (int z = 0; z < 64; z++) {
+                BlockPos p = h.absolutePos(new BlockPos(x, 12, z));
+                if ((x + z) % 3 == 0) {
+                    level.setBlock(p, Blocks.TALL_GRASS.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    level.setBlock(p.above(), Blocks.TALL_GRASS.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER), Block.UPDATE_CLIENTS);
+                } else {
+                    level.setBlock(p, Blocks.SHORT_GRASS.defaultBlockState(), Block.UPDATE_CLIENTS);
+                }
+            }
+        }
+    }
+
     /** Биом клеток рядов {@code z0..z1} площадки во всю высоту — как {@code /fillbiome}. */
-    private static void fillBiome(GameTestHelper h, int z0, int z1, ResourceKey<Biome> key) {
+    static void fillBiome(GameTestHelper h, int z0, int z1, ResourceKey<Biome> key) {
         ServerLevel level = h.getLevel();
         Holder<Biome> biome = level.registryAccess().registryOrThrow(Registries.BIOME).getHolderOrThrow(key);
         BlockPos a = h.absolutePos(new BlockPos(0, -16, z0)), b = h.absolutePos(new BlockPos(63, 39, z1));

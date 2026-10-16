@@ -222,6 +222,16 @@ public final class RuinPlanner {
     }
 
     /**
+     * Проверки: след на земле без руин ({@link #scorch}) по чанку в памяти — с картами высот тени того же подрыва, что
+     * и {@link #plan(ServerLevel, Detonation, LevelChunk)}.
+     */
+    public static RuinPlan testScorch(ServerLevel level, Detonation d, LevelChunk chunk) {
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, level.getGameTime());
+        RuinContext.Grid g = ctx.grid(level, chunk.getPos(), false);
+        return scorch(ctx.scorchGrid(level, g.at(0, 0), Blast.SERVER));
+    }
+
+    /**
      * Готов ли чанк к плану одной единицей работы: разломы его окна в кэше. Нет — посчитан один из них (это и есть
      * единица работы), план — следующей.
      */
@@ -249,25 +259,72 @@ public final class RuinPlanner {
         Detonation d = g.ctx().d;
         ChunkShot shot = g.at(0, 0);
         Sections s = new Sections(shot, g.view());
-        boolean blockDamage = g.blockDamage(), fires = g.fires();
-        int x0 = shot.x << 4, z0 = shot.z << 4;
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (var e : c.changes.long2ObjectEntrySet()) {
             long at = e.getLongKey();
             s.set(BlockPos.getX(at) & 15, BlockPos.getY(at), BlockPos.getZ(at) & 15, e.getValue());
         }
         // листва, сорванная волной, на свету загорается там, где волна слабая и огонь не сбит
-        if (fires) {
+        if (g.fires()) {
             for (int k = 0; k < c.leaves.size(); k++) {
                 m.set(c.leaves.getLong(k));
                 if (d.psi(Vec3.atCenterOf(m)) < 3 && g.lit(m) >= 10) s.fire(m.getX(), m.getY(), m.getZ(), 1.0);
             }
         }
+        double[] heat = land(g, s, c.ground, c.removed, c.wood);
+        Blast own = c.blast();
+        if (own != null) for (int i = 0; i < own.trees().size(); i++) lay(s, own.trees().get(i), own.treeLogs().get(i));
+        // после всего, что ложится на землю (завал, стволы)
+        for (int column = 0; column < 256; column++) if (c.ground[column] != Integer.MIN_VALUE) snowy(s, column & 15, c.ground[column], column >> 4);
+        return s.finish(g.ctx(), c.fluidTicks.toLongArray(), biomes(g.ctx().noise, c.ground, heat, shot.x << 4, shot.z << 4));
+    }
+
+    /**
+     * След подрыва на земле чанка без руин (любой поток): свет и напор — как в плане руин ({@link #finish}) там, где
+     * волна ничего не сломала, — по снимку одного чанка, без окна и соседей. Для LOD Distant Horizons вдали за тяжёлой
+     * зоной ({@link FarLods}): там волна бьёт стёкла, а издали видно землю — выгоревший дёрн, гарь, опалённые биомы. Чанк,
+     * который потом загрузят, получает свои руины целиком, и его земля та же, если волна у него ничего не обрушила.
+     */
+    static RuinPlan scorch(RuinContext.Grid g) {
+        ChunkShot shot = g.at(0, 0);
+        Sections s = new Sections(shot, g.view());
+        int[] ground = new int[256];
+        for (int column = 0; column < 256; column++) ground[column] = groundOf(s, column & 15, column >> 4);
+        double[] heat = land(g, s, ground, null, null);
+        for (int column = 0; column < 256; column++) if (ground[column] != Integer.MIN_VALUE) snowy(s, column & 15, ground[column], column >> 4);
+        return s.finish(g.ctx(), new long[0], biomes(g.ctx().noise, ground, heat, shot.x << 4, shot.z << 4));
+    }
+
+    /**
+     * Земля столбца без руин — как у {@link Collapse}, где ничего не сломано: верхний опорный блок, не бревно
+     * ({@code Integer.MIN_VALUE} — нет). Секции из одного воздуха пропускаются целиком.
+     */
+    private static int groundOf(Sections s, int lx, int lz) {
+        for (int i = s.sections - 1; i >= 0; i--) {
+            if (!s.shot.mayHave(i, st -> !st.isAir())) continue;
+            for (int y = s.minY + (i << 4) + 15; y >= s.minY + (i << 4); y--) {
+                Blast.Props p = s.props(lx, y, lz);
+                if (p.bearing() && !p.log()) return y;
+            }
+        }
+        return Integer.MIN_VALUE;
+    }
+
+    /**
+     * Земля по столбцам (любой поток): завал, где рухнула постройка, содранный дёрн, свет — гарь, выжженная трава,
+     * сгоревшие растения, пожары, тринитит и вскипевшая вода в огненном шаре. {@code removed}, {@code wood} — сколько
+     * снесено над столбцом и из них деревянных (null — ничего не снесено: {@link #scorch}).
+     *
+     * @return свет на земле столбцов с учётом склона — для ступеней биома
+     */
+    private static double[] land(RuinContext.Grid g, Sections s, int[] groundOf, @Nullable int[] removed, @Nullable int[] wood) {
+        Detonation d = g.ctx().d;
         WorldNoise noise = g.ctx().noise;
-        // свет на земле столбцов с учётом склона — для ступеней биома
+        boolean blockDamage = g.blockDamage(), fires = g.fires();
+        int x0 = s.chunkX << 4, z0 = s.chunkZ << 4;
         double[] heat = new double[256];
         for (int column = 0; column < 256; column++) {
-            int ground = c.ground[column];
+            int ground = groundOf[column];
             if (ground == Integer.MIN_VALUE) continue;
             int lx = column & 15, lz = column >> 4, x = x0 + lx, z = z0 + lz;
             double groundPsi = d.psi(new Vec3(x + 0.5, ground + 1, z + 0.5));
@@ -275,10 +332,10 @@ public final class RuinPlanner {
             boolean inFireball = d.surface() && Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8
                     && at.y > d.groundY() - d.fireballRadius();
             double lit = g.lit(new BlockPos(x, ground, z));
-            double q = lit > 0 ? lit * incidence(c.ground, lx, lz, ground, x, z, d.burst()) * edge(x, z, d.burst(), g.ctx().ruinRadius) : 0;
+            double q = lit > 0 ? lit * incidence(groundOf, lx, lz, ground, x, z, d.burst()) * edge(x, z, d.burst(), g.ctx().ruinRadius) : 0;
             heat[column] = inFireball ? lit : q;
             // рухнувшее оставляет завал при любом давлении (дом падает и ниже 5 psi); в огненном шаре — ничего
-            if (blockDamage && !inFireball && c.removed[column] >= 3) rubble(s, lx, ground, lz, x, z, c.removed[column], c.wood[column]);
+            if (blockDamage && !inFireball && removed != null && removed[column] >= 3) rubble(s, lx, ground, lz, x, z, removed[column], wood[column]);
             if (inFireball) {
                 if (blockDamage) strip(s, lx, ground, lz, x, z);
                 if (lit >= ThermalModel.IGNITE) fireball(s, lx, ground, lz);
@@ -288,11 +345,7 @@ public final class RuinPlanner {
             plants(s, noise, lx, ground, lz, x, z, q, stripped);
             if (fires && q >= ThermalModel.IGNITE) fire(s, lx, ground, lz, x, z, q, groundPsi);
         }
-        Blast own = c.blast();
-        if (own != null) for (int i = 0; i < own.trees().size(); i++) lay(s, own.trees().get(i), own.treeLogs().get(i));
-        // после всего, что ложится на землю (завал, стволы)
-        for (int column = 0; column < 256; column++) if (c.ground[column] != Integer.MIN_VALUE) snowy(s, column & 15, c.ground[column], column >> 4);
-        return s.finish(g.ctx(), c.fluidTicks.toLongArray(), biomes(noise, c.ground, heat, x0, z0));
+        return heat;
     }
 
     /**
@@ -352,6 +405,22 @@ public final class RuinPlanner {
     static double edge(int x, int z, Vec3 burst, double ruinRadius) {
         double f = Mth.clamp((1 - Math.hypot(x + 0.5 - burst.x, z + 0.5 - burst.z) / ruinRadius) / EDGE_FADE, 0, 1);
         return f * f * (3 - 2 * f);
+    }
+
+    /**
+     * Докуда свет оставляет след на земле, блоки по горизонтали от эпицентра ({@link #scorch}): дальше и склон к взрыву
+     * ({@link #MAX_INCIDENCE}) не дотягивает ни до растений, ни до нижней ступени биома даже в крайнем хвосте кривой
+     * ({@link Fragility#possible}); не дальше радиуса руин.
+     */
+    static double scorchReach(Detonation d) {
+        double lo = 0, hi = d.ruinRadius();
+        for (int i = 0; i < 40; i++) {
+            double r = (lo + hi) / 2;
+            double q = d.fluence(new Vec3(d.burst().x + r, d.groundY() + 1, d.burst().z)) * MAX_INCIDENCE;
+            if (Fragility.possible(q, PLANT_Q, PLANT_BETA) || Fragility.possible(q, ScorchedBiomes.MEDIAN[0], ScorchedBiomes.BETA)) lo = r;
+            else hi = r;
+        }
+        return lo;
     }
 
     /**
