@@ -869,6 +869,8 @@ class McFont:
 CHAT_SCALE = 3          # guiScale записи (record.sh): пикселей кадра 1080p на пиксель интерфейса
 CHAT_WIDTH = 320        # ширина чата игры по умолчанию, пикселей интерфейса
 CHAT_BG = (46, 46, 46)  # полоса под строкой: в игре — чёрная полупрозрачная, на чёрном кадре — серая
+TEXT_MARGIN = 0.05       # поля титра по ширине кадра, с каждой стороны
+TEXT_MIN_SCALE = 0.6     # мельче этой доли своего кегля строка не ужимается, а переносится
 
 
 class Titles:
@@ -899,20 +901,58 @@ class Titles:
         if text.style == "chat":
             self._chat(layer, text.lines[0], text.row)
         elif text.style in ("title", "end"):
-            if text.style == "title":
-                lines = [(text.lines[0], self.font("title", int(190 * s)), (255, 244, 228))]
-            else:
-                sizes, colours = (int(40 * s), int(34 * s), int(30 * s), int(26 * s)), ((255, 255, 255), (225, 225, 225), (165, 165, 165), (130, 130, 130))
-                lines = [(ln, self.font("text", sizes[i], 400), colours[i]) for i, ln in enumerate(text.lines)]
-            boxes = [d.textbbox((0, 0), ln, font=f) for ln, f, _ in lines]
-            gap = int(26 * s)
-            y = (h - sum(bb[3] - bb[1] for bb in boxes) - gap * (len(lines) - 1)) / 2
-            for (ln, f, rgb), bb in zip(lines, boxes):
-                x = (w - (bb[2] - bb[0])) / 2 - bb[0]
+            for ln, f, rgb, (x, y), bb in self.layout(text):
                 self._glow_text(layer, (x, y - bb[1]), ln, f, text.style, rgb)
-                y += bb[3] - bb[1] + gap
         self.cache[key] = layer
         return layer
+
+    def layout(self, text):
+        """Строки титра (title, end) по месту: [(строка, шрифт, цвет, (x, y верха), bbox)]. Строка шире кадра без полей
+        (TEXT_MARGIN с каждой стороны) уменьшается до ширины, но не мельче TEXT_MIN_SCALE своего кегля, иначе
+        переносится по пробелу ближе к середине (черновик 16.10: «n49 — утром с Артёмом» кеглем логотипа шире кадра)."""
+        w, h = self.w, self.h
+        s = h / 1080
+        d = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+        if text.style == "title":
+            spec = [(text.lines[0], "title", int(190 * s), None, (255, 244, 228))]
+        else:
+            sizes, colours = (int(40 * s), int(34 * s), int(30 * s), int(26 * s)), ((255, 255, 255), (225, 225, 225), (165, 165, 165), (130, 130, 130))
+            spec = [(ln, "text", sizes[min(i, 3)], 400, colours[min(i, 3)]) for i, ln in enumerate(text.lines)]
+        room = w * (1 - 2 * TEXT_MARGIN)
+        lines = []
+        for ln, kind, size, weight, rgb in spec:
+            parts = [ln]
+            f = self.font(kind, size, weight)
+            wide = d.textbbox((0, 0), ln, font=f)[2] - d.textbbox((0, 0), ln, font=f)[0]
+            if wide > room and room / wide < TEXT_MIN_SCALE and " " in ln.strip():
+                mid = len(ln) / 2
+                cut = min((i for i, ch in enumerate(ln) if ch == " "), key=lambda i: abs(i - mid))
+                parts = [ln[:cut].rstrip(), ln[cut + 1:].lstrip()]
+            for part in parts:
+                fit = size
+                while fit > 8:
+                    f = self.font(kind, fit, weight)
+                    bb = d.textbbox((0, 0), part, font=f)
+                    if bb[2] - bb[0] <= room:
+                        break
+                    fit = max(8, int(fit * room / (bb[2] - bb[0])) - 1)
+                f = self.font(kind, fit, weight)
+                lines.append((part, f, rgb, d.textbbox((0, 0), part, font=f)))
+        gap = int(26 * s)
+        y = (h - sum(bb[3] - bb[1] for *_, bb in lines) - gap * (len(lines) - 1)) / 2
+        out = []
+        for ln, f, rgb, bb in lines:
+            out.append((ln, f, rgb, ((w - (bb[2] - bb[0])) / 2 - bb[0], y), bb))
+            y += bb[3] - bb[1] + gap
+        return out
+
+    def span(self, text):
+        """Где титр в кадре, доли кадра (x0, y0, x1, y1): для проверки, что карточка целиком в кадре и с полями."""
+        boxes = [(x + bb[0], y, x + bb[2], y + bb[3] - bb[1]) for _, _, _, (x, y), bb in self.layout(text)]
+        if not boxes:
+            return None
+        return (min(b[0] for b in boxes) / self.w, min(b[1] for b in boxes) / self.h,
+                max(b[2] for b in boxes) / self.w, max(b[3] for b in boxes) / self.h)
 
     def _chat(self, layer, line, row):
         """Строка чата, как в игре: полоса 9 пикселей интерфейса, текст с тенью; в левом нижнем углу картинки

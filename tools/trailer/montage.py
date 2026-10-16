@@ -686,8 +686,23 @@ def overlay_texts(pieces):
         else:
             fade = float(tx.get("fade", 0.4))
             texts.append(E.Text(at, end - at, p.lines, style, fade=fade))
-            cuts.append(V.Cut(at, end - at, "text", None, plan=p.plan_no, label=f"текст: {p.label}", text=p.lines))
+            cuts.append(V.Cut(at, end - at, "text", None, plan=p.plan_no, label=f"текст: {p.label}", text=p.lines,
+                              box=text_span(p.lines, style)))
     return texts, cuts
+
+
+_TITLES = []
+
+
+def text_span(lines, style):
+    """Где титр ляжет в кадре (доли, edit.Titles.span в 1920×1080 — раскладка в долях от размера не зависит); шрифтов
+    нет (нет сети и кэша) — None, проверка поля пропускает."""
+    try:
+        if not _TITLES:
+            _TITLES.append(E.Titles(1920, 1080))
+        return _TITLES[0].span(E.Text(0, 1, tuple(lines), style))
+    except (OSError, SystemExit, ImportError):
+        return None
 
 
 def opening(plan, pieces, takes, total):
