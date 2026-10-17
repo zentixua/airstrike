@@ -66,7 +66,8 @@ class ShaderSourceTest {
      * сэмплер — в {@code samplers}, остальное — в {@code uniforms}, и в JSON нет лишнего. Необъявленную ваниль не задаёт
      * и не привязывает: сэмплер читал бы чужую текстуру из своего блока, число — ноль (новая карта или число слоя,
      * добавленные в один проход и забытые в другом). Кроме {@code sampler3D}: их ваниль не привязывает, слой ставит их сам
-     * ({@code PallPass}).
+     * ({@code PallPass}). Переменные файлов {@code include}, которые шейдер берёт {@code #moj_import}, — тоже его
+     * ({@code pall_front.glsl}: пелена перед точкой квадратам слоя и пробам).
      */
     @Test
     void everyUniformIsBoundInItsProgram() throws IOException, URISyntaxException {
@@ -82,7 +83,7 @@ class ShaderSourceTest {
                 String name = json.getFileName().toString();
                 for (String[] stage : new String[][]{{"vertex", ".vsh"}, {"fragment", ".fsh"}}) {
                     String file = program.get(stage[0]).getAsString().replaceFirst("^incoming:", "") + stage[1];
-                    Matcher m = uniform.matcher(blankComments(Files.readString(core.resolve(file))));
+                    Matcher m = uniform.matcher(blankComments(withImports(core.resolveSibling("include"), Files.readString(core.resolve(file)), new HashSet<>())));
                     while (m.find()) {
                         String type = m.group(1), u = m.group(2);
                         used.add(u);
@@ -98,10 +99,64 @@ class ShaderSourceTest {
         assertTrue(bad.isEmpty(), "uniform без JSON или JSON без uniform: " + bad);
     }
 
+    /** Текст шейдера с файлами {@code #moj_import <incoming:…>} на их местах (каждый раз — один, как у ванили). */
+    private static String withImports(Path include, String source, Set<String> seen) throws IOException {
+        Matcher m = Pattern.compile("(?m)^\\s*#moj_import\\s*<incoming:([\\w./]+)>").matcher(source);
+        StringBuilder out = new StringBuilder();
+        while (m.find()) {
+            String name = m.group(1);
+            m.appendReplacement(out, "");
+            if (seen.add(name)) out.append(withImports(include, Files.readString(include.resolve(name)), seen));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
     private static Set<String> names(JsonObject program, String list) {
         Set<String> out = new HashSet<>();
         if (program.has(list)) for (JsonElement e : program.getAsJsonArray(list)) out.add(e.getAsJsonObject().get("name").getAsString());
         return out;
+    }
+
+    /**
+     * Каждое тело функции закрыто до следующего объявления верхнего уровня (оно пишется с начала строки): незакрытое
+     * тело ни драйвер, ни Veil не разбирают, а пелена без шейдера пропадает целиком (слияние потеряло «}» — кадры без
+     * гриба, стены и пелены).
+     */
+    @Test
+    void everyBodyIsClosed() throws IOException, URISyntaxException {
+        List<String> bad = everyShader(ShaderSourceTest::unclosed);
+        assertTrue(bad.isEmpty(), "объявление внутри незакрытого тела (или «{» без пары): " + bad);
+    }
+
+    @Test
+    void findsAnUnclosedBody() {
+        assertEquals(List.of(4), unclosed("""
+                float f(float x) {
+                    return x;
+
+                float g;
+                void main() {
+                }
+                """));
+        assertEquals(List.of(4), unclosed("void main() {\n    if (a) {\n}\n"));
+        assertEquals(List.of(), unclosed("struct S {\n    float a;\n};\nvoid main() {\n}\n"));
+    }
+
+    /** Строки объявлений верхнего уровня внутри тела, и последняя строка, если «{» осталась без пары. */
+    private static List<Integer> unclosed(String source) {
+        String[] lines = blankComments(source).split("\n", -1);
+        List<Integer> found = new ArrayList<>();
+        int depth = 0;
+        for (int i = 0; i < lines.length; i++) {
+            if (depth > 0 && lines[i].matches("[A-Za-z_].*")) {
+                found.add(i + 1);
+                depth = 0;
+            }
+            for (char c : lines[i].toCharArray()) depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+        }
+        if (depth != 0) found.add(lines.length);
+        return found;
     }
 
     /** Строки всех шейдеров мода, которые нашла проверка, — «файл:строка». */

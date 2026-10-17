@@ -2,14 +2,14 @@
 
 // Какая доля источника видна в кадре (client/fx/layer/SourceProbes): расстояние до мира за пикселем (SceneDepth,
 // с LOD Distant Horizons) в середине источника на экране и по верхней половине круга вокруг неё — против расстояния
-// до его передней половины. Вне кадра — 1: там видимость решают лучи вызывающего. Глубина мира не видит объёма грибов
-// (огненный шар за чужой шапкой или ножкой): их пропускание до источника — здесь же, в кадре и вне его.
+// до его передней половины. Вне кадра — 1: там видимость решают лучи вызывающего. Глубина мира не видит объёма пелены
+// ядерного удара, стены пыли и грибов (огненный шар за пылью, за чужой шапкой или ножкой): их пропускание до источника —
+// здесь же, в кадре и вне его (pall_front.glsl, как квадратам слоя; блику и вуали слой их больше не режет).
+#moj_import <incoming:pall.glsl>
 #moj_import <incoming:mushroom.glsl>
+#moj_import <incoming:pall_front.glsl>
 
 uniform sampler2D Sampler0;
-// грибы кадра (mushroom.glsl) и 1, если таблица этого кадра есть
-uniform sampler2D Sampler1;
-uniform float ProbeMush;
 
 // вид от глаза и проекция кадра
 uniform mat4 SourceView;
@@ -78,6 +78,8 @@ void main() {
         }
         if (n > 0) seen = sum / float(n);
     }
-    if (ProbeMush > 0.5 && length(center) > radius) seen *= probeMush(Sampler1, center, radius);
+    // пелена и грибы до передней границы источника (пелены и грибов на кадре нет — PallAmbient.w = 0)
+    float len = length(center);
+    if (PallAmbient.w > 0.5 && len > radius) seen *= pallThrough(center / len, len - radius) * probeMush(Sampler11, center, radius);
     fragColor = vec4(seen, 0.0, 0.0, 1.0);
 }

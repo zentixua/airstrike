@@ -113,10 +113,10 @@ public final class NukeRenderer {
     // ---------------------------------------------------------------- гриб
 
     /**
-     * Клубы стены пыли и брызг всех подрывов — в кадр слоя эффектов ({@link FarSprites}, из {@code FarRenderer}): там
-     * они отсортированы вместе с частицами и дальней картинкой, тают, входя в землю (мягкий край по расстоянию до мира —
-     * стена пыли лежит на рельефе), и прячутся за LOD Distant Horizons; дальше дальней плоскости — перенесены ближе
-     * с тем же угловым размером. Дымка — по настоящей дальности (в метрах модели).
+     * Клубы подрывов на воде (столб, кольцо тумана, базисная волна, {@link WaterPuffs}) — в кадр слоя эффектов
+     * ({@link FarSprites}, из {@code FarRenderer}): там они отсортированы вместе с частицами и дальней картинкой, тают,
+     * входя в воду и землю (мягкий край по расстоянию до мира), и прячутся за LOD Distant Horizons; дальше дальней
+     * плоскости — перенесены ближе с тем же угловым размером. Дымка — по настоящей дальности (в метрах модели).
      */
     public static void clouds(FarView view, FarSprites out) {
         List<ClientNuclear.Active> all = ClientNuclear.detonations();
@@ -126,13 +126,12 @@ public final class NukeRenderer {
         Vec3 cam = view.camera();
         for (ClientNuclear.Active a : all) {
             double vis = a.d.visibility();
-            CloudPuffs.Sink sink = (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
+            WaterPuffs.Sink sink = (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
                 double dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
                 float haze = (float) (1 - Math.exp(-a.d.metres(Math.sqrt(dx * dx + dy * dy + dz * dz)) / vis));
                 out.puff(dx, dy, dz, size * 0.5, rot, tex, Mth.lerp(haze, r, fr), Mth.lerp(haze, g, fg), Mth.lerp(haze, b, fb), alpha * (1 - 0.5f * haze),
                         gr, gg, gb, ga * (1 - 0.7f * haze));
             };
-            a.puffs.sprites(a.seconds(view.partial()), view.partial(), view.ambient(), sink);
             // подрыв на воде: столб, кольцо тумана, базисная волна — над водой под эпицентром; кольцо фронта на воде
             a.water.sprites(a.seconds(view.partial()), view.ambient(), a.d.groundY() - 0.1, sink);
             NukeWater.decal(a, view.partial());
@@ -143,8 +142,7 @@ public final class NukeRenderer {
      * Свет огненного шара и шапки вокруг (DESIGN-nuke, шаг M2) — тело рисует объём гриба ({@link MushroomField}): шар
      * светит частицам и лентам кадра ({@link FxLights}: пыль и дым у шара), а в глазу — бликом и вуалью
      * ({@link FarSprites#eyeLight}) с пробой видимости тела (закрыт ли он рельефом и постройками, с LOD Distant Horizons,
-     * и чужими шапками и ножками грибов) и пропусканием пелены пыли между глазом и шаром ({@link NukePall#through}: её
-     * проба не видит). Яркость — чёрное тело
+     * пеленой и стеной пыли, чужими шапками и ножками грибов). Яркость — чёрное тело
      * видимой температуры шапки снаружи ({@link MushroomModel#edgeTemperature}): шар, пока шар, — днём ярче неба
      * секунды, ночью — дольше (глаз привык к темноте, {@link Sight#adapted}); свернувшаяся шапка снаружи смешана
      * с воздухом и гаснет. Дымка воздуха — по настоящей дальности (в метрах модели).
@@ -171,8 +169,7 @@ public final class NukeRenderer {
             // огонь шара на экране (доля белого): свет вокруг и блик не ярче его
             double shown = Math.min(1, Math.pow(seen, 1 / 2.2));
             lights.add(dx, dy, dz, r, surface, Math.min(1, Math.pow(surface, 1 / 2.2)), lr, lg, lb);
-            double through = NukePall.through(cam, CENTRE[0], CENTRE[1], CENTRE[2], view.partial());
-            if (seen * through > Sight.THRESHOLD) out.eyeLight(dx, dy, dz, r, seen, view.pixel(), cr, cg, cb, through, shown, GLARE);
+            if (seen > Sight.THRESHOLD) out.eyeLight(dx, dy, dz, r, seen, view.pixel(), cr, cg, cb, shown, GLARE);
         }
     }
 

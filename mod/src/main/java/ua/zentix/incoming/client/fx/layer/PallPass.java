@@ -332,6 +332,12 @@ public final class PallPass {
          */
         public final Vector4f water0 = new Vector4f(), water1 = new Vector4f();
         /**
+         * Стена пыли слотов ({@code client/nuclear/BlastWall#slot}, {@code pall.glsl}): голова-вал (нули — головы нет)
+         * и облако Вильсона (z = 0 — облака нет).
+         */
+        public final Matrix4f wall0 = new Matrix4f().zero(), wall1 = new Matrix4f().zero();
+        public final Vector4f wilson0 = new Vector4f(), wilson1 = new Vector4f();
+        /**
          * Мир кадра кончается не ближе стольких блоков по земле от глаза (дальность прорисовки): луч в пустоту прошёл его,
          * ничего не задев, — рельеф под пеленой ({@link Ground}) режет его только дальше.
          */
@@ -403,9 +409,12 @@ public final class PallPass {
         return EMPTY;
     }
 
-    /** Пелену можно рисовать: шум не сломался (до его готовности — тоже да: он ещё будет). */
+    /**
+     * Пелену можно рисовать: её шейдеры собрались и шум не сломался (до его готовности — тоже да: он ещё будет). Нет —
+     * голову стены у глаза показывает пелена на экране ({@code NukeDust.veil}).
+     */
     public static boolean available() {
-        return !failed;
+        return !failed && march != null && resolve != null && composite != null;
     }
 
     /** Шум готовится в фоне (первый подрыв): до готовности пелены нет. */
@@ -439,6 +448,34 @@ public final class PallPass {
     /** Числа карты рельефа слота {@code k} кадра {@code f} ({@code pall.glsl}); карты нет — нули. */
     static Vector4f groundParams(Frame f, int k) {
         return GROUND_NOW[k] < 0 ? NO_GROUND : k == 0 ? f.ground0.params : f.ground1.params;
+    }
+
+    /**
+     * Пелена, стена пыли и грибы кадра перед точкой ({@code pall_front.glsl}) — шейдеру {@code s}: карты в блоки 5, 9, 10,
+     * 11 и числа кадра {@code f}. Пелена не нарисована ({@code drawn} — нет) — пустой кадр (шейдер её не читает), карты —
+     * {@code fallback}. Одни числа квадратам слоя и пробам источников ({@link SourceProbes}).
+     */
+    static void bindFront(ShaderInstance s, Frame f, boolean drawn, int fallback) {
+        Frame front = drawn ? f : empty();
+        int ground0 = drawn ? GROUND_NOW[0] : -1, ground1 = drawn ? GROUND_NOW[1] : -1;
+        RenderSystem.setShaderTexture(5, drawn ? table : fallback);
+        RenderSystem.setShaderTexture(9, ground0 >= 0 ? ground0 : fallback);
+        RenderSystem.setShaderTexture(10, ground1 >= 0 ? ground1 : fallback);
+        RenderSystem.setShaderTexture(11, drawn ? mushrooms : fallback);
+        s.safeGetUniform("PallSlot0").set(front.slot0);
+        s.safeGetUniform("PallSlot1").set(front.slot1);
+        s.safeGetUniform("PallMin").set(front.min.x, front.min.y, front.min.z);
+        s.safeGetUniform("PallMax").set(front.max.x, front.max.y, front.max.z);
+        s.safeGetUniform("PallAmbient").set(front.ambient.x, front.ambient.y, front.ambient.z, front.ambient.w);
+        Vector4f g0 = groundParams(front, 0), g1 = groundParams(front, 1);
+        s.safeGetUniform("PallGround0").set(g0.x, g0.y, g0.z, g0.w);
+        s.safeGetUniform("PallGround1").set(g1.x, g1.y, g1.z, g1.w);
+        s.safeGetUniform("PallWater0").set(front.water0.x, front.water0.y, front.water0.z, front.water0.w);
+        s.safeGetUniform("PallWater1").set(front.water1.x, front.water1.y, front.water1.z, front.water1.w);
+        s.safeGetUniform("PallWall0").set(front.wall0);
+        s.safeGetUniform("PallWall1").set(front.wall1);
+        s.safeGetUniform("PallWilson0").set(front.wilson0.x, front.wilson0.y, front.wilson0.z, front.wilson0.w);
+        s.safeGetUniform("PallWilson1").set(front.wilson1.x, front.wilson1.y, front.wilson1.z, front.wilson1.w);
     }
 
     /**
@@ -549,6 +586,10 @@ public final class PallPass {
         m.safeGetUniform("PallGround1").set(groundSlot1.x, groundSlot1.y, groundSlot1.z, groundSlot1.w);
         m.safeGetUniform("PallWater0").set(f.water0.x, f.water0.y, f.water0.z, f.water0.w);
         m.safeGetUniform("PallWater1").set(f.water1.x, f.water1.y, f.water1.z, f.water1.w);
+        m.safeGetUniform("PallWall0").set(f.wall0);
+        m.safeGetUniform("PallWall1").set(f.wall1);
+        m.safeGetUniform("PallWilson0").set(f.wilson0.x, f.wilson0.y, f.wilson0.z, f.wilson0.w);
+        m.safeGetUniform("PallWilson1").set(f.wilson1.x, f.wilson1.y, f.wilson1.z, f.wilson1.w);
         m.safeGetUniform("PallFloorFrom").set(f.floorFrom);
         m.safeGetUniform("PallExposure").set(f.exposure);
         quad(m, true);

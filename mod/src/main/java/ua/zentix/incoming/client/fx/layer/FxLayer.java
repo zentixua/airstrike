@@ -12,7 +12,6 @@ import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
-import org.joml.Vector4f;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.far.FarRenderer;
 import ua.zentix.incoming.client.far.FarView;
@@ -194,25 +193,20 @@ public final class FxLayer {
             boolean pallDrawn = pall != null && scene >= 0 && PallPass.draw(pall, scene, VIEW, e.getProjectionMatrix(), view.camera());
             if (!pallDrawn) PallPass.reset();
             PallPass.Frame front = pallDrawn ? pall : PallPass.empty();
-            // пробы — после пелены: её проход кладёт таблицу грибов кадра, а проба берёт и их пропускание
-            int seen = PROBES.update(scene, pallDrawn ? PallPass.mushroomMap() : -1, VIEW, e.getProjectionMatrix(), view.pixel());
+            // пробы — после пелены: её проход кладёт карты и таблицу грибов кадра, а проба берёт пропускание пелены и грибов
+            int seen = PROBES.update(scene, front, pallDrawn, VIEW, e.getProjectionMatrix(), view.pixel());
             RenderSystem.setShader(() -> s);
             RenderSystem.setShaderTexture(0, atlas);
             RenderSystem.setShaderTexture(1, scene >= 0 ? scene : atlas);
             RenderSystem.setShaderTexture(3, models > 0 ? models : atlas);
             RenderSystem.setShaderTexture(4, seen >= 0 ? seen : atlas);
-            RenderSystem.setShaderTexture(5, pallDrawn ? PallPass.table() : atlas);
             RenderSystem.setShaderTexture(6, pallDrawn ? PallPass.frame() : atlas);
             // карты огненного шторма: свет пожаров снизу на квадратах слоя
             int fire0 = pallDrawn ? PallPass.fireMap(0) : -1, fire1 = pallDrawn ? PallPass.fireMap(1) : -1;
             RenderSystem.setShaderTexture(7, fire0 >= 0 ? fire0 : atlas);
             RenderSystem.setShaderTexture(8, fire1 >= 0 ? fire1 : atlas);
-            // карты рельефа и воды под пеленой: из чего пелена перед квадратом (пыль над сушей, брызги над водой)
-            int ground0 = pallDrawn ? PallPass.groundMap(0) : -1, ground1 = pallDrawn ? PallPass.groundMap(1) : -1;
-            RenderSystem.setShaderTexture(9, ground0 >= 0 ? ground0 : atlas);
-            RenderSystem.setShaderTexture(10, ground1 >= 0 ? ground1 : atlas);
-            // грибы кадра: что гриб закрывает перед квадратом (без пелены на кадре шейдер их не читает)
-            RenderSystem.setShaderTexture(11, pallDrawn ? PallPass.mushroomMap() : atlas);
+            // пелена, стена пыли и грибы перед квадратом (pall_front.glsl): таблица, карты рельефа и воды, грибы кадра
+            PallPass.bindFront(s, front, pallDrawn, atlas);
             light.turnOnLightLayer();
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);
@@ -221,18 +215,8 @@ public final class FxLayer {
             s.safeGetUniform("FxGlow").set(glow.u0(), glow.v0(), glow.u1(), glow.v1());
             s.safeGetUniform("FxBalls").set(LIGHTS.balls);
             s.safeGetUniform("FxBallLight").set(LIGHTS.light);
-            s.safeGetUniform("PallSlot0").set(front.slot0);
-            s.safeGetUniform("PallSlot1").set(front.slot1);
-            s.safeGetUniform("PallMin").set(front.min.x, front.min.y, front.min.z);
-            s.safeGetUniform("PallMax").set(front.max.x, front.max.y, front.max.z);
-            s.safeGetUniform("PallAmbient").set(front.ambient.x, front.ambient.y, front.ambient.z, front.ambient.w);
             s.safeGetUniform("PallFire0").set(fire0 >= 0 ? front.fire0.params : PallPass.empty().fire0.params);
             s.safeGetUniform("PallFire1").set(fire1 >= 0 ? front.fire1.params : PallPass.empty().fire1.params);
-            Vector4f g0 = PallPass.groundParams(front, 0), g1 = PallPass.groundParams(front, 1);
-            s.safeGetUniform("PallGround0").set(g0.x, g0.y, g0.z, g0.w);
-            s.safeGetUniform("PallGround1").set(g1.x, g1.y, g1.z, g1.w);
-            s.safeGetUniform("PallWater0").set(front.water0.x, front.water0.y, front.water0.z, front.water0.w);
-            s.safeGetUniform("PallWater1").set(front.water1.x, front.water1.y, front.water1.z, front.water1.w);
             RenderSystem.enableBlend();
             RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                     GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);

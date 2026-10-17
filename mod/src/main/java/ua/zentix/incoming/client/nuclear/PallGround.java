@@ -18,7 +18,7 @@ import java.util.stream.IntStream;
  * и луч кончался бы у самого глаза — под горизонтом ровный срез без пелены. Второй канал — доля воды в клетке: из чего
  * пелена ({@link PallField}: над сушей пыль, над водой брызги; шейдер берёт её там, откуда вещество подняло).
  * <p>
- * Квадрат {@link #SIDE}² клеток вокруг эпицентра на всю рамку пелены ({@link PallField#extent}; растёт — карта
+ * Квадрат {@link #SIDE}² клеток вокруг эпицентра на всю рамку пелены ({@link PallField#extent}) и голову стены пыли (растёт — карта
  * перекладывается на крупнее, известное остаётся). Тик клиента замеряет {@link #PER_TICK} клеток по кругу, от эпицентра
  * наружу, — по четырём колонкам в клетке, тем, что знает клиент ({@code heights}, {@code water}: свои чанки, плитки карты
  * рельефа — с Distant Horizons и вдали); раз увиденная клетка остаётся такой, какой её видели (ушёл игрок — чанки
@@ -125,12 +125,14 @@ public final class PallGround {
     }
 
     /**
-     * Тик клиента: рамка пелены к {@code ticks} (тики после подрыва) выросла за карту — переложить; следующие клетки —
+     * Тик клиента: рамка пелены к {@code ticks} (тики после подрыва) или голова стены пыли ({@code wall} — докуда она,
+     * блоки, {@link BlastWall#reach}: её тающий край идёт до 0,3 psi, вдвое дальше пыли пелены) выросли за карту —
+     * переложить; следующие клетки —
      * по {@code heights} и {@code water} (null — не знать: измерение с потолком; карта остаётся как есть); узнали новое —
      * заполнить заново, но не чаще раза в {@link #FILL_TICKS} тиков; вода под эпицентром решилась иначе — сразу.
      */
-    void survey(double ticks, @Nullable Sightline.Heights heights, @Nullable FarTerrain.Water water) {
-        double extent = pall.extent(ticks);
+    void survey(double ticks, double wall, @Nullable Sightline.Heights heights, @Nullable FarTerrain.Water water) {
+        double extent = Math.max(pall.extent(ticks), wall);
         // карта и её полсторона уходят в кадр вместе: переложенная — сразу заполнена
         boolean grew = extent > half;
         if (grew) resize(extent * GROW);
@@ -382,6 +384,15 @@ public final class PallGround {
         double sum = 0;
         for (int i = 0; i < SIDE * SIDE; i++) sum += map[2 * i + 1];
         return sum / (SIDE * SIDE);
+    }
+
+    /** Низ и верх карты над землёй под эпицентром, блоки (как в шейдере). */
+    float low() {
+        return lo;
+    }
+
+    float high() {
+        return hi;
     }
 
     /** Для слоя эффектов: карта и её числа ({@code pall.glsl}: полсторона, низ, верх, клетка). */
