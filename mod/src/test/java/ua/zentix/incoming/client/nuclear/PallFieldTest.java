@@ -391,7 +391,8 @@ class PallFieldTest {
         p.dust(i, 20 * 240, v);
         assertEquals(0, v[3], 1e-12, "брызги выпали");
         assertTrue(v[0] > 0, "а пыль ещё висит");
-        p.dust(PallField.BINS - 1, 20 * 10, v);
+        // фронт у края пелены — к 33 с: через минуту он прошёл, а ветра за ним на брызги мало
+        p.dust(PallField.BINS - 1, 20 * 60, v);
         assertEquals(0, v[3], 1e-12, "у края пелены брызг нет");
         // брызги реже самой густой пыли и белые (их цвет и рассеяние — в шейдере)
         assertTrue(PallField.SIGMA_SPRAY < PallField.SIGMA_DENSE);
@@ -461,6 +462,18 @@ class PallFieldTest {
      * ({@link WaterModel}, часы модели), ослабление — по видимости в ней; катится и над берегом (это вода, поднятая у
      * эпицентра), рамка пелены её накрывает.
      */
+    /** В мире меньшего масштаба волна — по часам и меркам её клубов: секунды модели — тики / (20·scale), блоки — × scale. */
+    @Test
+    void surgeFollowsTheWorldScale() {
+        Detonation quarter = new Detonation(5, new Vec3(0, 64, 0), 64, 15, true, 0, 0.5f, 8, 20_000, 7, 0.25f, false, 0.42f);
+        PallField p = new PallField(quarter, NOON);
+        p.water(1, WaterModel.wetBurst(0, 15));
+        double[] s = new double[3];
+        assertTrue(p.surge(20 * 30 * 0.25, s));
+        assertEquals(0.25 * WaterModel.surgeRadius(30, 15), s[0], 1e-6, "радиус на 30-й секунде модели");
+        assertEquals(PallField.SIGMA_SURGE / 0.25 * WaterModel.surgeDensity(30, 15), s[2], 1e-9);
+    }
+
     @Test
     void surgeOnlyForAWetBurst() {
         PallField p = new PallField(NO_FIRES, NOON);

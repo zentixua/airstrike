@@ -80,7 +80,8 @@ public final class ClientNuclear {
             // первый замер часов — сразу: вошедший после сна не видит мглы и кадр до тика
             if (level != null) this.pall.daylight(ticks(0), level.getGameTime(), level.getDayTime());
             this.storm = storm != null ? storm : new FireStorm(d, this.pall);
-            // рельеф тот же: известное остаётся
+            // рельеф тот же: известное остаётся; новая карта заполняется с водой под эпицентром
+            if (ground == null) NukeWater.resolve(this, level);
             this.ground = ground != null ? ground : new PallGround(d, this.pall);
             this.sounds = new NukeSounds.Schedule(this);
         }
@@ -293,6 +294,8 @@ public final class ClientNuclear {
             a.pall.daylight(a.ticks(0), level.getGameTime(), level.getDayTime());
             // рельеф и вода под пеленой — для её луча, за которым нет мира, и вещества (в измерении с потолком — земля под
             // эпицентром)
+            // вода под эпицентром — до карты под пеленой: та заполняет неизвестное ею
+            NukeWater.resolve(a, level);
             if (a.pall.visible(a.ticks(0))) a.ground.survey(a.ticks(0), heights, water);
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
             if (heights != null) {

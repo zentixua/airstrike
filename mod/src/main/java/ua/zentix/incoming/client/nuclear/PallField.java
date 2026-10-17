@@ -408,7 +408,8 @@ public final class PallField {
             if (!water) v[3] = 0;
             for (int k = 0; k < 4; k++) out[4 * i + k] = (float) v[k];
             haze(i, ticks, v);
-            if (!land) v[0] = 0;
+            // мглы и пожаров под ней над открытым морем нет
+            if (!land) v[0] = v[2] = 0;
             for (int k = 0; k < 4; k++) out[4 * (BINS + i) + k] = (float) v[k];
         }
     }

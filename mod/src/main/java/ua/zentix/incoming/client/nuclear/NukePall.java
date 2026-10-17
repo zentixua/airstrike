@@ -107,7 +107,8 @@ public final class NukePall {
         earX = cam.x;
         earY = cam.y;
         earZ = cam.z;
-        NukeAsh.tick(level, cam, dust, s, nearest);
+        // обломки — из пыли: мгла брызг их не несёт
+        NukeAsh.tick(level, cam, dust, s - wet, nearest);
     }
 
     /** Доля воды под пеленой подрыва (dx, dz — от эпицентра) — по его карте {@link PallGround}. */
