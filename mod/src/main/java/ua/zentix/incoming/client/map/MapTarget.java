@@ -12,10 +12,11 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Место, выбранное на карте наведения, и маршрут к нему — точки, которые оператор поставил сам ({@link Waypoints}):
- * помнятся, пока игрок в том же измерении и не вышел из мира, поэтому повторный удар идёт тем же маршрутом. Только
- * x и z: высоту земли там находит сервер ({@code Target.Ground.at}); верх по карте ({@link TerrainTiles#height}) уходит
- * с приказом только оценкой.
+ * Место, выбранное на карте наведения, маршрут к нему — точки, которые оператор поставил сам ({@link Waypoints}), — и
+ * место пуска, если его выбрал оператор или хост (иначе пуск у стреляющего): помнятся, пока игрок в том же измерении и
+ * не вышел из мира, поэтому повторный удар идёт тем же маршрутом и с того же места. Только x и z: высоту земли там
+ * находит сервер ({@code Target.Ground.at}, пусковую на месте пуска ставит {@code LaunchSite}); верх по карте
+ * ({@link TerrainTiles#height}) уходит с приказом только оценкой.
  */
 public final class MapTarget {
     public record Place(double x, double z) {}
@@ -27,6 +28,9 @@ public final class MapTarget {
     private static Place point;
     /** Точки маршрута по порядку пролёта, не больше {@link Waypoints#MAX}. */
     private static final List<Place> route = new ArrayList<>();
+    /** Место пуска; null — пуск у стреляющего. */
+    @Nullable
+    private static Place launch;
 
     private MapTarget() {}
 
@@ -72,17 +76,39 @@ public final class MapTarget {
         route.clear();
     }
 
+    /** Место пуска в этом измерении; пусто — пуск у стреляющего. */
+    public static Optional<Place> launch(@Nullable ClientLevel level) {
+        return here(level) ? Optional.ofNullable(launch) : Optional.empty();
+    }
+
+    /** Место пуска для приказа (x и z). */
+    public static Optional<Vec3> launchPoint(@Nullable ClientLevel level) {
+        return launch(level).map(p -> new Vec3(p.x(), 0, p.z()));
+    }
+
+    /** Пускать отсюда (выбрать или перенести место пуска). */
+    public static void setLaunch(ClientLevel level, Place place) {
+        bind(level);
+        launch = place;
+    }
+
+    /** Убрать место пуска: дальше — пуск у стреляющего. */
+    public static void clearLaunch() {
+        launch = null;
+    }
+
     public static void reset() {
         dimension = null;
         point = null;
         route.clear();
+        launch = null;
     }
 
     private static boolean here(@Nullable ClientLevel level) {
         return level != null && level.dimension().equals(dimension);
     }
 
-    /** Место и точки другого измерения — чужие координаты: выбор в этом начинается заново. */
+    /** Место, точки и место пуска другого измерения — чужие координаты: выбор в этом начинается заново. */
     private static void bind(ClientLevel level) {
         if (here(level)) return;
         reset();

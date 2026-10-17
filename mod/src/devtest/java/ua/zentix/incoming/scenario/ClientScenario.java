@@ -201,7 +201,8 @@ public final class ClientScenario {
         else if ("map".equals(mode)) planMap();
         else if ("target-map".equals(mode)) planTargetMap();
         else if ("salvo-map".equals(mode)) planSalvoMap();
-        else if ("route-map".equals(mode)) planRouteMap();
+        else if ("route-map".equals(mode)) planRouteMap(false);
+        else if ("launch-map".equals(mode)) planRouteMap(true);
         else if ("occlusion".equals(mode)) planOcclusion();
         else if ("nuke-profile".equals(mode)) planNukeProfile();
         else if ("onboard".equals(mode)) planOnboard();
@@ -2214,8 +2215,13 @@ public final class ClientScenario {
      * огонь по Enter. Сервер: снаряд проходит точки по порядку — не дальше двух захватов паспорта и шага, как
      * {@code Route.update}, — и попадает в цель (строка {@code SCENARIO route-map impact … OK}). Кадры route-map_*.
      * {@code incoming.mapFrom=x,y,z} — откуда бить (и в копии мира игрока).
+     * <p>
+     * {@code launch-map} ({@code launch}) — то же с местом пуска с карты: кнопка места пуска и клик, значок перетащен
+     * мышью (строка {@code SCENARIO launch-map site … OK}), огонь — с него: сервер ставит там пусковую или, если места под
+     * неё нет, снаряд стартует из самого места ({@code SCENARIO launch-map start … OK}), путь — от места пуска через точки
+     * к цели. Хост встроенного сервера выбирает место пуска и без прав оператора. Кадры launch-map_*.
      */
-    private void planRouteMap() {
+    private void planRouteMap(boolean launch) {
         WeaponType weapon = java.util.Objects.requireNonNull(WeaponType.parse(System.getProperty("incoming.mapWeapon", "drone")),
                 "incoming.mapWeapon");
         at(40, () -> {
@@ -2231,11 +2237,12 @@ public final class ClientScenario {
         });
         for (int t = 300; t <= 300 + MAP_DH_WAIT; t += 20) {
             at(t, () -> {
-                if (mapOpened < 0 && (dhIdle() || tick >= 300 + MAP_DH_WAIT)) routeMapBegin(tick, weapon);
+                if (mapOpened < 0 && (dhIdle() || tick >= 300 + MAP_DH_WAIT)) routeMapBegin(tick, weapon, launch);
             });
         }
-        // сервер (встроенный): какие точки маршрута снаряд прошёл и где взорвался
+        // сервер (встроенный): откуда снаряд стартовал, какие точки маршрута прошёл и где взорвался
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.tick.ServerTickEvent.Post e) -> {
+            if (launch) checkLaunchSite(e.getServer().overworld(), weapon);
             ua.zentix.incoming.strike.Waypoints via = routeFired;
             if (via == null || routePassed >= via.size()) return;
             Vec3 wp = via.points().get(routePassed);
@@ -2266,8 +2273,39 @@ public final class ClientScenario {
     @org.jetbrains.annotations.Nullable
     private volatile ua.zentix.incoming.strike.Waypoints routeFired;
     private volatile int routePassed;
+    /** Место пуска приказа (сценарий launch-map) и тик сервера, к которому старт с него ещё не найден; их читает поток сервера. */
+    @org.jetbrains.annotations.Nullable
+    private volatile Vec3 launchSite;
+    private long launchDeadline = -1;
+    private boolean launchChecked;
 
-    private void routeMapBegin(int o, WeaponType weapon) {
+    /**
+     * Старт с места пуска (сценарий launch-map, поток сервера): пусковая на нём (на месте или на кольце площадок вокруг)
+     * со снарядом этого оружия, или снаряд стартовал из самого места вне мира (места под пусковую нет).
+     */
+    private void checkLaunchSite(net.minecraft.server.level.ServerLevel level, WeaponType weapon) {
+        Vec3 site = launchSite;
+        if (site == null || routeFired == null || launchChecked) return;
+        if (launchDeadline < 0) launchDeadline = level.getGameTime() + 200;
+        net.minecraft.world.phys.AABB around = new net.minecraft.world.phys.AABB(site.x - 48, level.getMinBuildHeight(), site.z - 48, site.x + 48, level.getMaxBuildHeight(), site.z + 48);
+        for (var l : level.getEntitiesOfClass(ua.zentix.incoming.entity.LauncherEntity.class, around, ua.zentix.incoming.entity.LauncherEntity::ordered)) {
+            launchChecked = true;
+            Incoming.LOG.info("SCENARIO launch-map start: пусковая на месте пуска в {} от него, {} — OK", Math.round(Math.hypot(l.getX() - site.x, l.getZ() - site.z)),
+                    xyz(l.position()));
+            return;
+        }
+        for (StrikeProjectile q : ua.zentix.incoming.strike.VirtualFlights.get(level).flights()) {
+            if (q.weapon() != weapon || Math.hypot(q.getX() - site.x, q.getZ() - site.z) > 48) continue;
+            launchChecked = true;
+            Incoming.LOG.info("SCENARIO launch-map start: без пусковой, из места пуска вне мира {} — OK", xyz(q.position()));
+            return;
+        }
+        if (level.getGameTime() < launchDeadline) return;
+        launchChecked = true;
+        Incoming.LOG.warn("SCENARIO launch-map start: ни пусковой, ни снаряда у места пуска {} — FAIL", xyz(site));
+    }
+
+    private void routeMapBegin(int o, WeaponType weapon, boolean launch) {
         mapOpened = o;
         Incoming.LOG.info("SCENARIO route-map open at tick {}", o);
         Minecraft mc = Minecraft.getInstance();
@@ -2317,16 +2355,23 @@ public final class ClientScenario {
         at(o + 110, () -> {
             ua.zentix.incoming.client.map.MapTarget.remove(mc.level, 3);
             ua.zentix.incoming.client.map.MapTarget.remove(mc.level, 2);
+            if (launch) placeLaunchSite(mc.screen);
+        });
+        // место пуска на карте: значок, путь от него, строка под маршрутом
+        int f = launch ? o + 130 : o + 110;
+        if (launch) shot(o + 120, "launch-map");
+        at(f, () -> {
             routeFired = ua.zentix.incoming.client.map.MapTarget.waypoints(mc.level);
             logRoute("огонь", weapon);
             mc.screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0);
         });
-        at(o + 170, () -> {
+        at(f + 60, () -> {
             logFlights();
             mc.setScreen(new ua.zentix.incoming.client.screen.MapScreen(new RemoteScreen()));
         });
-        for (int t = o + 190; t <= o + MAP_FLIGHT_WAIT; t += 120) shot(t, "route-map");
-        for (int t = o + 190; t <= o + MAP_FLIGHT_WAIT; t += 20) {
+        String frames = launch ? "launch-map" : "route-map";
+        for (int t = f + 80; t <= o + MAP_FLIGHT_WAIT; t += 120) shot(t, frames);
+        for (int t = f + 80; t <= o + MAP_FLIGHT_WAIT; t += 20) {
             at(t, () -> {
                 if (mapDone) return;
                 if (mapImpactTick < 0 || tick < mapImpactTick + 60) {
@@ -2340,14 +2385,40 @@ public final class ClientScenario {
         }
     }
 
-    /** Строка маршрута на карте: точки, длина от игрока до цели, в дальности ли оружия и даётся ли огонь. */
+    /** Строка маршрута на карте: точки, длина от места пуска (без него — от игрока) до цели, в дальности ли оружия и даётся ли огонь. */
     private void logRoute(String stage, WeaponType weapon) {
         Minecraft mc = Minecraft.getInstance();
         var via = ua.zentix.incoming.client.map.MapTarget.waypoints(mc.level);
-        Vec3 aim = mapTarget, me = mc.player.position();
+        Vec3 aim = mapTarget, me = ua.zentix.incoming.client.map.MapTarget.launchPoint(mc.level).orElse(mc.player.position());
         Incoming.LOG.info("SCENARIO route-map {}: точки {} длина {} в дальности {} огонь {}", stage,
                 via.points().stream().map(q -> Math.round(q.x) + " " + Math.round(q.z)).toList(),
                 aim == null ? "—" : Math.round(via.length(me, aim)), aim != null && via.within(weapon, me, aim), mapCanFire(mc.screen));
+    }
+
+    /**
+     * Место пуска на карте, как игрок (сценарий launch-map): кнопка места пуска и клик в 300 блоках к югу от игрока,
+     * потом значок перетащен мышью на 20 пикселей к западу.
+     */
+    private void placeLaunchSite(Screen screen) {
+        Minecraft mc = Minecraft.getInstance();
+        Vec3 me = mc.player.position();
+        String pick = net.minecraft.network.chat.Component.translatable("incoming.map.launch.pick").getString();
+        for (var c : screen.children()) {
+            if (c instanceof net.minecraft.client.gui.components.Button b && b.getMessage().getString().equals(pick)) b.onPress();
+        }
+        int[] at = mapScreenAt(screen, new ua.zentix.incoming.client.map.MapTarget.Place(me.x + 40, me.z + 300));
+        screen.mouseClicked(at[0], at[1], 0);
+        screen.mouseReleased(at[0], at[1], 0);
+        var placed = ua.zentix.incoming.client.map.MapTarget.launch(mc.level);
+        screen.mouseClicked(at[0], at[1], 0);
+        screen.mouseDragged(at[0] - 10, at[1], 0, -10, 0);
+        screen.mouseDragged(at[0] - 20, at[1], 0, -10, 0);
+        screen.mouseReleased(at[0] - 20, at[1], 0);
+        var moved = ua.zentix.incoming.client.map.MapTarget.launch(mc.level);
+        boolean ok = placed.isPresent() && Math.abs(placed.get().z() - (me.z + 300)) < 8 && moved.isPresent() && moved.get().x() < placed.get().x() - 1;
+        Incoming.LOG.info("SCENARIO launch-map site (кнопка и клик, значок перетащен) {} → {} — {}", placed.map(p -> Math.round(p.x()) + " " + Math.round(p.z())).orElse("—"),
+                moved.map(p -> Math.round(p.x()) + " " + Math.round(p.z())).orElse("—"), ok ? "OK" : "FAIL");
+        launchSite = moved.map(p -> new Vec3(p.x(), 0, p.z())).orElse(null);
     }
 
     /** Место точки мира на карте наведения (её проекция — закрытый метод экрана: только для сценария). */

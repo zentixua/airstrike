@@ -76,19 +76,46 @@ public final class ServerActions {
         Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null) return;
-        // пульт с привязанными стационарными пусковыми ставит им задачу, а не пускает сам
+        // пульт с привязанными стационарными пусковыми ставит им задачу, а не пускает сам: пускают они со своего места
         ItemStack designator = designator(player);
         if (!LauncherLinks.of(designator).isEmpty()) {
             LauncherOrders.assign(player, designator, l, aim, p.via());
             return;
         }
-        MutableComponent problem = routeProblem(player.serverLevel(), player, true, l.weapon(), null, p.via(), aim.point());
+        LaunchOrigin from = null;
+        if (p.from().isPresent()) {
+            Vec3 at = new Vec3(p.from().get().x, 0, p.from().get().z);
+            MutableComponent bad = launchSiteProblem(player, at);
+            if (bad != null) {
+                player.displayClientMessage(bad.withStyle(ChatFormatting.RED), true);
+                return;
+            }
+            from = new LaunchOrigin.Place(at);
+        }
+        MutableComponent problem = routeProblem(player.serverLevel(), player, true, l.weapon(), from, p.via(), aim.point());
         if (problem != null) {
             player.displayClientMessage(problem.withStyle(ChatFormatting.RED), true);
             return;
         }
         // пульт — по правилам игрока у всех, и у операторов: приказ оплачивается боеприпасами
-        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via(), null, true);
+        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via(), from, true);
+    }
+
+    /**
+     * Что не так с местом пуска {@code at} (по горизонтали), выбранным на карте пульта; null — годится. Его выбирает
+     * только оператор или хост ({@link NuclearKeys#trusted}: им и ядерный приказ идёт без второго ключа), и только там,
+     * где на карте можно выбрать и цель ({@link #groundInRange}: мир без потолка, не дальше {@code map_range} от
+     * игрока, в границах мира). Как и у команды {@code from x z}, пусковая встаёт на нём ({@link LaunchSite.Post}).
+     */
+    @Nullable
+    public static MutableComponent launchSiteProblem(ServerPlayer player, Vec3 at) {
+        if (!NuclearKeys.trusted(player)) return Component.translatable("incoming.map.launch.ops_only");
+        if (!inWorld(player.serverLevel(), at)) return outsideWorld(at);
+        if (player.level().dimensionType().hasCeiling()) return Component.translatable("incoming.map.no_ceiling");
+        if (!groundInRange(player, at.x, at.z)) {
+            return Component.translatable("incoming.map.launch.out_of_range", IncomingConfig.SERVER.mapRange.get());
+        }
+        return null;
     }
 
     /** Пульт, с которого «Огонь»: в который смотрят (бинокль), иначе первый в руках, как у экрана пульта; пусто — нет. */
@@ -105,10 +132,11 @@ public final class ServerActions {
      * Что не так с местом пуска {@code from} и маршрутом оператора {@code via} ({@link Waypoints}) приказа по точке
      * {@code aim}; null — годятся (и когда их нет). Место пуска и точки — конечные числа в границах мира, а по правилам
      * ({@code rules}: пульт, команда игрока без прав оператора) точки — там же, где можно выбрать место на карте
-     * стреляющего ({@link #groundInRange}); место пуска задаёт только приказ без правил (команда оператора, консоль), а
-     * стационарную пусковую — и её задача с пульта. По точкам летает не всякое оружие ({@link WeaponSpec.Route#waypoints}),
-     * и путь через них до цели не длиннее его дальности по маршруту (паспорт, {@link WeaponSpec.Route#reach}) — от места
-     * пуска, без него от стреляющего, а у консоли — от первой точки (снаряд издалека появляется перед ней).
+     * стреляющего ({@link #groundInRange}); место пуска задаёт приказ без правил (команда оператора, консоль) и карта
+     * пульта оператора или хоста ({@link #launchSiteProblem}), а стационарную пусковую — и её задача с пульта. По точкам
+     * летает не всякое оружие ({@link WeaponSpec.Route#waypoints}), и путь через них до цели не длиннее его дальности по
+     * маршруту (паспорт, {@link WeaponSpec.Route#reach}) — от места пуска, без него от стреляющего, а у консоли — от
+     * первой точки (снаряд издалека появляется перед ней).
      *
      * @param shooter игрок, отдавший приказ; null — консоль или командный блок
      */
@@ -315,7 +343,7 @@ public final class ServerActions {
         if (bill != null && !Munitions.pay(player, bill)) return false;
         if (aim.label() != null) player.sendSystemMessage(locked(weapon, aim).withStyle(ChatFormatting.GOLD));
         // ядерный удар не оператора: второй ключ и тревога у цели не меньше 90 с (места пуска у такого приказа нет:
-        // его задаёт только оператор, а приказ оператора идёт без правил)
+        // его задают только оператор и хост — командой или с карты пульта, а им второй ключ не нужен)
         if (l.nuclear() && rules && !NuclearKeys.trusted(player)) {
             return NuclearKeys.order(player, player.server.getPlayerList().getPlayers(), l, aim, via, bill);
         }

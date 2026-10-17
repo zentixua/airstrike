@@ -11,9 +11,9 @@ import ua.zentix.incoming.util.Terrain;
 
 /**
  * Откуда приказ пускает снаряды, если не от стреляющего: место пуска ({@link Place}, {@code /incoming salvo … from x z}
- * — пусковая встаёт на нём, {@link LaunchSite.Post}) или стационарная пусковая ({@link Fixed}: снаряды — с её пакета
- * и из её запаса). От точки пуска {@link #at} считаются дальность маршрута ({@link ServerActions#routeProblem}) и курс
- * захода; залп хранит её у себя ({@link SalvoData}).
+ * или с карты пульта у оператора и хоста — пусковая встаёт на нём, {@link LaunchSite.Post}) или стационарная пусковая
+ * ({@link Fixed}: снаряды — с её пакета и из её запаса). От точки пуска {@link #at} считаются дальность маршрута
+ * ({@link ServerActions#routeProblem}) и курс захода; залп хранит её у себя ({@link SalvoData}).
  */
 public sealed interface LaunchOrigin {
     /** Точка пуска (по горизонтали; высоту берёт пуск). */

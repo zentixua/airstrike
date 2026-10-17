@@ -4,6 +4,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
@@ -42,9 +43,13 @@ import java.util.Optional;
  * дальность и права проверяет сервер ({@code map_range}).
  * <p>
  * Маршрут ({@link Waypoints}, помнит {@link MapTarget}): Shift+ЛКМ — точка в конец маршрута (до {@link Waypoints#MAX}),
- * точку тянут мышью, ПКМ по ней убирает её, кнопка — все. Линия идёт от тебя через точки к цели; под картой — длина
- * и время полёта, а длиннее дальности оружия по маршруту (паспорт, {@link WeaponSpec.Route#reach}) линия красная
+ * точку тянут мышью, ПКМ по ней убирает её, кнопка — все. Линия идёт от места пуска через точки к цели; под картой —
+ * длина и время полёта, а длиннее дальности оружия по маршруту (паспорт, {@link WeaponSpec.Route#reach}) линия красная
  * и огня нет. Оружие без полёта по точкам (баллистика, РСЗО) маршрут не берёт — линия тусклая.
+ * <p>
+ * Место пуска (помнит {@link MapTarget}) — только у оператора и хоста ({@link #mayPickLaunchSite}): Ctrl+ЛКМ или кнопка
+ * и клик — пусковая встанет там (как у команды {@code from x z}), значок тянут мышью, ПКМ по нему или кнопка — снова
+ * пуск у себя. Без него пуск — у игрока; проверяет место сервер ({@code ServerActions.launchSiteProblem}).
  * <p>
  * Знаки поверх рельефа — толстые, с тёмной обводкой ({@link HudDraw#HALO}): на пёстром городе тонкий пунктир терялся бы.
  */
@@ -60,8 +65,13 @@ public class MapScreen extends Screen {
     private static final int PICK_RADIUS = 9;
     /** Игроков спрашивать у сервера раз в столько тиков, пока карта открыта. */
     private static final int PLAYERS_PERIOD = 10;
-    /** Сверху — заголовок и курсор; снизу — строка цели (своя, чтобы не лечь на подпись сетки) и кнопки. */
-    private static final int TOP = 22, BOTTOM = 56;
+    /**
+     * Сверху — заголовок и курсор; снизу — строка цели (своя, чтобы не лечь на подпись сетки), строка маршрута и кнопки,
+     * у тех, кто выбирает место пуска, — ещё строка места пуска ({@link #LAUNCH_LINE}).
+     */
+    private static final int TOP = 22, BOTTOM = 56, LAUNCH_LINE = 12;
+    /** Кнопки под картой: не шире стольких пикселей, между ними — {@link #BUTTON_GAP}. */
+    private static final int BUTTON_W = 100, BUTTON_GAP = 4;
 
     private static final int BG = 0xFF0A1410, GRID = 0x3060FF90, GRID_TEXT = 0xC060FF90, INK = 0xFFD8F0E0, DIM = 0xFF90A898;
     /** Рельеф чуть приглушён: знаки поверх него читаются, а город и дороги видны. */
@@ -72,6 +82,8 @@ public class MapScreen extends Screen {
     private static final int WAYPOINTS = 0xFF7CFF8C;
     /** Свои по команде и замеченные чужие снаряды и прочее (не игроки и не аппараты). */
     private static final int FRIEND = 0xFF60FF80, HOSTILE = 0xFFFF6040;
+    /** Место пуска: ни с чем на карте не спутать (игроки голубые, свои зелёные, снаряды жёлтые, цель красная). */
+    private static final int LAUNCH = 0xFFC080FF;
 
     /** Вид карты помнится между открытиями, пока игрок в том же мире и измерении. */
     private static double viewX, viewZ, scale = 1;
@@ -80,12 +92,18 @@ public class MapScreen extends Screen {
     private static ResourceKey<Level> placedIn;
 
     private final RemoteScreen remote;
-    private Button fireButton, clearRouteButton;
+    private Button fireButton, clearRouteButton, launchButton;
+    /** Игрок выбирает место пуска ({@link #mayPickLaunchSite}; решено при открытии): кнопка, строка и значок. */
+    private boolean launchAllowed;
+    /** Следующий клик по карте — место пуска (нажата кнопка места пуска). */
+    private boolean pickingLaunch;
     private double pressX, pressY;
-    /** ЛКМ нажата на карте (а не на кнопке) и ещё не отпущена; тянут — сдвиг карты или точки маршрута. */
+    /** ЛКМ нажата на карте (а не на кнопке) и ещё не отпущена; тянут — сдвиг карты, точки маршрута или места пуска. */
     private boolean pressing, dragging;
     /** Точка маршрута, на которой нажата ЛКМ (её тянут), или −1. */
     private int grabbed = -1;
+    /** ЛКМ нажата на значке места пуска (его тянут). */
+    private boolean grabbedLaunch;
     private int ticks;
     /** Для лога: когда карта впервые нарисована, сколько плиток было готово сразу, записано ли время готовности. */
     private long openedNs;
@@ -117,15 +135,22 @@ public class MapScreen extends Screen {
             viewZ = at.z();
             placedIn = mc.level.dimension();
         }
-        int by = height - 24, bx = width / 2 - 206;
-        fireButton = addRenderableWidget(Button.builder(Component.translatable("incoming.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
-                b -> fire()).bounds(bx, by, 100, 20).build());
-        clearRouteButton = addRenderableWidget(Button.builder(Component.translatable("incoming.map.route.clear"), b -> MapTarget.clearRoute())
-                .bounds(bx + 104, by, 100, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("incoming.map.center"), b -> centerOnPlayer())
-                .bounds(bx + 208, by, 100, 20).build());
-        addRenderableWidget(Button.builder(Component.translatable("incoming.map.back"), b -> onClose())
-                .bounds(bx + 312, by, 100, 20).build());
+        launchAllowed = mayPickLaunchSite();
+        if (!launchAllowed) pickingLaunch = false;
+        fireButton = Button.builder(Component.translatable("incoming.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), b -> fire()).build();
+        clearRouteButton = Button.builder(Component.translatable("incoming.map.route.clear"), b -> MapTarget.clearRoute()).build();
+        launchButton = Button.builder(Component.translatable("incoming.map.launch.pick"), b -> launchButton())
+                .tooltip(Tooltip.create(Component.translatable("incoming.map.launch.tooltip"))).build();
+        Button center = Button.builder(Component.translatable("incoming.map.center"), b -> centerOnPlayer()).build();
+        Button back = Button.builder(Component.translatable("incoming.map.back"), b -> onClose()).build();
+        List<Button> row = launchAllowed ? List.of(fireButton, clearRouteButton, launchButton, center, back) : List.of(fireButton, clearRouteButton, center, back);
+        // ряд по середине, кнопки уже, если окно узкое (крупный интерфейс): пять по 100 не помещаются в 480 пикселей
+        int n = row.size(), w = Math.min(BUTTON_W, (width - 8 - BUTTON_GAP * (n - 1)) / n), x = (width - n * w - BUTTON_GAP * (n - 1)) / 2;
+        for (Button b : row) {
+            b.setRectangle(w, 20, x, height - 24);
+            addRenderableWidget(b);
+            x += w + BUTTON_GAP;
+        }
         updateButtons();
         // карта открыта с уже выбранным местом — его район тоже грузится заранее (тот же район сервер только продлит)
         if (!ceiling() && selectedPlayer().isEmpty()) selected().ifPresent(MapScreen::preload);
@@ -163,6 +188,36 @@ public class MapScreen extends Screen {
     private void updateButtons() {
         fireButton.active = canFire();
         clearRouteButton.active = !route().isEmpty();
+        launchButton.active = !ceiling();
+        launchButton.setMessage(pickingLaunch ? Component.translatable("incoming.map.launch.picking").withStyle(ChatFormatting.YELLOW)
+                : launchSite().isPresent() ? Component.translatable("incoming.map.launch.reset") : Component.translatable("incoming.map.launch.pick"));
+    }
+
+    /**
+     * Место пуска на карте выбирает оператор или хост мира — те же, кому его даёт сервер
+     * ({@code ServerActions.launchSiteProblem}: {@code NuclearKeys.trusted}); у остальных его на карте нет.
+     */
+    static boolean mayPickLaunchSite() {
+        Minecraft mc = Minecraft.getInstance();
+        return mc.player != null && (mc.player.hasPermissions(2) || mc.hasSingleplayerServer());
+    }
+
+    /** Место пуска, с которого пойдёт удар; пусто — у игрока (не выбрано или выбирать его игроку нельзя). */
+    private Optional<MapTarget.Place> launchSite() {
+        return launchAllowed ? MapTarget.launch(Minecraft.getInstance().level) : Optional.empty();
+    }
+
+    /** Откуда идёт путь по горизонтали: место пуска, без него — игрок. */
+    private Vec3 start(Vec3 me) {
+        return launchSite().map(l -> new Vec3(l.x(), 0, l.z())).orElse(me);
+    }
+
+    /** Кнопка места пуска: выбрать на карте, передумать или снова пускать у себя. */
+    private void launchButton() {
+        if (pickingLaunch) pickingLaunch = false;
+        else if (launchSite().isPresent()) MapTarget.clearLaunch();
+        else pickingLaunch = true;
+        updateButtons();
     }
 
     /** Точки маршрута в этом измерении. */
@@ -193,29 +248,35 @@ public class MapScreen extends Screen {
     }
 
     /**
-     * Длина пути от игрока через точки маршрута до цели — та же, что проверит сервер ({@code ServerActions.routeProblem}).
-     * Пусто — маршрута нет, оружие по нему не летает или цель не известна.
+     * Длина пути от места пуска (без него — от игрока) через точки маршрута до цели — та же, что проверит сервер
+     * ({@code ServerActions.routeProblem}). Пусто — маршрута нет, оружие по нему не летает или цель не известна.
      */
     private Optional<Double> routeLength() {
         Minecraft mc = Minecraft.getInstance();
         Waypoints via = MapTarget.waypoints(mc.level);
         if (via.isEmpty() || !routed() || mc.player == null) return Optional.empty();
-        return aimPoint().map(aim -> via.length(mc.player.position(), aim));
+        Vec3 start = start(mc.player.position());
+        return aimPoint().map(aim -> via.length(start, aim));
+    }
+
+    /** Нижняя панель: строки и кнопки; у тех, кто выбирает место пуска, — на строку выше. */
+    private int panel() {
+        return BOTTOM + (launchAllowed ? LAUNCH_LINE : 0);
     }
 
     private MapProjection projection() {
-        return new MapProjection(width / 2.0, TOP + (height - TOP - BOTTOM) / 2.0, viewX, viewZ, scale);
+        return new MapProjection(width / 2.0, TOP + (height - TOP - panel()) / 2.0, viewX, viewZ, scale);
     }
 
     private boolean onMap(double x, double y) {
-        return y >= TOP && y < height - BOTTOM;
+        return y >= TOP && y < height - panel();
     }
 
     /** Огонь по выбранному: игрок — цель пульта уже он; иначе место (пульт мог стоять на другом режиме цели). */
     private void fire() {
         if (!canFire()) return;
         if (selectedPlayer().isEmpty()) remote.aimAtPlace();
-        remote.fire(MapTarget.waypoints(Minecraft.getInstance().level));
+        remote.fire(MapTarget.waypoints(Minecraft.getInstance().level), launchSite().map(l -> new Vec3(l.x(), 0, l.z())));
     }
 
     private void centerOnPlayer() {
@@ -226,7 +287,7 @@ public class MapScreen extends Screen {
     }
 
     /** У мира с потолком (Незер) карта видит только крышу: место не выбирается, сервер такой удар не примет. */
-    private static boolean ceiling() {
+    static boolean ceiling() {
         Minecraft mc = Minecraft.getInstance();
         return mc.level != null && mc.level.dimensionType().hasCeiling();
     }
@@ -261,6 +322,24 @@ public class MapScreen extends Screen {
         updateButtons();
     }
 
+    /** Место пуска — там, где на карте точка экрана (Ctrl+клик или клик после кнопки места пуска). */
+    private void placeLaunch(double screenX, double screenY) {
+        Minecraft mc = Minecraft.getInstance();
+        pickingLaunch = false;
+        if (mc.level == null || ceiling() || !launchAllowed) return;
+        MapProjection map = projection();
+        MapTarget.setLaunch(mc.level, new MapTarget.Place(map.worldX(screenX), map.worldZ(screenY)));
+        updateButtons();
+    }
+
+    /** Значок места пуска ближе {@link #PICK_RADIUS} к точке экрана (его тянут или убирают). */
+    private boolean launchAt(double screenX, double screenY) {
+        Optional<MapTarget.Place> site = launchSite();
+        if (site.isEmpty()) return false;
+        int[] at = projection().at(site.get().x(), site.get().z());
+        return Mth.square(at[0] - screenX) + Mth.square(at[1] - screenY) <= PICK_RADIUS * PICK_RADIUS;
+    }
+
     /** Точка маршрута, чей значок ближе {@link #PICK_RADIUS} к точке экрана, или −1. */
     private int waypointAt(double screenX, double screenY) {
         MapProjection map = projection();
@@ -287,7 +366,7 @@ public class MapScreen extends Screen {
         for (MapPlayers.Mark m : marks) {
             if (!m.target()) continue;
             int[] at = map.at(m.x(), m.z());
-            int[] edge = edge(at[0], at[1], height - BOTTOM);
+            int[] edge = edge(at[0], at[1], height - panel());
             if (edge != null) at = edge;
             double d = Mth.square(at[0] - screenX) + Mth.square(at[1] - screenY);
             if (d <= bestD) {
@@ -305,10 +384,11 @@ public class MapScreen extends Screen {
         if (super.mouseClicked(mouseX, mouseY, button)) return true;
         if (!onMap(mouseX, mouseY)) return false;
         if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            // ПКМ по точке маршрута — убрать её
+            // ПКМ по точке маршрута — убрать её, по месту пуска — пуск снова у себя
             int i = waypointAt(mouseX, mouseY);
-            if (i < 0) return false;
-            MapTarget.remove(Minecraft.getInstance().level, i);
+            if (i >= 0) MapTarget.remove(Minecraft.getInstance().level, i);
+            else if (launchAt(mouseX, mouseY)) MapTarget.clearLaunch();
+            else return false;
             updateButtons();
             return true;
         }
@@ -318,6 +398,7 @@ public class MapScreen extends Screen {
         pressing = true;
         dragging = false;
         grabbed = waypointAt(mouseX, mouseY);
+        grabbedLaunch = grabbed < 0 && !pickingLaunch && launchAt(mouseX, mouseY);
         return true;
     }
 
@@ -327,11 +408,12 @@ public class MapScreen extends Screen {
         if (!pressing) return false;
         if (!dragging && Math.hypot(mouseX - pressX, mouseY - pressY) < DRAG_THRESHOLD) return true;
         dragging = true;
-        if (grabbed >= 0) {
-            // тянут точку маршрута — она под курсором (и за край нижней панели не уходит)
+        if (grabbed >= 0 || grabbedLaunch) {
+            // тянут точку маршрута или место пуска — оно под курсором (и за край нижней панели не уходит)
             MapProjection map = projection();
-            double y = Mth.clamp(mouseY, TOP, height - BOTTOM - 1);
-            MapTarget.move(Minecraft.getInstance().level, grabbed, new MapTarget.Place(map.worldX(mouseX), map.worldZ(y)));
+            MapTarget.Place place = new MapTarget.Place(map.worldX(mouseX), map.worldZ(Mth.clamp(mouseY, TOP, height - panel() - 1)));
+            if (grabbedLaunch) MapTarget.setLaunch(Minecraft.getInstance().level, place);
+            else MapTarget.move(Minecraft.getInstance().level, grabbed, place);
             return true;
         }
         viewX -= dragX / scale;
@@ -343,12 +425,13 @@ public class MapScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         boolean handled = super.mouseReleased(mouseX, mouseY, button);
         boolean click = pressing && !dragging && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && onMap(mouseX, mouseY);
-        boolean onPoint = grabbed >= 0;
-        pressing = dragging = false;
+        boolean onPoint = grabbed >= 0 || grabbedLaunch;
+        pressing = dragging = grabbedLaunch = false;
         grabbed = -1;
-        // клик по точке маршрута ничего не выбирает: её тянут или убирают
+        // клик по точке маршрута или месту пуска ничего не выбирает: их тянут или убирают
         if (click && !onPoint) {
-            if (hasShiftDown()) addWaypoint(mouseX, mouseY);
+            if (pickingLaunch || launchAllowed && hasControlDown()) placeLaunch(mouseX, mouseY);
+            else if (hasShiftDown()) addWaypoint(mouseX, mouseY);
             else select(mouseX, mouseY);
         }
         return click || handled;
@@ -375,6 +458,12 @@ public class MapScreen extends Screen {
         }
         if (keyCode == GLFW.GLFW_KEY_SPACE) {
             centerOnPlayer();
+            return true;
+        }
+        // Esc, пока выбирают место пуска, — передумать, а не закрыть карту
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && pickingLaunch) {
+            pickingLaunch = false;
+            updateButtons();
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -411,7 +500,7 @@ public class MapScreen extends Screen {
         if (p == null) return;
         marks = MapPlayers.marks(mc.level, partialTick);
         MapProjection map = projection();
-        int bottom = height - BOTTOM;
+        int bottom = height - panel();
         TerrainTiles.render(g, map, 0, TOP, width, bottom);
         logReady();
         g.enableScissor(0, TOP, width, bottom);
@@ -420,6 +509,9 @@ public class MapScreen extends Screen {
 
         Vec3 me = p.getPosition(partialTick);
         int[] op = map.at(me);
+        Optional<MapTarget.Place> site = launchSite();
+        // путь к цели — от места пуска, без него — от игрока
+        int[] start = site.map(t -> map.at(t.x(), t.z())).orElse(op);
         Loadout l = remote.loadout();
         Optional<String> aimedPlayer = selectedPlayer();
 
@@ -434,8 +526,8 @@ public class MapScreen extends Screen {
         }
         List<MapTarget.Place> route = route();
         boolean routed = routed() && !route.isEmpty();
-        if (aim != null && !routed) HudDraw.dashed(g, op[0], op[1], aim[0], aim[1], 1, AIM_LINE);
-        if (!route.isEmpty()) drawRoute(g, map, op, aim, route, mouseX, mouseY);
+        if (aim != null && !routed) HudDraw.dashed(g, start[0], start[1], aim[0], aim[1], 1, AIM_LINE);
+        if (!route.isEmpty()) drawRoute(g, map, start, aim, route, mouseX, mouseY);
         if (aim != null) {
             if (l.spread() > 0) {
                 float r = (float) (l.spread() * scale);
@@ -491,6 +583,21 @@ public class MapScreen extends Screen {
         // выбранное место — перекрестие поверх всего
         if (aimedPlayer.isEmpty() && aim != null) crosshair(g, aim[0], aim[1]);
 
+        // место пуска: значок с подписью (под курсором — рамка: тянуть — сдвиг, ПКМ — убрать), за краем — стрелкой; пока
+        // его выбирают — под курсором
+        if (site.isPresent()) {
+            Component name = Component.translatable("incoming.map.launch.label");
+            int[] edge = edge(start[0], start[1], bottom);
+            if (edge == null) {
+                launchMark(g, start[0], start[1], LAUNCH);
+                label(g, name, start[0], start[1] + 10, LAUNCH);
+                if (grabbedLaunch || onMap(mouseX, mouseY) && grabbed < 0 && launchAt(mouseX, mouseY)) HudDraw.ring(g, start[0] + 0.5f, start[1] + 0.5f, 10, 1, OPERATOR);
+            } else {
+                edgeMark(g, edge, start, bottom, name, LAUNCH);
+            }
+        }
+        if (pickingLaunch && onMap(mouseX, mouseY)) launchMark(g, mouseX, mouseY, (LAUNCH & 0x00FFFFFF) | 0x90000000);
+
         HudDraw.heading(g, op[0], op[1], p.getViewYRot(partialTick), OPERATOR);
         label(g, Component.translatable("incoming.map.you"), op[0], op[1] + 10, OPERATOR);
         g.disableScissor();
@@ -514,13 +621,13 @@ public class MapScreen extends Screen {
     }
 
     /**
-     * Маршрут: линия от игрока через точки к цели и номера точек; под курсором — рамка (тянуть — сдвиг, ПКМ — убрать).
-     * Цвет — что с ним будет при пуске: {@link #WAYPOINTS}, {@link #TARGET} (длиннее дальности), {@link #DIM} (оружие
-     * летит без точек).
+     * Маршрут: линия от места пуска ({@code start}: выбранное или игрок) через точки к цели и номера точек; под курсором —
+     * рамка (тянуть — сдвиг, ПКМ — убрать). Цвет — что с ним будет при пуске: {@link #WAYPOINTS}, {@link #TARGET}
+     * (длиннее дальности), {@link #DIM} (оружие летит без точек).
      */
-    private void drawRoute(GuiGraphics g, MapProjection map, int[] op, @Nullable int[] aim, List<MapTarget.Place> route, int mouseX, int mouseY) {
+    private void drawRoute(GuiGraphics g, MapProjection map, int[] start, @Nullable int[] aim, List<MapTarget.Place> route, int mouseX, int mouseY) {
         int color = !routed() ? DIM : routeLength().map(len -> len <= reach()).orElse(true) ? WAYPOINTS : TARGET;
-        int[] prev = op;
+        int[] prev = start;
         int[][] at = new int[route.size()][];
         for (int i = 0; i < route.size(); i++) {
             at[i] = map.at(route.get(i).x(), route.get(i).z());
@@ -535,6 +642,20 @@ public class MapScreen extends Screen {
             Component n = Component.literal(Integer.toString(i + 1));
             g.drawString(font, n, at[i][0] - font.width(n) / 2 + 1, at[i][1] - 3, 0xFF000000, false);
             if (i == hover) HudDraw.ring(g, at[i][0] + 0.5f, at[i][1] + 0.5f, 9, 1, OPERATOR);
+        }
+    }
+
+    /** Значок места пуска: ромб с обводкой. */
+    private static void launchMark(GuiGraphics g, int x, int y, int color) {
+        diamond(g, x, y, 7, HudDraw.HALO);
+        diamond(g, x, y, 5, color);
+    }
+
+    /** Ромб, залитый целиком, радиусом {@code r}. */
+    private static void diamond(GuiGraphics g, int x, int y, int r, int color) {
+        for (int i = -r; i <= r; i++) {
+            int half = r - Math.abs(i);
+            g.fill(x - half, y + i, x + half + 1, y + i + 1, color);
         }
     }
 
@@ -581,7 +702,7 @@ public class MapScreen extends Screen {
         if (p == null) return;
         // сверху: что за экран и оружие; справа — где курсор
         g.fill(0, 0, width, TOP, PANEL);
-        g.fill(0, height - BOTTOM, width, height, PANEL);
+        g.fill(0, height - panel(), width, height, PANEL);
         Loadout l = remote.loadout();
         Component weapon = l.count() > 1 || l.spread() > 0
                 ? Component.translatable("incoming.hud.loadout.salvo", l.weapon().displayName(), l.count(), l.spread())
@@ -595,9 +716,10 @@ public class MapScreen extends Screen {
             g.drawString(font, at, width - font.width(at) - 8, 7, INK);
         }
 
-        // над кнопками, в нижней панели: выбранная цель или подсказка
-        g.drawCenteredString(font, targetLine(p.position()), width / 2, height - BOTTOM + 5, canFire() ? 0xFFFF6050 : DIM);
+        // над кнопками, в нижней панели: выбранная цель или подсказка, маршрут, место пуска
+        g.drawCenteredString(font, targetLine(p.position()), width / 2, height - panel() + 5, canFire() ? 0xFFFF6050 : DIM);
         routeLine(g);
+        if (launchAllowed && !ceiling()) launchLine(g);
         String note = ceiling() ? "incoming.map.no_ceiling"
                 : !TerrainTiles.farTerrain() ? "incoming.map.near_only" : TerrainTiles.farPending() ? "incoming.map.far_pending" : null;
         if (note != null) g.drawString(font, Component.translatable(note).withStyle(ChatFormatting.ITALIC), 8, TOP + 6, DIM);
@@ -661,7 +783,40 @@ public class MapScreen extends Screen {
                 color = WAYPOINTS;
             }
         }
-        g.drawCenteredString(font, line, width / 2, height - BOTTOM + 17, color);
+        g.drawCenteredString(font, line, width / 2, height - panel() + 17, color);
+    }
+
+    /**
+     * Строка места пуска под строкой маршрута (у оператора и хоста): как его выбрать; выбранное — где оно и сколько от
+     * него до цели, а что с ним сделает оружие — по способу пуска из паспорта ({@link WeaponSpec.Launch}): пусковая
+     * встанет на нём, B-2 зайдёт с его стороны, МБР стартует со своей площадки. Пульт с привязанными стационарными
+     * пусковыми пускает с них.
+     */
+    private void launchLine(GuiGraphics g) {
+        Optional<MapTarget.Place> site = launchSite();
+        Component line;
+        if (remote.linked() > 0) {
+            line = Component.translatable("incoming.map.launch.linked", remote.linked());
+        } else if (pickingLaunch) {
+            line = Component.translatable("incoming.map.launch.picking_hint");
+        } else if (site.isEmpty()) {
+            line = Component.translatable("incoming.map.launch.hint");
+        } else {
+            WeaponSpec.Launch launch = remote.loadout().weapon().spec().launch();
+            Component at = Component.translatable("incoming.map.launch.at", Mth.floor(site.get().x()), Mth.floor(site.get().z()));
+            Optional<Vec3> aim = aimPoint();
+            if (aim.isPresent()) {
+                double dx = aim.get().x - site.get().x(), dz = aim.get().z - site.get().z();
+                at = Component.translatable("incoming.map.launch.at_target", at, distance(Math.sqrt(dx * dx + dz * dz)));
+            }
+            line = switch (launch) {
+                case ICBM -> Component.translatable("incoming.map.launch.unused", at, remote.loadout().weapon().displayName());
+                case BOMBER -> Component.translatable("incoming.map.launch.approach", at, remote.loadout().weapon().displayName());
+                case GUIDED, ROCKET, LOITER -> Component.translatable("incoming.map.launch.set", at);
+            };
+        }
+        int color = site.isPresent() && remote.linked() == 0 || pickingLaunch ? LAUNCH : DIM;
+        g.drawCenteredString(font, line, width / 2, height - panel() + 29, color);
     }
 
     /** «X 1200  Z −340 · 2.40 км · азимут 135°» — дальность и азимут от игрока. */
