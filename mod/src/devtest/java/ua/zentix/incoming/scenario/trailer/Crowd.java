@@ -57,6 +57,20 @@ final class Crowd {
         return people;
     }
 
+    /**
+     * Уже стоящий бот (боец уличного боя) — в эту толпу, без нового появления: после вспышки ядерки бойцы пригибаются,
+     * смотрят на гриб и бегут, как жители ({@code fight.adopt}). Режим — смотрит туда, куда смотрел, пока реплика не
+     * скажет иначе: бродить посреди боя ему нельзя.
+     */
+    Person adopt(String name, Vec3 at, Vec3 look) {
+        Person p = new Person(name, at, 0);
+        p.mode = Mode.WATCH;
+        p.point = look;
+        p.nextAt = server.getTickCount();
+        people.add(p);
+        return p;
+    }
+
     /** Все в этом круге бегут к точке (вход в подземку, подъезд) — врассыпную, с разбросом у цели. */
     void flee(Vec3 near, double radius, Vec3 to) {
         for (Person p : people) {

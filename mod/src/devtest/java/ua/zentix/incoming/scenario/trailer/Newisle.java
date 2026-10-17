@@ -1204,6 +1204,21 @@ final class Newisle {
                 Fight f = squads.get("street");
                 if (f != null) f.stop();
             });
+            // бойцы одной стороны уличного боя (side: west|east) — в группу толпы: бой встаёт, дальше crowd.cower, crowd.watch,
+            // crowd.flee (ядерка 17.10: вспышка посреди боя Севера и Юга, обе стороны опускают оружие и бегут)
+            case "fight.adopt" -> () -> film.withServer(s -> {
+                Fight f = squads.get("street");
+                if (f == null) return;
+                f.stop();
+                int side = a.get("side").getAsString().equals("west") ? 0 : 1;
+                Crowd crowd = crowds.computeIfAbsent(a.get("group").getAsString(), k -> new Crowd(film.cast(), film.mc.getSingleplayerServer()));
+                for (Fight.Soldier sol : f.soldiers()) {
+                    if (sol.side != side) continue;
+                    var sp = film.cast().player(sol.name);
+                    if (sp == null) continue;
+                    crowd.adopt(sol.name, sp.position(), sp.getEyePosition().add(sp.getLookAngle().scale(20)));
+                }
+            });
             case "fight.remove" -> () -> film.withServer(s -> {
                 Fight f = squads.remove("street");
                 if (f != null) for (Fight.Soldier x : f.soldiers()) {
@@ -1352,6 +1367,8 @@ final class Newisle {
                     Vec3 p = new Vec3(Math.floor(line.get(i).x) + 0.5, line.get(i).y, Math.floor(line.get(i).z) + 0.5);
                     spawn(name, p, Film.yawTo(Vec3.ZERO, facing));
                     f.add(name, side, p, facing);
+                    // бойцы у ядерного подрыва — в творческом режиме, как толпа (War.roofCrowd): в километре свет 15 кт убивает
+                    if (bool(a, "creative")) creative.add(name);
                 }
             }
         });

@@ -1325,6 +1325,213 @@
   "notes": "улица [-111, -141]→[-111, 47] (189 блоков, стороны 15), 0 блоков от замысла"
  },
  {
+  "id": "n60",
+  "title": "Night: North and South soldiers fight in a City 2 street",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -772.5,
+     66.6,
+     723.5
+    ],
+    "yaw": 24.7,
+    "pitch": 1.7,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -780.0,
+   66.0,
+   742.0
+  ],
+  "distance": 20.0,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
+  "id": "n61",
+  "title": "Night: the flash on the soldiers' faces",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -780.5,
+     66.4,
+     733.5
+    ],
+    "yaw": -3.4,
+    "pitch": 2.7,
+    "fov": 35.0
+   }
+  ],
+  "target": [
+   -780.0,
+   66.0,
+   742.0
+  ],
+  "distance": 8.5,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
+  "id": "n62",
+  "title": "Night: from behind, the soldiers' silhouettes and the mushroom; the street lights die",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -781.5,
+     66.6,
+     752.5
+    ],
+    "yaw": -140.9,
+    "pitch": -11.2,
+    "fov": 25.0
+   }
+  ],
+  "target": [
+   -167.0,
+   266.0,
+   -4.0
+  ],
+  "distance": 994.8,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
+  "id": "n63",
+  "title": "Night: enemies look at each other, lower their rifles, one runs",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -768.5,
+     67.6,
+     723.5
+    ],
+    "yaw": 92.3,
+    "pitch": 2.7,
+    "fov": 70.0
+   }
+  ],
+  "target": [
+   -780.0,
+   66.0,
+   723.0
+  ],
+  "distance": 11.6,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
+  "id": "n64",
+  "title": "Night: civilians flee down a City 2 street away from the light",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -848.5,
+     65.6,
+     711.5
+    ],
+    "yaw": -91.3,
+    "pitch": -2.0,
+    "fov": 55.0
+   }
+  ],
+  "target": [
+   -805.0,
+   66.0,
+   711.0
+  ],
+  "distance": 43.5,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
+  "id": "n65",
+  "title": "Night: from above, the dust blanket rolls over the bay toward City 2",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -520,
+     230,
+     420
+    ],
+    "yaw": -140.2,
+    "pitch": 16.2,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -167.0,
+   66.0,
+   -4.0
+  ],
+  "distance": 575.6,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
+  "id": "n66",
+  "title": "Night: the crowd on the hill by City 2 watches the wave come, and you are among them",
+  "time": "night",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -562.7,
+     74.2,
+     919.0
+    ],
+    "yaw": -156.8,
+    "pitch": -9.9,
+    "fov": 50.0
+   },
+   {
+    "t": 5.0,
+    "eye": [
+     -564.3,
+     76.2,
+     922.7
+    ],
+    "yaw": -156.8,
+    "pitch": -9.8,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -167.0,
+   66.0,
+   -4.0
+  ],
+  "distance": 1004.3,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
   "id": "n34",
   "title": "Flash over City 1",
   "time": "night",

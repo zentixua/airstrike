@@ -86,7 +86,8 @@ class NewisleCutTest(unittest.TestCase):
         plan = C.plan_of(SHEET, {p: f"/r/{p}" for p in need}, music="m.mp3")
         war, wave = plan["music"]
         self.assertEqual(("n38", 144, 192, 4, 0.4), (war["start"], war["from"], war["to"], war["grid"], war["ring"]))
-        self.assertEqual(("n47", 204, 4), (wave["start"], wave["from"], wave["grid"]))
+        # ядерная часть 17.10: музыка снова входит на одеяле пыли (n65), удар трека 3:17,8 — когда оно доходит до толпы (n66)
+        self.assertEqual(("n65", 196, 4), (wave["start"], wave["from"], wave["grid"]))
         cut_checks = C.cut_checks
         self.assertEqual([], cut_checks.letterbox_clash(SHEET, TAKES))
         self.assertEqual([], cut_checks.duplicates(SHEET))
