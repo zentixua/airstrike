@@ -18,6 +18,7 @@ import ua.zentix.incoming.client.far.FarRenderer;
 import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.fx.particle.FxPool;
 import ua.zentix.incoming.client.nuclear.NukePall;
+import ua.zentix.incoming.client.nuclear.NukeWater;
 import ua.zentix.incoming.client.render.DhDepth;
 import ua.zentix.incoming.client.render.FarDraw;
 
@@ -162,6 +163,7 @@ public final class FxLayer {
         FRUSTUM.set(FarDraw.viewProjection(e, view.camera(), VIEW_PROJECTION));
         QUADS.begin(view.left(), view.up());
         WaterDecal.begin(level, e.getCamera());
+        NukeWater.decals(view.partial());
         LIGHTS.begin();
         PROBES.begin();
         QUADS.nearestTexels(true);

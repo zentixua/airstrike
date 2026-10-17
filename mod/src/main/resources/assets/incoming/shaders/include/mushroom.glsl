@@ -1,5 +1,6 @@
 // Гриб объёмом (client/nuclear/MushroomField — числа кадра, nuclear/model/MushroomModel — законы): шапка — кольцо
-// с куполом над его дыркой, ножка, юбка пыли у её основания. Поле аналитическое: функции чисел гриба этого кадра и
+// с куполом над его дыркой, ножка, юбка пыли у её основания; у подрыва на воде — ещё полый столб воды с короной брызг
+// наверху (nuclear/model/WaterModel). Поле аналитическое: функции чисел гриба этого кадра и
 // места; клубы — шум общей плитки пелены (VolumeNoise) в координатах тела гриба, в долях его размера. Общее у объёма
 // (fx_pall), накопления (fx_pall_resolve) и квадратов слоя эффектов (fx.vsh: что гриб закрывает перед частицей).
 // Скалярные законы — копии MushroomModel и MushroomField (MushroomGlslTest считает их и сверяет с Java).
@@ -19,6 +20,11 @@
 //  10 = (воздух вокруг, K; перепад температуры ядра, K; низ шапки; плитка клубов ножки)
 //  11 = (подъём клубов ножки, блоки; верх дыма пожаров; радиус зоны пожаров; ослабление воздуха, 1/блок — дымка вдали)
 //  12 = (свет пожаров под грибом rgb, как у пелены: карта огня шторма и свет кадра; часы кипения шапки, рад)
+//  13 = (середина стенки столба воды по радиусу; её полутолщина; верх стенки — середина короны; ослабление, 1/блок;
+//        0 — столба нет)
+//  14 = (ω' столба rgb; g')
+//  15 = (наружный край короны по радиусу; её полувысота; подъём струй стенки — верх столба, блоки; плитка клубов
+//        столба, блоки)
 
 const int MUSHROOMS = 4;
 const int MUSH_BB_ROW = 4;
@@ -34,6 +40,9 @@ const float MUSH_STEM_LOBES = 0.4;
 const float MUSH_STEM_EDGE = 0.2;
 const float MUSH_SKIRT_LOBES = 0.8;
 const float MUSH_SKIRT_EDGE = 0.25;
+// то же у столба воды, в единицах толщины его стенки (MushroomField: LOBES_COLUMN, EDGE_COLUMN)
+const float MUSH_COLUMN_LOBES = 0.6;
+const float MUSH_COLUMN_EDGE = 0.15;
 // сглаживание объединения кольца и купола, в единицах клубов шапки (мягкий минимум опускает край не больше чем на
 // четверть его)
 const float MUSH_BLEND = 0.25;
@@ -60,6 +69,8 @@ const float MUSH_LOBES_DEEP = MUSH_LOBES_TOP + 1.0 / 6.0;
 const float MUSH_CAP_REACH = 0.68 * MUSH_CAP_LOBES + MUSH_CAP_EDGE + 0.25 * MUSH_BLEND;
 const float MUSH_STEM_REACH = 0.68 * MUSH_STEM_LOBES + MUSH_STEM_EDGE;
 const float MUSH_SKIRT_REACH = 0.68 * MUSH_SKIRT_LOBES + MUSH_SKIRT_EDGE;
+// у столба — и мягкий минимум стенки и короны
+const float MUSH_COLUMN_REACH = 0.68 * MUSH_COLUMN_LOBES + MUSH_COLUMN_EDGE + 0.25 * MUSH_BLEND;
 
 struct Mush {
     vec3 base;
@@ -99,17 +110,27 @@ struct Mush {
     float airSigma;
     vec3 fire;
     float churn;
+    float colMid;
+    float colHalf;
+    float colTop;
+    float colSigma;
+    vec4 colMat;
+    float crownR;
+    float crownH;
+    float colRise;
+    float colTile;
 };
 
 Mush mushLoad(sampler2D data, int k) {
     vec4 t0 = texelFetch(data, ivec2(0, k), 0), t1 = texelFetch(data, ivec2(1, k), 0), t2 = texelFetch(data, ivec2(2, k), 0);
     vec4 t3 = texelFetch(data, ivec2(3, k), 0), t4 = texelFetch(data, ivec2(4, k), 0), t6 = texelFetch(data, ivec2(6, k), 0);
     vec4 t8 = texelFetch(data, ivec2(8, k), 0), t10 = texelFetch(data, ivec2(10, k), 0), t11 = texelFetch(data, ivec2(11, k), 0);
-    vec4 t12 = texelFetch(data, ivec2(12, k), 0);
+    vec4 t12 = texelFetch(data, ivec2(12, k), 0), t13 = texelFetch(data, ivec2(13, k), 0), t15 = texelFetch(data, ivec2(15, k), 0);
     // эпицентр в таблице — x, z и земля по y (как у слота пелены): в место — x, y, z
     return Mush(t0.xzy, t1.xy, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w, t3.x, t3.y, t3.z, t3.w, t4.x, t4.y, t4.z, t4.w,
             texelFetch(data, ivec2(5, k), 0), t6.x, t6.y, t6.z, t6.w, texelFetch(data, ivec2(7, k), 0), t8.x, t8.y, t8.z, t8.w,
-            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, t11.w, t12.rgb, t12.w);
+            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, t11.w, t12.rgb, t12.w,
+            t13.x, t13.y, t13.z, t13.w, texelFetch(data, ivec2(14, k), 0), t15.x, t15.y, t15.z, t15.w);
 }
 
 // есть ли гриб k в кадре
@@ -226,6 +247,11 @@ float mushSkirtUnit(Mush m) {
     return min(m.skirtW, m.skirtH);
 }
 
+// единица клубов столба воды, блоки (MushroomField.columnUnit): толщина стенки
+float mushColumnUnit(Mush m) {
+    return 2.0 * m.colHalf;
+}
+
 // радиус ножки на высоте h места тела
 float mushStemAt(Mush m, float h) {
     return mushStemR(h / max(m.capBot, 1.0), m.stemR, m.lowDust);
@@ -255,14 +281,26 @@ float mushPhase(Mush m, vec3 q, float k) {
             + sin(0.8 * x.x + 1.0 * x.z + 4.2 + 1.3 * k));
 }
 
-// Расстояния со знаком до края шапки, ножки и юбки без клубов в месте q тела, блоки (у ножки — по радиусу на этой
-// высоте; её верх и низ — mushStemSigma)
-vec3 mushDist(Mush m, vec3 q) {
+// Стенка столба воды без клубов в месте q тела (rho — от оси): полый цилиндр от воды (и чуть под ней) до середины
+// короны; расстояние со знаком не дальше настоящего — по радиусу и по высоте
+float mushWall(Mush m, vec3 q, float rho) {
+    return max(abs(rho - m.colMid) - m.colHalf, max(q.y - m.colTop, -q.y - 0.02 * m.colTop));
+}
+
+// Расстояния со знаком до края шапки, ножки, юбки и столба воды без клубов в месте q тела, блоки (у ножки — по радиусу на
+// этой высоте; её верх и низ — mushStemSigma; столба нет — далеко): стенка столба и корона на ней — одна поверхность;
+// корона — кольцо, в сечении эллипс с серединой на середине стенки (WaterModel.Column)
+vec4 mushDist(Mush m, vec3 q) {
     float rho = length(q.xz);
     float ring = mushEllipseDist(rho - m.ringR, q.y - m.capY, m.ringA, m.ringB);
     float dome = mushEllipseDist(rho, q.y - m.domeY, m.domeR, m.domeH);
-    return vec3(mushSmin(ring, dome, MUSH_BLEND * mushCapUnit(m)), rho - mushStemAt(m, q.y),
-            mushEllipseDist(rho - m.skirtR, q.y, m.skirtW, m.skirtH));
+    float column = 1e9;
+    if (m.colSigma > 0.0) {
+        float crown = mushEllipseDist(rho - m.colMid, q.y - m.colTop, m.crownR - m.colMid, m.crownH);
+        column = mushSmin(mushWall(m, q, rho), crown, MUSH_BLEND * mushColumnUnit(m));
+    }
+    return vec4(mushSmin(ring, dome, MUSH_BLEND * mushCapUnit(m)), rho - mushStemAt(m, q.y),
+            mushEllipseDist(rho - m.skirtR, q.y, m.skirtW, m.skirtH), column);
 }
 
 // Густота ножки на высоте h без доли края: её толща поперёк на её ширине; верх тает у верха ножки, под землёй её нет
@@ -272,19 +310,21 @@ float mushStemSigma(Mush m, float h) {
     return m.stemTau / (2.0 * mushStemAt(m, h)) * topFade;
 }
 
-// Ослабление шапки, ножки и юбки в месте q без шума — среднее по клубам (край размыт на размах клубов): для толщи к
-// свету и квадратов слоя
-vec3 mushMean(Mush m, vec3 q) {
-    vec3 d = mushDist(m, q);
-    return vec3(m.capSigma * mushEdge(d.x, 0.5 * MUSH_CAP_LOBES * mushCapUnit(m)),
+// Ослабление шапки, ножки, юбки и столба воды в месте q без шума — среднее по клубам (край размыт на размах клубов): для
+// толщи к свету и квадратов слоя; без столба его край не считается (стенка нулевой толщины — край нулевой ширины)
+vec4 mushMean(Mush m, vec3 q) {
+    vec4 d = mushDist(m, q);
+    vec4 s = vec4(m.capSigma * mushEdge(d.x, 0.5 * MUSH_CAP_LOBES * mushCapUnit(m)),
             mushStemSigma(m, q.y) * mushEdge(d.y, 0.5 * MUSH_STEM_LOBES * mushStemAt(m, q.y)),
-            m.skirtSigma * mushEdge(d.z, 0.5 * MUSH_SKIRT_LOBES * mushSkirtUnit(m)));
+            m.skirtSigma * mushEdge(d.z, 0.5 * MUSH_SKIRT_LOBES * mushSkirtUnit(m)), 0.0);
+    if (m.colSigma > 0.0) s.w = m.colSigma * mushEdge(d.w, 0.5 * MUSH_COLUMN_LOBES * mushColumnUnit(m));
+    return s;
 }
 
 // Сколько до вещества гриба от места q, блоки мира, не больше (0 — уже в нём или рядом): шаг луча по пустому. Мера
 // эллипса растёт не быстрее расстояния, делённого на меньшую полуось, — мера − 1, умноженная на неё, не дальше края;
-// радиус ножки по высоте меняется не круче своего наклона; снос по высоте растягивает тело не больше чем
-// в 1 + снос / верх раз
+// радиус ножки по высоте меняется не круче своего наклона; стенка столба — уже расстояние не дальше настоящего; снос по
+// высоте растягивает тело не больше чем в 1 + снос / верх раз
 float mushGap(Mush m, vec3 q) {
     float rho = length(q.xz);
     float gap = 1e9;
@@ -302,6 +342,11 @@ float mushGap(Mush m, vec3 q) {
     if (m.skirtSigma > 0.0) {
         float u = mushSkirtUnit(m);
         gap = min(gap, (mushEllipse(rho - m.skirtR, q.y, m.skirtW, m.skirtH) - 1.0) * u - MUSH_SKIRT_REACH * u);
+    }
+    if (m.colSigma > 0.0) {
+        float a = m.crownR - m.colMid;
+        float crown = (mushRing(rho, q.y - m.colTop, m.colMid, a, m.crownH) - 1.0) * min(a, m.crownH);
+        gap = min(gap, min(mushWall(m, q, rho), crown) - MUSH_COLUMN_REACH * mushColumnUnit(m));
     }
     return max(gap, 0.0) / (1.0 + length(m.drift) / max(m.endTop, 1.0));
 }
@@ -365,8 +410,7 @@ float mushTransmit(sampler2D data, vec3 dir, float len, int steps) {
         if (span.y <= span.x) continue;
         float ds = (span.y - span.x) / float(steps), tau = 0.0;
         for (int i = 0; i < steps; i++) {
-            vec3 s = mushMean(m, mushLocal(m, dir * (span.x + (float(i) + 0.5) * ds)));
-            tau += (s.x + s.y + s.z) * ds;
+            tau += dot(mushMean(m, mushLocal(m, dir * (span.x + (float(i) + 0.5) * ds))), vec4(1.0)) * ds;
         }
         // гриб в дымке воздуха тает в небе за ним (mushAir): то, что за ним, видно сильнее
         through *= 1.0 - mushAir(m, 0.5 * (span.x + span.y)) * (1.0 - exp(-tau));
