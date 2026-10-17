@@ -142,6 +142,8 @@ public final class Fx {
         float driftX, driftZ;
         /** Хлопья: клочок бумаги (светлый прямоугольник), а не пепел. */
         boolean paper;
+        /** Цвет уже освещён ({@link #prelit}): карта освещения его не темнит. */
+        boolean prelit;
         boolean collide, smooth;
         float chainX, chainY, chainZ, chainGap;
         float streak;
@@ -205,6 +207,27 @@ public final class Fx {
             r0 = r1 = r;
             g0 = g1 = g;
             b0 = b1 = b;
+            return this;
+        }
+
+        /** Цвет от {@code from} к {@code to} (r, g, b в 0..1). */
+        public Spec color(float[] from, float[] to) {
+            r0 = from[0];
+            g0 = from[1];
+            b0 = from[2];
+            r1 = to[0];
+            g1 = to[1];
+            b1 = to[2];
+            return this;
+        }
+
+        /**
+         * Цвет уже со светом под открытым небом (пыль у камеры — светом своей стены пыли, {@code CloudPuffs.wallColor}):
+         * карта освещения его не темнит, и свет огненных шаров кадра к нему не прибавляется — он уже в цвете. Под крышей
+         * он темнее по свету неба и блоков в своём месте, как карта освещения против открытого неба.
+         */
+        public Spec prelit() {
+            prelit = true;
             return this;
         }
 

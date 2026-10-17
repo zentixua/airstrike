@@ -65,6 +65,9 @@ public final class ClientScenario {
     /** Сценарий {@code pall}: пелена после волны; эпицентр. */
     private boolean pall;
     private Vec3 pallAt = Vec3.ZERO;
+    /** Сценарий {@code wall}: стена пыли проходит мимо камеры; сколько кадров её прохода уже снято. */
+    private boolean wall;
+    private int wallStage;
     private int detTick = -1;
     /** Ядерный сценарий: точка в следе осадков и игровой тик, когда туда идти (−1 — не ждём). */
     private Vec3 falloutSpot = Vec3.ZERO;
@@ -153,6 +156,7 @@ public final class ClientScenario {
         String mode = scenario;
         if ("nuke".equals(mode)) planNuke();
         else if ("pall".equals(mode)) planPall();
+        else if ("wall".equals(mode)) planWall();
         else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("replay".equals(mode)) {
@@ -224,6 +228,7 @@ public final class ClientScenario {
         }
         if (nuke) nukeEvents();
         if (pall) pallEvents();
+        if (wall) wallEvents();
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
@@ -405,6 +410,59 @@ public final class ClientScenario {
         at(t, () -> Incoming.LOG.info("SCENARIO pall {} at {}: {}; layer {}", name, xyz(Minecraft.getInstance().gameRenderer.getMainCamera().getPosition()),
                 ua.zentix.incoming.client.nuclear.NukePall.describe(), ua.zentix.incoming.client.fx.layer.FxLayer.describeTiming()));
         shot(t, "pall_" + name);
+    }
+
+    /**
+     * Стена пыли у камеры: наземные 15 кт в 1,5 км к северу, зритель в воздухе в 10 блоках над лесом на холме смотрит
+     * на эпицентр; кадры — когда голова стены в 110, 60 и 20 блоках, в миг прихода и пока стена проходит мимо (пыль у
+     * камеры и сама стена в одном кадре). Ночь — {@code INCOMING_WALL=night} (по умолчанию полдень). Место — постоянное
+     * (высота площадки по рельефу зависела бы от того, какие чанки успели загрузиться, и кадры до и после правки не
+     * совпали бы), зритель в полёте (волна толкает его с площадки). Мир у прохода идёт медленно ({@code /tick rate 4}):
+     * на программном OpenGL голова за кадр ушла бы на сотню блоков.
+     */
+    private void planWall() {
+        wall = true;
+        boolean night = "night".equals(System.getenv("INCOMING_WALL"));
+        at(40, () -> {
+            cmd(night ? "time set 18000" : "time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0.5 150 0.5 180 -10");
+            hover = true;
+        });
+        at(600, () -> cmd("tp @s 0.5 150 0.5 180 -10"));
+        at(660, () -> {
+            Minecraft.getInstance().options.hideGui = true;
+            cmd("incoming nuke now at 0.5 320 -1499.5 15 ground");
+        });
+    }
+
+    /** Сценарий {@code wall}: кадры — по тому, где голова стены, а не по счётчику (сервер может отставать). */
+    private void wallEvents() {
+        var list = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations();
+        if (list.isEmpty() || wallStage > 5) return;
+        var a = list.getLast();
+        if (detTick < 0) {
+            detTick = tick;
+            Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}", tick, xyz(a.d.burst()));
+        }
+        Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        double gap = Math.hypot(cam.x - a.d.burst().x, cam.z - a.d.burst().z) - a.puffs.wall(a.seconds(0)).head();
+        String day = "night".equals(System.getenv("INCOMING_WALL")) ? "night" : "day";
+        double[] gaps = {400, 110, 60, 20, -15, -60};
+        if (gap > gaps[wallStage]) return;
+        if (wallStage == 0) cmd("tick rate 4");
+        else {
+            Incoming.LOG.info("SCENARIO wall {} gap {} at {}", day, String.format(java.util.Locale.ROOT, "%.0f", gap), xyz(cam));
+            shot(tick + 1, "wall_" + day + "_" + wallStage);
+        }
+        if (wallStage == 5) {
+            at(tick + 10, () -> cmd("tick rate 20"));
+            at(tick + 40, () -> {
+                Incoming.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+        }
+        wallStage++;
     }
 
     /** Ядерный сценарий: кадры входа боеголовки и после подрыва — от момента, когда клиент получил подрыв. */

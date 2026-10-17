@@ -155,7 +155,7 @@ public final class NukeSounds {
                 ClientSounds.atEarLoud(ModSounds.NUKE_ROAR.get(), d.burst().add(0, -200, 0), (float) Mth.clamp(psi / 4, 0.3, 1), 0.8f);
             }
             // стена пыли проходит мимо игрока секунды три
-            if (now - arrivalTick < 60 && psi >= 0.5) NukeDust.gust(d, ear, psi, (int) (now - arrivalTick));
+            if (now - arrivalTick < 60 && psi >= 0.5) NukeDust.gust(a, ear, psi, (int) (now - arrivalTick));
             if (nextRumble < rumbles.length && after >= rumbles[nextRumble]) {
                 float v = (float) (Mth.clamp(0.3 + psi / 8, 0.2, 0.9) * (1 - 0.15 * nextRumble));
                 // отражение от рельефа приходит с разных сторон

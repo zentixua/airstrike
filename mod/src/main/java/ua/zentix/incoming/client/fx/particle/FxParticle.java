@@ -41,7 +41,7 @@ public final class FxParticle {
     private float r0, g0, b0, r1, g1, b1, colorCurve, alpha;
     private int fadeIn, fadeAfter;
     private float fadeFrom, glow, glowTicks, drag, rise, gravity, wind, driftX, driftZ;
-    private boolean paper;
+    private boolean paper, prelit;
     private boolean collide, smooth;
     /** Цепочка клубов ({@link Fx.Spec#chain}): направление пути и шаг между клубами; шаг 0 — не цепочка. */
     private float chainX, chainY, chainZ, chainGap;
@@ -92,6 +92,7 @@ public final class FxParticle {
         driftX = s.driftX;
         driftZ = s.driftZ;
         paper = s.paper;
+        prelit = s.prelit;
         collide = s.collide;
         smooth = s.smooth;
         chainX = s.chainX;
@@ -213,6 +214,12 @@ public final class FxParticle {
             g = Math.min(1, g + heat * 0.45f);
             b = Math.min(1, b + heat * 0.12f);
         }
+        if (prelit) {
+            float k = openSky();
+            r *= k;
+            g *= k;
+            b *= k;
+        }
         rCol = r;
         gCol = g;
         bCol = b;
@@ -222,9 +229,18 @@ public final class FxParticle {
         aCol = alpha * in * Math.max(0, out);
     }
 
-    /** Свет для карты освещения: мир, у дыма с накалом — не темнее свечения огня. */
+    /**
+     * Свет в месте частицы против открытого неба 0..1 (у {@link Fx.Spec#prelit}: цвет уже освещён небом): под крышей —
+     * по свету неба и блоков, кривой яркости ванили (уровень f → f / (4 − 3f)).
+     */
+    private float openSky() {
+        float f = Math.max(LightTexture.sky(worldLight), LightTexture.block(worldLight)) / 15f;
+        return f / (4 - 3 * f);
+    }
+
+    /** Свет для карты освещения: мир, у дыма с накалом — не темнее свечения огня; уже освещённое — без неё. */
     private int lightColor(float partial) {
-        if (!kind.lit) return LightTexture.FULL_BRIGHT;
+        if (!kind.lit || prelit) return LightTexture.FULL_BRIGHT;
         int block = Math.max(LightTexture.block(worldLight), (int) (heat(partial) * 15));
         return LightTexture.pack(block, LightTexture.sky(worldLight));
     }

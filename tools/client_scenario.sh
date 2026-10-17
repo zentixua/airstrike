@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland (tools/nested_kwin.sh — своя шина D-Bus и настройки), звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|nuke|pall|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|nuke|pall|wall|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   guide — кадры руководства игрока (GuideShots): рецепты, бинокль, пульт, GIF карты, снаряды на экране, камера,
 #     «Ланцет», ЗРК, стационарная пусковая; INCOMING_GUIDE=recipes,map — только эти разделы; карта — по прорисовке 20 чанков, без dh;
@@ -16,6 +16,8 @@
 #   nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь;
 #   pall — пелена после ядерной волны (15 кт у земли): с холма в 4 км, изнутри, с высоты, в сумерки и ночью; качество —
 #     INCOMING_PALL=LOW|MEDIUM|HIGH (по умолчанию LOW), в лог — строки SCENARIO pall (плотность у камеры, время на видеокарте);
+#   wall — стена пыли проходит мимо зрителя в 1,5 км от наземных 15 кт: пыль у камеры и стена в одном кадре (wall_*, мир
+#     у прохода идёт медленно); ночью — INCOMING_WALL=night;
 #   fx, fx-night — эффекты крупным планом (взрывы шахеда, ракеты, бомбы и старт МБР; днём и ночью);
 #   fx-late — шахед и ракета крупным планом и их столб дыма через 45 с: с половины прорисовки и из-за её края (кадры *_late50, *_late110);
 #   models — модели снарядов крупным планом с трёх сторон (на пусковой, в полёте, B-2 с открытым бомболюком);
