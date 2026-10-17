@@ -110,6 +110,8 @@ public final class ReplayFilm {
     private final int @Nullable [] onlyTicks;
     /** Скины людей по имени (INCOMING_FILM_SKINS — skins.json из tools/trailer/gen_skins.py: имя → PNG); пусто — свои. */
     private final java.util.Map<String, Path> skins;
+    /** Тряска камеры моделью мода у ядерных планов, доля (INCOMING_FILM_SHAKE, по умолчанию 1). */
+    private final double nukeShake;
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
     /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
@@ -226,6 +228,7 @@ public final class ReplayFilm {
         }
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
         skins = readSkins(System.getenv("INCOMING_FILM_SKINS"));
+        nukeShake = Double.parseDouble(System.getenv().getOrDefault("INCOMING_FILM_SHAKE", "1.0"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
         // снятые в прошлый запуск (render/best.txt) не переснимаются, если их не назвали: запуск после падения идёт дальше;
@@ -873,7 +876,9 @@ public final class ReplayFilm {
             for (EventLog.Mark m : data.marks) shown.mark(m.t(), m.what());
             // тряска мода от взрывов (5° с частотой ~10 Гц) — не в вывод: толчки камеры даёт Operator; у ядерных планов
             // волна трясёт камеру моделью мода (давление у камеры), её Operator не повторяет
-            IncomingConfig.CLIENT.cameraShake.set(data.nukes.isEmpty() ? 0.0 : 1.0);
+            // INCOMING_FILM_SHAKE — доля этой тряски для черновика (17.10: у камеры в 430 блоках от эпицентра n65 она
+            // крутила кадр на 690°/с, проверка монтажа не пускала черновик; ядерные планы ещё переснимаются)
+            IncomingConfig.CLIENT.cameraShake.set(data.nukes.isEmpty() ? 0.0 : nukeShake);
             flawless(true);
             mov = FrameUnpack.enabled(out);
             job = null;
