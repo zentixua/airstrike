@@ -236,10 +236,13 @@ public final class NuclearPrep {
         /** Чанки тяжёлой зоны не в памяти при подрыве: для строки «far rings». */
         @Nullable
         long[] farAtDetonation;
+        /** Копии LOD зоны с готовыми планами с диска — в DH вместе с фронтом. */
+        final FrontLods lods;
 
         Prep(int strike, long detonateTime) {
             this.strike = strike;
             this.detonateTime = detonateTime;
+            this.lods = new FrontLods(strike);
         }
     }
 
@@ -303,6 +306,7 @@ public final class NuclearPrep {
             try {
                 if (p.draining) {
                     p.plans.clear();
+                    p.lods.clear(level);
                     // до подрыва задачи руин подготовки никому не отданы: бросить
                     if (p.ruins != null && p.detonation < 0) p.ruins.cancelTasks();
                     if (releaseSome(level, p, RELEASE_PER_TICK) == 0) it.remove();
@@ -315,6 +319,7 @@ public final class NuclearPrep {
                     behindWave(level, p, scars, d, now, shared);
                     if (d != null && p.ruins != null) far(level, p, shared);
                     if (d != null) farLods(level, p, d, now);
+                    frontLods(level, p, now);
                     boolean zoneDone = p.tiles.stream().noneMatch(t -> t.state != TileState.SKIP);
                     if (zoneDone && !scars.hasPrepared(p.detonation) || now - p.handedOff > ZONE_HOLD) {
                         zoneReport(p, scars, d, now);
@@ -368,6 +373,7 @@ public final class NuclearPrep {
         harvest(level, p, shared);
         if (!p.heapStop && !p.capped) submit(level, p, shared);
         far(level, p, shared);
+        frontLods(level, p, now);
         if (!p.announced && p.nextTodo >= p.todo.size() && p.submitted.isEmpty() && p.nextFar >= p.order.length && p.farRunning.isEmpty()) {
             p.announced = true;
             // строка для проверок и съёмки: руины удара готовы заранее (чанки, загруженные потом, ещё подхватываются)
@@ -516,6 +522,7 @@ public final class NuclearPrep {
                 if (plan != null) {
                     keep(level, p, c, plan);
                     p.farPlans++;
+                    p.lods.offer(c);
                 }
             } catch (RuntimeException e) {
                 Incoming.LOG.error("Pre-built ruins: plan for chunk {} from disk failed with an exception; its ruins will be built on the spot", new ChunkPos(c), e);
@@ -593,6 +600,43 @@ public final class NuclearPrep {
             if (ScarQueue.due(d, new ChunkPos(c)) > now) break;
             FarLods.request(level, c, true);
         }
+    }
+
+    /**
+     * Копии LOD зоны к фронту ({@link FrontLods}): собираются, когда планы с диска всей зоны отданы и готовы (или их
+     * больше не строят — место кончилось), из места руин заранее, которое оставили планы, снимки и чтения; после подрыва
+     * уходят в DH к приходу фронта. Память кончилась — копий больше нет (их LOD — путём {@link FarLods} после волны).
+     */
+    private static void frontLods(ServerLevel level, Prep p, long now) {
+        if (p.ruins == null) return;
+        if (p.heapStop) {
+            p.lods.clear(level);
+            return;
+        }
+        boolean plansDone = p.capped || p.nextFar >= p.order.length && p.farRunning.isEmpty();
+        p.lods.tick(level, p.plans, PLANS_CAP - memory(level, p), plansDone, now);
+    }
+
+    /** Копию LOD чанка держит фронт подготовки ({@link FrontLods#claim}): {@link FrontLods#NONE} — нет. */
+    int frontClaim(ServerLevel level, long chunk, boolean lights, long now) {
+        for (Prep p : preps) {
+            if (p.draining) continue;
+            int claim = p.lods.claim(level, chunk, lights, now);
+            if (claim != FrontLods.NONE) return claim;
+        }
+        return FrontLods.NONE;
+    }
+
+    /** Чанк загрузился: копия его LOD к фронту больше не нужна — руины и LOD ему ставит мир. */
+    void loaded(long chunk) {
+        for (Prep p : preps) p.lods.loaded(chunk);
+    }
+
+    /** Для проверок: копии LOD к фронту подготовки удара {@code strike} ({@link FrontLods#stats}); null — подготовки нет. */
+    @Nullable
+    long[] frontStats(int strike) {
+        for (Prep p : preps) if (p.strike == strike) return p.lods.stats();
+        return null;
     }
 
     /** Готовый план руин чанка, до которого уже дошла волна своего подрыва; null — нет такого. */
@@ -994,6 +1038,7 @@ public final class NuclearPrep {
                     p.submitted.size(), p.farPlans,
                     p.farAtDetonation.length, p.farRunning.size(), p.farSkipped, RuinWorkers.summary());
             p.nextZoneReport = now + ZONE_REPORT;
+            p.lods.handOff(d);
             return new Handoff(p.plans, p.planned.toLongArray(), p.ruins);
         }
         return null;
@@ -1105,6 +1150,7 @@ public final class NuclearPrep {
     public void clear(ServerLevel level, ScarQueue scars) {
         for (Prep p : preps) {
             release(level, p);
+            p.lods.clear(level);
             if (p.ruins != null && p.detonation < 0) p.ruins.cancelTasks();
             if (p.detonation >= 0 && !p.draining) scars.dropPrepared(p.detonation, zone(p));
         }

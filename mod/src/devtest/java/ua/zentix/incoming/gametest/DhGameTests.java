@@ -530,6 +530,138 @@ public final class DhGameTests {
         });
     }
 
+    /**
+     * LOD тяжёлой зоны — вместе с фронтом ({@code FrontLods}): удар с полётом по месту, которого нет в памяти (чанки зоны
+     * и их окна руин — на диске), — копия каждого чанка зоны с планом собирается за полёт и уходит в DH в тик
+     * {@code max(подрыв, приход фронта к середине секции DH − LEAD)}, секция DH (4×4 чанка) — одним тиком, один раз: запрос
+     * {@code FarLods} по приходу волны (и свет квартала, погасшего от подрыва) её не повторяет. В лог — отдача минус
+     * приход фронта по чанкам. Подтверждение DH о записи (его нет без DH) приёмник шлёт сразу. Полёт и волна — в темпе
+     * игры: чтения с диска, планы и копии идут по настенным часам.
+     */
+    @GameTest(template = "range", timeoutTicks = 6000, batch = "dh_front", skyAccess = true)
+    public static void heavyZoneLodsGoWithTheFront(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // своё место вдали: зона 1 кт при масштабе 0,25 — 110 блоков, с краем зоны и окнами руин — 10 чанков от середины
+        ChunkPos t = farTile(h, -9000, 9000);
+        int reach = 10 + RuinPlanner.REACH;
+        List<ChunkPos> area = new ArrayList<>();
+        for (int x = t.x - reach; x <= t.x + reach; x++) for (int z = t.z - reach; z <= t.z + reach; z++) area.add(new ChunkPos(x, z));
+        for (ChunkPos c : area) h.assertTrue(level.getChunkSource().chunkMap.getVisibleChunkIfPresent(c.toLong()) == null, "чанк " + c + " уже в памяти");
+        for (ChunkPos c : area) level.getChunk(c.x, c.z);
+        Vec3 target = new Vec3(t.getMiddleBlockX() + 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING, t.getMiddleBlockX(), t.getMiddleBlockZ()),
+                t.getMiddleBlockZ() + 0.5);
+        double scale = IncomingConfig.SERVER.nukeEffectsScale.get();
+        // копии (ProtoChunk) по чанкам: тики отдачи
+        it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<LongArrayList> copies = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+        DhUpdates.testSink(level, (l, chunk) -> {
+            if (chunk instanceof ProtoChunk) copies.computeIfAbsent(chunk.getPos().toLong(), k -> new LongArrayList()).add(l.getGameTime());
+            DhUpdates.saved(l, chunk.getPos().x, chunk.getPos().z);
+        });
+        FarLods.testViewer(level, t);
+        boolean[] prepared = {false};
+        Runnable unwatch = NuclearGameTests.watchLog(line -> {
+            if (line.startsWith("Ruins for strike #") && line.contains(" ready:")) prepared[0] = true;
+        });
+        StrikeGameTests.afterTest(h, () -> {
+            unwatch.run();
+            IncomingConfig.SERVER.nukeEffectsScale.set(scale);
+            DhUpdates.testSink(level, null);
+            FarLods.testViewer(level, null);
+            NuclearStrikes.clear(level);
+        });
+        NuclearWorld w = NuclearWorld.get(level);
+        NuclearEvents events = NuclearEvents.get(level);
+        int[] stage = {0}, strike = {0};
+        long[] since = {0}, tickAt = {System.nanoTime()};
+        Detonation[] det = {null};
+        // счёт копий — пока подготовка жива (кончилась зона за волной — её больше нет)
+        long[][] stats = {null};
+        h.onEachTick(() -> {
+            long now = level.getGameTime();
+            switch (stage[0]) {
+                case 0 -> {
+                    // сгенерированное выгрузилось и записано на диск
+                    var map = level.getChunkSource().chunkMap;
+                    for (ChunkPos c : area) if (map.getVisibleChunkIfPresent(c.toLong()) != null || map.pendingUnloads.containsKey(c.toLong())) return;
+                    IncomingConfig.SERVER.nukeEffectsScale.set(0.25);
+                    strike[0] = events.nextId();
+                    events.schedule(new NuclearEvents.ScheduledStrike(strike[0], target, 1, false, now, now + 1200, target, java.util.Optional.empty(), true));
+                    since[0] = now;
+                    stage[0] = 1;
+                }
+                case 1 -> {
+                    det[0] = events.detonations().stream().filter(x -> x.burst().distanceTo(target) < 20).findFirst().orElse(null);
+                    long[] s = w.frontLodStats(strike[0]);
+                    if (det[0] != null) {
+                        h.assertTrue(prepared[0] && s != null && s[0] > 0 && s[12] == 0 && s[13] == 0, "копии не готовы к подрыву: "
+                                + (s == null ? "подготовки нет" : "собрано " + s[0] + ", читаются " + s[12] + ", ждут чтения " + s[13]));
+                        stage[0] = 2;
+                        return;
+                    }
+                    // планы и копии строят фоновые потоки по настенным часам: полёт — в темпе игры, пока копии не готовы
+                    if (!prepared[0] || s == null || s[0] == 0 || s[12] > 0 || s[13] > 0) RuinBackgroundGameTests.gamePace(tickAt);
+                    else tickAt[0] = System.nanoTime();
+                }
+                case 2 -> {
+                    // волна — в темпе игры (путь FarLods по приходу волны читает с диска по настенным часам)
+                    RuinBackgroundGameTests.gamePace(tickAt);
+                    long[] s = w.frontLodStats(strike[0]);
+                    if (s != null) stats[0] = s;
+                    if (now < det[0].gameTime() + 200) return;
+                    check(h, det[0], copies, stats[0]);
+                    h.succeed();
+                    stage[0] = 3;
+                }
+                default -> {
+                }
+            }
+        });
+    }
+
+    /** Проверка {@link #heavyZoneLodsGoWithTheFront}: копии зоны — в срок, секцией, один раз; отдача минус приход фронта — в лог. */
+    private static void check(GameTestHelper h, Detonation d, it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<LongArrayList> copies, long[] s) {
+        // зона, как у подготовки: чанки до 5 psi у земли и ещё 16 блоков
+        double lo = 0, hi = d.radiusMax();
+        for (int i = 0; i < 40; i++) {
+            double r = (lo + hi) / 2;
+            if (d.psi(new Vec3(d.burst().x + r, d.groundY() + 1, d.burst().z)) >= 5) lo = r;
+            else hi = r;
+        }
+        double heavy = lo + 16;
+        LongArrayList offsets = new LongArrayList();
+        int zone = 0, sent = 0, sections = 0;
+        java.util.Map<Long, Long> sectionTick = new java.util.HashMap<>();
+        for (var e : copies.long2ObjectEntrySet()) {
+            ChunkPos c = new ChunkPos(e.getLongKey());
+            double x = Math.max(c.getMinBlockX(), Math.min(d.burst().x, c.getMaxBlockX() + 1)), z = Math.max(c.getMinBlockZ(), Math.min(d.burst().z, c.getMaxBlockZ() + 1));
+            if (Math.hypot(x - d.burst().x, z - d.burst().z) > heavy) continue;
+            zone++;
+            LongArrayList ticks = e.getValue();
+            h.assertTrue(ticks.size() == 1, "копия чанка " + c + " ушла " + ticks.size() + " раз: " + ticks);
+            long at = ticks.getLong(0);
+            int sx = Math.floorDiv(c.x, 4), sz = Math.floorDiv(c.z, 4);
+            double dx = sx * 64 + 32 - d.burst().x, dz = sz * 64 + 32 - d.burst().z, dy = d.burst().y - d.groundY();
+            long sectionDue = d.gameTime() + (long) d.arrivalTicks(Math.sqrt(dx * dx + dy * dy + dz * dz));
+            long expected = Math.max(d.gameTime(), sectionDue - DhUpdates.LEAD);
+            h.assertTrue(at >= expected && at <= expected + 2, "копия чанка " + c + " ушла в " + at + ", срок " + expected + " (подрыв " + d.gameTime()
+                    + ", фронт у середины секции " + sectionDue + ")");
+            Long was = sectionTick.putIfAbsent(((long) sx << 32) ^ (sz & 0xFFFFFFFFL), at);
+            if (was == null) sections++;
+            else h.assertTrue(was == at, "секция DH чанка " + c + " ушла разными тиками: " + was + " и " + at);
+            offsets.add(at - ua.zentix.incoming.nuclear.world.ScarQueue.due(d, c));
+            sent++;
+        }
+        long[] o = offsets.toLongArray();
+        java.util.Arrays.sort(o);
+        Incoming.LOG.info("DH front test: {} copies of the heavy zone in {} sections; send minus front arrival min {} median {} max {} ticks (lead {}); "
+                        + "built {}, sent {}, nothing to show {}, loaded {}, over memory {}, front came first {}, not built {}", sent, sections,
+                o.length == 0 ? 0 : o[0], o.length == 0 ? 0 : o[o.length / 2], o.length == 0 ? 0 : o[o.length - 1], DhUpdates.LEAD,
+                s[0], s[1], s[9], s[5], s[6], s[7], s[8]);
+        h.assertTrue(zone > 50, "копий зоны ушло " + zone);
+        h.assertTrue(s[1] == zone, "ушло по счёту FrontLods " + s[1] + ", в приёмник — " + zone);
+        h.assertTrue(s[8] == 0 && s[6] == 0, "не собрались " + s[8] + ", вытеснены " + s[6]);
+    }
+
     /** Середина квадрата 5×5 {@code FarZone} у чанка площадки, сдвинутого на {@code dx}, {@code dz} блоков (там ничего не сгенерировано). */
     private static ChunkPos farTile(GameTestHelper h, int dx, int dz) {
         ChunkPos near = new ChunkPos(h.absolutePos(CENTER).offset(dx, 0, dz));

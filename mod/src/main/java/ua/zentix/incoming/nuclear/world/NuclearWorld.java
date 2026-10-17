@@ -64,6 +64,16 @@ public final class NuclearWorld {
         return prep.planned(fresh);
     }
 
+    /**
+     * Для проверок: копии LOD тяжёлой зоны к фронту удара {@code strike}, пока его подготовка жива — собрано, ушло, позже
+     * срока, отдача минус приход фронта (меньшая, большая), загружены, вытеснены, фронт раньше, не собрались,
+     * показывать нечего, ждут отдачи, байт, читаются, ждут чтения; null — подготовки нет.
+     */
+    @Nullable
+    public long[] frontLodStats(int strike) {
+        return prep.frontStats(strike);
+    }
+
     /** Руины заранее: их готовые планы нужны и LOD вдали ({@link FarLods}). */
     NuclearPrep prep() {
         return prep;
@@ -214,6 +224,8 @@ public final class NuclearWorld {
     }
 
     public void onChunkLoad(ServerLevel level, LevelChunk chunk) {
+        // копия его LOD к фронту не нужна: руины и LOD ему ставит мир
+        prep.loaded(chunk.getPos().toLong());
         NuclearEvents events = NuclearEvents.get(level);
         for (Detonation d : events.past()) scars.offer(chunk, d);
         for (Detonation d : events.detonations()) scars.offer(chunk, d);
@@ -265,8 +277,9 @@ public final class NuclearWorld {
 
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
-        FarLods.get(level).clear(level);
+        // подготовка — раньше FarLods: её копии отдают ему взятые запросы, и они должны уйти вместе с его очередями
         prep.clear(level, scars);
+        FarLods.get(level).clear(level);
         scars.clear(level);
         ruins.values().forEach(RuinContext::cancelTasks);
         ruins.clear();
