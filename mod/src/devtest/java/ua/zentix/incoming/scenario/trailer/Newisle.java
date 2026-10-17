@@ -1086,6 +1086,14 @@ final class Newisle {
                 Vec3 p = feet(a.get("at"));
                 film.withServer(s -> film.cast().command("setblock " + block(p) + " minecraft:campfire[lit=true]"));
             };
+            // постройка сцены на копии мира: блоки в рамке {from, to} (места — блоками мира, как у команды fill), до 32768
+            // блоков за шаг (n24 17.10: насыпь командного бункера ПВО, портал, мачты)
+            case "fill" -> () -> {
+                JsonArray f = a.getAsJsonArray("from"), t = a.getAsJsonArray("to");
+                film.withServer(s -> film.cast().command(String.format(Locale.ROOT, "fill %d %d %d %d %d %d %s", f.get(0).getAsInt(),
+                        f.get(1).getAsInt(), f.get(2).getAsInt(), t.get(0).getAsInt(), t.get(1).getAsInt(), t.get(2).getAsInt(),
+                        a.get("block").getAsString())));
+            };
             case "lamps" -> () -> {
                 Vec3 c = feet(a.get("around"));
                 double r = a.get("r").getAsDouble();

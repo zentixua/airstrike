@@ -147,15 +147,45 @@
    ]
   },
   {
-   "id": "T09", "title": "Шахеды над озером", "from": "chain", "clock": "dawn", "siren": true, "minutes": 8,
+   "id": "T09", "title": "Шахеды широким фронтом над заливом, ПВО сбивает часть", "from": "chain", "clock": "dawn", "siren": true, "minutes": 10,
+   "stage": [
+    {"do": "sam", "at": "c1_sam_w", "load": 0},
+    {"do": "sam", "at": "c1_sam", "load": 0},
+    {"do": "sam", "at": "c1_sam_e", "load": 0},
+    {"do": "gunners", "group": "mg", "at": "mg_group", "n": 4, "spread": 3, "prefix": "Mg", "gun": "pointblank:ak47"},
+    {"do": "settle"}
+   ],
    "shots": [
     {"plans": ["n02"], "seconds": 6,
      "strikes": [
-      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-124, 268], "above": 10}, "eta": 3.0},
-      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-124, 268], "above": 10}, "eta": 4.0}
+      {"weapon": "drone", "route": "lake_0", "pass": {"at": [-365, 300], "above": 38}, "eta": 1.55},
+      {"weapon": "drone", "route": "lake_1", "pass": {"at": [-294, 300], "above": 22}, "eta": 1.4},
+      {"weapon": "drone", "route": "lake_2", "pass": {"at": [-229, 300], "above": 14}, "eta": 2.75},
+      {"weapon": "drone", "route": "lake_3", "pass": {"at": [-146, 300], "above": 22}, "eta": 2.6},
+      {"weapon": "drone", "route": "lake_4", "pass": {"at": [-61, 300], "above": 26}, "eta": 1.25},
+      {"weapon": "drone", "route": "lake_5", "pass": {"at": [1, 300], "above": 22}, "eta": 0.95},
+      {"weapon": "drone", "route": "lake_6", "pass": {"at": [57, 300], "above": 26}, "eta": 2.0},
+      {"weapon": "drone", "route": "lake_0", "pass": {"at": [-365, 300], "above": 34}, "eta": 0.5},
+      {"weapon": "drone", "route": "lake_1", "pass": {"at": [-294, 300], "above": 18}, "eta": 0.65},
+      {"weapon": "drone", "route": "lake_2", "pass": {"at": [-229, 300], "above": 18}, "eta": 1.1},
+      {"weapon": "drone", "route": "lake_3", "pass": {"at": [-146, 300], "above": 30}, "eta": 1.7},
+      {"weapon": "drone", "route": "lake_4", "pass": {"at": [-61, 300], "above": 38}, "eta": 3.2},
+      {"weapon": "drone", "route": "lake_5", "pass": {"at": [1, 300], "above": 18}, "eta": 3.35},
+      {"weapon": "drone", "route": "lake_6", "pass": {"at": [57, 300], "above": 42}, "eta": 2.3},
+      {"weapon": "drone", "route": "lake_0", "pass": {"at": [-365, 300], "above": 22}, "eta": 0.8},
+      {"weapon": "drone", "route": "lake_1", "pass": {"at": [-294, 300], "above": 38}, "eta": 3.05},
+      {"weapon": "drone", "route": "lake_2", "pass": {"at": [-229, 300], "above": 34}, "eta": 2.15},
+      {"weapon": "drone", "route": "lake_3", "pass": {"at": [-146, 300], "above": 14}, "eta": 1.85},
+      {"weapon": "drone", "route": "lake_4", "pass": {"at": [-61, 300], "above": 38}, "eta": 2.45},
+      {"weapon": "drone", "route": "lake_5", "pass": {"at": [1, 300], "above": 34}, "eta": 2.9}
      ],
+     "ready": [{"do": "sam.config", "kill": 0.75, "engage": 170, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 2}, {"do": "sam", "at": "c1_sam", "load": 2}, {"do": "sam", "at": "c1_sam_e", "load": 1}],
+     "cues": [{"at": 0.0, "do": "gunners.fire", "group": "mg", "weapon": "drone", "range": 200}],
+     "expect": {"kills": [3, 5], "interceptors": 3},
+     "end": [{"do": "gunners.stop", "group": "mg"}, {"do": "sam.config"}],
      "cover": {"n02": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD"}}}
-   ]
+   ],
+   "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 100}]
   },
   {
    "id": "T10", "title": "ЗРК против стаи шахедов и мобильная группа", "from": "branch:T09", "clock": "sunrise", "siren": true, "minutes": 12,
@@ -258,10 +288,40 @@
     {"plans": ["n29b"], "seconds": 5, "strikes": [
       {"weapon": "drone", "from": [100, 200], "to": "airport_runway", "eta": 3.5},
       {"weapon": "drone", "from": [160, 200], "to": {"at": [380, -660], "above": 0}, "eta": 4.2}],
-     "cover": {"n29b": {"subject": "framed", "weapon": "drone", "need": "HIT", "spare": ["tripod"]}}},
-    {"plans": ["n24"], "seconds": 6, "strikes": [{"weapon": "bunker", "from": [-440, -1700], "to": "desert_bunker", "eta": 2}],
-     "cover": {"n24": {"subject": "impact", "weapon": "bunker", "near": "desert_bunker", "need": "HIT", "spare": ["chase", "tripod"]}}}
+     "cover": {"n29b": {"subject": "framed", "weapon": "drone", "need": "HIT", "spare": ["tripod"]}}}
    ]
+  },
+  {
+   "id": "T14b", "title": "B-2 бьёт командный бункер ПВО Севера у Города 1", "from": "branch:T13", "clock": "day", "siren": true, "minutes": 8,
+   "stage": [
+    {"do": "fill", "from": [-30, 75, -405], "to": [2, 95, -375], "block": "minecraft:air"},
+    {"do": "fill", "from": [-26, 75, -398], "to": [-2, 77, -382], "block": "minecraft:dirt"},
+    {"do": "fill", "from": [-26, 77, -398], "to": [-2, 77, -382], "block": "minecraft:grass_block"},
+    {"do": "fill", "from": [-24, 78, -396], "to": [-4, 79, -384], "block": "minecraft:dirt"},
+    {"do": "fill", "from": [-24, 79, -396], "to": [-4, 79, -384], "block": "minecraft:grass_block"},
+    {"do": "fill", "from": [-22, 80, -394], "to": [-6, 81, -386], "block": "minecraft:dirt"},
+    {"do": "fill", "from": [-22, 81, -394], "to": [-6, 81, -386], "block": "minecraft:grass_block"},
+    {"do": "fill", "from": [-18, 75, -399], "to": [-10, 80, -399], "block": "minecraft:gray_concrete"},
+    {"do": "fill", "from": [-18, 80, -399], "to": [-10, 80, -399], "block": "minecraft:yellow_concrete"},
+    {"do": "fill", "from": [-16, 74, -399], "to": [-12, 74, -392], "block": "minecraft:gray_concrete"},
+    {"do": "fill", "from": [-16, 75, -399], "to": [-12, 78, -392], "block": "minecraft:air"},
+    {"do": "fill", "from": [-17, 78, -399], "to": [-17, 78, -399], "block": "minecraft:sea_lantern"},
+    {"do": "fill", "from": [-11, 78, -399], "to": [-11, 78, -399], "block": "minecraft:sea_lantern"},
+    {"do": "fill", "from": [-20, 82, -392], "to": [-20, 94, -392], "block": "minecraft:iron_bars"},
+    {"do": "fill", "from": [-20, 95, -392], "to": [-20, 95, -392], "block": "minecraft:lightning_rod"},
+    {"do": "fill", "from": [-9, 82, -388], "to": [-9, 91, -388], "block": "minecraft:iron_bars"},
+    {"do": "fill", "from": [-9, 92, -388], "to": [-9, 92, -388], "block": "minecraft:sea_lantern"},
+    {"do": "fill", "from": [-14, 82, -386], "to": [-14, 97, -386], "block": "minecraft:iron_bars"},
+    {"do": "fill", "from": [-14, 98, -386], "to": [-14, 98, -386], "block": "minecraft:lightning_rod"},
+    {"do": "sam", "at": {"at": [-32, -404], "above": 0}, "load": 0},
+    {"do": "sam", "at": {"at": [4, -398], "above": 0}, "load": 0},
+    {"do": "launchers", "rack": "bunker_grad", "at": {"line": [-8, -407], "step": [8, 0], "n": 2}, "weapon": "rocket", "count": 1, "spread": 0, "to": "south_launchers", "load": 0},
+    {"do": "settle"}
+   ],
+   "shots": [
+    {"plans": ["n24"], "seconds": 6, "strikes": [{"weapon": "bunker", "from": [-300, 1300], "to": {"at": [-14, -390], "above": 0}, "eta": 2}], "ready": [{"do": "sam.config", "kill": 0, "engage": 500, "reload": 0}, {"do": "sam", "at": {"at": [-32, -404], "above": 0}, "load": 3}, {"do": "sam", "at": {"at": [4, -398], "above": 0}, "load": 3}], "expect": {"kills": [0, 0], "interceptors": 2}, "end": [{"do": "sam.config"}], "cover": {"n24": {"subject": "impact", "weapon": "bunker", "near": {"at": [-14, -390], "above": 0}, "need": "HIT", "spare": ["chase", "tripod"]}}}
+   ],
+   "after": [{"do": "sam.clear", "at": {"at": [-14, -400], "above": 0}, "r": 60}]
   },
   {
    "id": "T15", "title": "«Ланцет» на ЗРК", "from": "chain", "clock": "day", "siren": true, "minutes": 9,
@@ -380,7 +440,7 @@
     {"do": "crowd.watch", "group": "hq", "at": {"at": [-200, 110], "above": 20}, "jitter": 4}
    ],
    "shots": [
-    {"plans": ["n30a"], "seconds": 6,
+    {"plans": ["n30a"], "seconds": 3.6,
      "strikes": [{"weapon": "drone", "route": "herd_w", "eta": 6.6}, {"weapon": "drone", "route": "herd_c", "eta": 7.0}, {"weapon": "drone", "route": "herd_e", "eta": 7.4},
       {"weapon": "drone", "route": "herd_w", "eta": 7.8}, {"weapon": "drone", "route": "herd_c", "eta": 8.2}, {"weapon": "drone", "route": "herd_e", "eta": 8.6}],
      "ready": [{"do": "sam.config", "kill": 0.5, "engage": 160, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 3}, {"do": "sam", "at": "c1_sam", "load": 3}, {"do": "sam", "at": "c1_sam_e", "load": 3}],
