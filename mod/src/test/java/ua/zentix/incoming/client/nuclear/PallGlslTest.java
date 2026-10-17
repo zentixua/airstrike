@@ -49,6 +49,26 @@ class PallGlslTest {
         }
     }
 
+    /** Голова стены пыли без шума — та же, что в Java ({@link BlastWall#inside}, {@link BlastWall#fade}, {@link BlastWall#mean}). */
+    @Test
+    void wallHeadMatchesJava() {
+        GlslFunction inside = GlslFunction.parse(GLSL, "pallWallInside"), fade = GlslFunction.parse(GLSL, "pallWallFade"), mean = GlslFunction.parse(GLSL, "pallWallMean");
+        assertEquals(BlastWall.BITE, scalar(GLSL, "WALL_BITE"), 0);
+        for (double a : new double[]{3, 25, 80}) {
+            for (double top = 10; top <= 300; top += 58) {
+                for (double s = -10; s <= 8 * a; s += a / 7) {
+                    for (double z = -0.6 * top; z <= 1.2 * top; z += top / 23) {
+                        Map<String, Double> args = Map.of("s", s, "z", z, "a", a, "top", top, "WALL_BITE", BlastWall.BITE);
+                        String at = a + ", " + top + ": " + s + ", " + z;
+                        assertEquals(BlastWall.inside(s, z, a, top), inside.call(args), 1e-9, at);
+                        assertEquals(BlastWall.fade(s, z, a, top), fade.call(args), 1e-9, at);
+                        assertEquals(BlastWall.mean(s, z, a, top), mean.call(args), 1e-9, at);
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     void profileMatchesJava() {
         GlslFunction f = GlslFunction.parse(GLSL, "pallProfile");
@@ -208,26 +228,28 @@ class PallGlslTest {
         }
         assertEquals(PallLight.LAND, scalar(GLSL, "PALL_LAND"), 0);
         assertEquals(PallLight.SEA, scalar(GLSL, "PALL_SEA"), 0);
-        double[] dust = vec3(fx, "DUST");
-        for (int c = 0; c < 3; c++) assertEquals(dust[c], NukePall.DUST[c], 0, "канал " + c);
+        // пыль у камеры (NukePall.dustLight) — тех же веществ и того же пламени
+        double[] dust = vec3(fx, "DUST"), smoke = vec3(fx, "SMOKE"), fire = vec3(fx, "FIRE");
+        for (int c = 0; c < 3; c++) {
+            assertEquals(dust[c], NukePall.DUST[c], 0, "канал " + c);
+            assertEquals(smoke[c], NukePall.SMOKE[c], 0, "дым, канал " + c);
+            assertEquals(fire[c], NukePall.FIRE[c], 0, "пламя, канал " + c);
+        }
     }
 
     /**
-     * Пелена за фронтом продолжает стену пыли ночью: толстая пыль ({@code PALL_DUST_W}) в свете стены по законам шейдера
-     * (pallDiffuse; сила {@link CloudPuffs#glowOnSmoke}, делённая на цвет пыли {@code DUST}, на экране поверх света неба —
-     * в линейном разностью, pallLift; свет неба — {@link NukePall#nightSky} в линейном; итог — на экране, pallDisplay)
-     * — снизу, в зоне пожаров (свет снизу, у земли — pallBurn у низа стены), и сверху, под шаром и шапкой в первые секунды
-     * (пучок, pallLit у верха стены), — того же цвета, что клуб стены там же ({@link CloudPuffs#wallColor}), с точностью до
-     * трети: клуб стены освещён только прямо, а пелена — слой, и свет в нём ходит между ним и землёй (у низа пожар светит
-     * и отражённым от земли), а в толще гаснет (верх густой пелены над пожарами темнее верхних клубов стены — их стена
-     * освещает пожаром по всей высоте). И не тёмная у эпицентра. Своё зарево пожаров пелены ({@code PallFireLight})
-     * разгорается позже, с минуту, — его здесь нет.
+     * Пелена за фронтом ночью — в том же свете, что голова стены перед ней: толстая пыль ({@code PALL_DUST_W}) в свете шара
+     * и пожаров по законам шейдера (pallDiffuse; сила {@link CloudPuffs#glowOnSmoke}, делённая на цвет пыли {@code DUST},
+     * на экране поверх света неба — в линейном разностью, pallLift; свет неба — {@link NukePall#nightSky} в линейном; итог —
+     * на экране, pallDisplay). Сверху, под шаром и шапкой в первые секунды (пучок, pallLit), — того же цвета, что верх
+     * головы стены там же ({@link NukePall#dustLight} — свет головы, как в кадре), с точностью до трети: голова — не
+     * плоский слой. И не тёмная у эпицентра. Своё зарево пожаров пелены ({@code PallFireLight}) разгорается позже, с минуту,
+     * — его здесь нет.
      * <p>
-     * Свет пожаров — не ярче пламени ({@code pallFlame}, {@link PallLight#flame}). Ночью над зоной пожаров клуб стены на
-     * экране уже цвета огня ({@code FIRE}: свечение клуба поверх отсвета), а такой цвет у пыли свет дать не может — обращение
-     * через цвет пыли дало бы свет втрое ярче огня. Там пелена у пола — пыль в свете самого пламени: сбоку (как клуб стены
-     * видит глаз) не ярче клуба и того же оттенка (красный, за ним зелёный, синий), в красном — не меньше 0,6 его: не тёмный
-     * занавес перед освещённой стеной. Где свет стены меньше пламени — как раньше, тот же цвет с точностью до трети.
+     * Свет пожаров — не ярче пламени ({@code pallFlame}, {@link PallLight#flame}). Ночью над зоной пожаров отсвет на экране
+     * уже цвета огня ({@code FIRE}), а такой цвет у пыли свет дать не может — обращение через цвет пыли дало бы свет втрое
+     * ярче огня. Там пелена у пола — пыль в свете самого пламени: сбоку не ярче пламени и того же оттенка (красный, за ним
+     * зелёный, синий), в красном — не меньше 0,6 его: не тёмный занавес над пожарами.
      */
     @Test
     void pallBehindTheFrontTakesTheWallLight() {
@@ -238,24 +260,33 @@ class PallGlslTest {
         String fx = read("core/fx_pall.fsh");
         double[] dust = vec3(fx, "DUST"), fire = vec3(fx, "FIRE"), w = vec3(GLSL, "PALL_DUST_W");
         double g = scalar(GLSL, "PALL_DUST_G");
-        CloudPuffs puffs = new CloudPuffs(GROUND, 600, false);
+        CloudPuffs puffs = new CloudPuffs(GROUND);
+        BlastWall blast = new BlastWall(GROUND, false);
         float ambient = 0.17f;
         double k = CloudPuffs.glowOnSmoke(ambient), sky = linear.call(Map.of("v", (double) NukePall.nightSky(ambient, 1))), tc = 8;
-        float[] wall = new float[8], low = new float[3], high = new float[3];
+        float[] wall = new float[8], high = new float[3], slot = new float[BlastWall.SLOT];
+        NukePall.Sky night = new NukePall.Sky();
+        night.sy = -1;
+        java.util.Arrays.fill(night.sky, (float) sky);
+        night.base = ambient;
+        night.glowOnSmoke = (float) k;
         int checked = 0, burning = 0;
         for (double t : new double[]{2, 6, 10, 20, 40}) {
             assertTrue(puffs.pallLight(t, wall));
-            double head = puffs.wall(t).head();
+            assertTrue(blast.slot(t, slot));
+            double head = blast.wall(t).head();
             for (double share : new double[]{0.05, 0.2, 0.5, 0.8, 0.97}) {
                 double r = head * share;
                 double a = lit.call(Map.of("r", r, "up", 1.0, "overhead", (double) wall[0], "lightR", (double) wall[2]));
                 double b = burn.call(Map.of("r", r, "up", 0.0, "glow", (double) wall[1], "fireR", (double) wall[3]));
                 double mu = wall[7] / Math.hypot(wall[7], r);
-                assertTrue(puffs.wallColor(t, r, 0.05, 1, ambient, low));
-                assertTrue(puffs.wallColor(t, r, 0.9, 1, ambient, high));
+                // верх головы стены, будь она здесь (точка — посреди её толщи), — до неё пелена здесь и была ею
+                float[] here = slot.clone();
+                here[0] = (float) (r + 1.5 * here[1]);
+                NukePall.dustLight(here, wall, night, r, 0.9 * here[2], 0, 0.9 * here[2], high);
                 double sum = 0;
                 double[] side = new double[3];
-                // отсвет пожаров на клубе стены — уже цвет огня: свет пелены — пламя (pallFlame)
+                // отсвет пожаров на пыли — уже цвет огня: свет пелены — пламя (pallFlame)
                 boolean flames = false;
                 for (int c = 0; c < 3; c++) {
                     flames |= lift.call(Map.of("base", (double) ambient, "x", fire[c] * b * k / dust[c])) > linear.call(Map.of("v", fire[c]));
@@ -268,7 +299,7 @@ class PallGlslTest {
                             "f1", 0.0, "mu2", Math.max(mu, 0.12), "f2", capF, "top", sky, "bottom", burnF));
                     args.put("tau", tc);
                     args.put("c", -2.0 / 3);
-                    // стена срезает каждый канал на 1 (CloudPuffs.smoke), пелена — плечом (fx_pall: shoulder): ярче 1 — как 1
+                    // пелена срезает плечом (fx_pall: shoulder): ярче 1 — как 1
                     double below = Math.min(1, display.call(Map.of("v", light.call(args))));
                     args.put("c", 0.0);
                     side[c] = display.call(Map.of("v", w[c] * light.call(args)));
@@ -276,10 +307,6 @@ class PallGlslTest {
                     args.put("c", 2.0 / 3);
                     double above = Math.min(1, display.call(Map.of("v", light.call(args))));
                     sum += Math.max(below, above);
-                    if (b > lit.call(Map.of("r", r, "up", 0.05, "overhead", (double) wall[0], "lightR", (double) wall[2])) && !flames) {
-                        assertEquals(low[c], below, 0.03 + 0.3 * low[c], t + " с, " + r + " блоков, снизу, канал " + c);
-                        checked++;
-                    }
                     if (mu > 0.9 && t <= 10) {
                         assertEquals(high[c], above, 0.03 + 0.3 * high[c], t + " с, " + r + " блоков, сверху, канал " + c);
                         checked++;
@@ -287,15 +314,15 @@ class PallGlslTest {
                 }
                 if (flames && b > lit.call(Map.of("r", r, "up", 0.05, "overhead", (double) wall[0], "lightR", (double) wall[2]))) {
                     String at = t + " с, " + r + " блоков, у пола сбоку: ";
-                    for (int c = 0; c < 3; c++) assertTrue(side[c] <= low[c] + 0.03, at + "ярче клуба стены в канале " + c + ", " + side[c]);
+                    for (int c = 0; c < 3; c++) assertTrue(side[c] <= fire[c] + 0.03, at + "ярче пламени в канале " + c + ", " + side[c]);
                     assertTrue(side[0] > side[1] && side[1] > side[2], at + "не цвета огня");
-                    assertTrue(side[0] >= 0.6 * low[0], at + "тёмная против стены, " + side[0] + " и " + low[0]);
+                    assertTrue(side[0] >= 0.6 * fire[0], at + "тёмная против пламени, " + side[0]);
                     burning++;
                 }
                 if (r < 1000) assertTrue(sum / 3 > 0.25, t + " с, " + r + " блоков: пелена у эпицентра тёмная, " + sum / 3);
             }
         }
-        assertTrue(checked > 15, "сравнений со стеной " + checked);
+        assertTrue(checked > 15, "сравнений с верхом стены " + checked);
         assertTrue(burning > 10, "сравнений у пола над пожарами " + burning);
     }
 

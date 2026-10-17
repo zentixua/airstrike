@@ -33,7 +33,10 @@ public final class ClientNuclear {
     public static final class Active {
         public final Detonation d;
         public final boolean live;
+        /** Свет шара и пожаров на пыли и вода под эпицентром ({@link CloudPuffs}). */
         public final CloudPuffs puffs;
+        /** Стена пыли ударной волны: голова-вал и облако Вильсона ({@link BlastWall}; рисует пелена, {@link NukePall}). */
+        public final BlastWall wall;
         /** Подрыв на воде: столб, кольцо тумана, базисная волна ({@link NukeWater}). */
         final WaterPuffs water;
         /**
@@ -51,21 +54,21 @@ public final class ClientNuclear {
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d), new WaterPuffs(d, WaterPuffs.count(d)), null, null, null);
+            this(d, live, clientNow, new CloudPuffs(d), new BlastWall(d), new WaterPuffs(d, WaterPuffs.count(d)), null, null, null);
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
         Active(Active a, long clientNow) {
-            this(a.d, false, clientNow, a.puffs, a.water, a.pall, a.storm, a.ground);
-            puffs.untrack();
+            this(a.d, false, clientNow, a.puffs, a.wall, a.water, a.pall, a.storm, a.ground);
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water, @Nullable PallField pall,
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, BlastWall wall, WaterPuffs water, @Nullable PallField pall,
                 @Nullable FireStorm storm, @Nullable PallGround ground) {
             this.d = d;
             this.live = live;
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
             this.puffs = puffs;
+            this.wall = wall;
             this.water = water;
             ClientLevel level = Minecraft.getInstance().level;
             if (pall != null) {
@@ -262,8 +265,8 @@ public final class ClientNuclear {
     // ---------------------------------------------------------------- тик
 
     /**
-     * Верх рельефа для пыли у земли; null — в измерении с потолком (верх карты высот там — потолок, а не земля: пыль
-     * остаётся на высоте эпицентра). Над пустотой (Энд) рельефа нет — клуб остаётся на прежней высоте.
+     * Верх рельефа под пеленой и смерчами; null — в измерении с потолком (верх карты высот там — потолок, а не земля).
+     * Над пустотой (Энд) рельефа нет — NaN.
      */
     @Nullable
     private static Sightline.Heights ground(ClientLevel level) {
@@ -286,7 +289,6 @@ public final class ClientNuclear {
         Sightline.Heights heights = ground(level);
         // вода сверху колонок — для карты под пеленой (из чего пелена); под потолком (Незер) её нет, как и рельефа
         FarTerrain.Water water = heights == null ? null : FarTerrain.water(level);
-        double near = mc.options.getEffectiveRenderDistance() * 16.0;
         for (Iterator<Active> it = DETONATIONS.values().iterator(); it.hasNext(); ) {
             Active a = it.next();
             a.age++;
@@ -296,13 +298,10 @@ public final class ClientNuclear {
             // эпицентром)
             // вода под эпицентром — до карты под пеленой: та заполняет неизвестное ею
             NukeWater.resolve(a, level);
-            if (a.pall.visible(a.ticks(0))) a.ground.survey(a.ticks(0), heights, water);
-            // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
-            if (heights != null) {
-                a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
-                // смерчи огненного шторма — по рельефу под ними
-                a.storm.track(a.ticks(1) / 20.0, heights);
-            }
+            double wall = a.wall.reach(a.seconds(0));
+            if (a.pall.visible(a.ticks(0)) || wall > 0) a.ground.survey(a.ticks(0), wall, heights, water);
+            // смерчи огненного шторма — по рельефу под ними
+            if (heights != null) a.storm.track(a.ticks(1) / 20.0, heights);
             NukeWater.tick(a, level, eye);
             NukeDust.front(a, eye);
             if (a.ticks(0) > lifeTicks(a.d) && !a.pall.visible(a.ticks(0))) {

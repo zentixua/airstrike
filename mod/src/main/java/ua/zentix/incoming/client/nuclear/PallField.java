@@ -17,7 +17,8 @@ import ua.zentix.incoming.nuclear.model.WaterModel;
  * от {@link #COVER_FROM_PSI} (сдувает пыль и сухую землю) до {@link #COVER_FULL_PSI} (рушатся дома). Пелена встаёт за
  * фронтом сразу на {@link #RISE_FROM_M} м и растёт к высоте {@link #topMetres} (у центра 150 м у 15 кт, к краю — десятки метров)
  * со скоростью вначале {@link #RISE_SPEED} м/с, за минуты клубится ещё на треть выше ({@link #rise}), и густа несколько минут ({@link #DENSE_S}, e-кратно; в самой густой видно на {@link #DENSE_VISIBILITY_M} м), её
- * сносит ветер подрыва ({@link #DRIFT}).
+ * сносит ветер подрыва ({@link #DRIFT}) — с того мига, как её подняло: у фронта пыль ещё на месте, где её подняло, а не
+ * снесена на весь путь ветра с подрыва ({@link #source}).
  * <p>
  * <b>Мгла.</b> Над зоной поджига (световой импульс от {@link ThermalModel#IGNITE}) горит город: дымная мгла
  * (видно на {@link #HAZE_VISIBILITY_M} м) встаёт за пару минут и держится до утра ({@link #hazeEndTicks}; утро — по часам
@@ -408,7 +409,7 @@ public final class PallField {
             if (!water) v[3] = 0;
             for (int k = 0; k < 4; k++) out[4 * i + k] = (float) v[k];
             haze(i, ticks, v);
-            // мглы и пожаров под ней над открытым морем нет
+            // мглы и пожаров под ней над открытым морем нет (доля сноса пыли — для брызг)
             if (!land) v[0] = v[2] = 0;
             for (int k = 0; k < 4; k++) out[4 * (BINS + i) + k] = (float) v[k];
         }
@@ -446,13 +447,37 @@ public final class PallField {
         return true;
     }
 
-    /** Мгла узла i (по расстоянию от оси шлейфа): ослабление (1/блок), высота (блоки), свет пожаров снизу 0..1, 0. */
+    /**
+     * Доля сноса {@link #drift} у пыли узла i в момент {@code ticks}: её возраст на время после подрыва — ветер несёт её
+     * с прихода фронта. У фронта — 0: пыль, поднятая только что, стоит там, где её подняло, — край пелены и голова стены
+     * пыли идут по фронту сервера (звук, тряска, отброс, обломки), в любую сторону от эпицентра, и с ветром.
+     */
+    double share(int i, double ticks) {
+        return ticks <= 0 ? 0 : Math.max(0, Math.min(1, (ticks - arrival[i]) / ticks));
+    }
+
+    /**
+     * Откуда подняло пыль и брызги, которые в момент {@code ticks} в точке (dx, dz) от эпицентра (блоки): точка минус их
+     * снос ({@link #share} — по узлу самой точки: доля меняется на длине пути фронта, снос — на порядки короче). В
+     * {@code out} — x, z. Так же — {@code pallField} в {@code pall.glsl}.
+     */
+    public void source(double dx, double dz, double ticks, double[] out) {
+        drift(ticks, out);
+        double k = share(bin(Math.hypot(dx, dz)), ticks);
+        out[0] = dx - out[0] * k;
+        out[1] = dz - out[1] * k;
+    }
+
+    /**
+     * Мгла узла i (по расстоянию от оси шлейфа): ослабление (1/блок), высота (блоки), свет пожаров снизу 0..1; четвёртое —
+     * доля сноса пыли узла i ({@link #share}: строка пыли занята, а у шейдера строка мглы рядом).
+     */
     void haze(int i, double ticks, double[] out) {
         double age = age(i, ticks);
         out[0] = perBlock(SIGMA_HAZE) * fire[i] * hazeEnvelope(age, ticks);
         out[1] = Math.max(top[i] * 1.4, d.blocks(HAZE_TOP_M * Math.cbrt(d.yieldKt() / 15)) * (0.5 + 0.5 * smooth(HAZE_FROM_S, HAZE_FULL_S, age)));
         out[2] = fire[i] * fireLight(age, ticks);
-        out[3] = 0;
+        out[3] = share(i, ticks);
     }
 
     /** Свет пожаров снизу 0..1: разгораются за минуту после волны, к утру гаснут. */
@@ -475,7 +500,10 @@ public final class PallField {
                 || surge(ticks, new double[3]));
     }
 
-    /** Снос пыли ветром к моменту {@code ticks}, блоки (x, z) — в {@code out}. */
+    /**
+     * Снос ветром к моменту {@code ticks} того, что подняло в миг подрыва, блоки (x, z) — в {@code out}: у базисной волны
+     * (её клубы {@code WaterPuffs} сносит так же) — весь, у пыли и брызг — доля по их возрасту ({@link #share}).
+     */
     public void drift(double ticks, double[] out) {
         double s = d.blocks(d.windSpeed()) * DRIFT * ticks / 20.0;
         out[0] = Math.cos(d.windDir()) * s;
@@ -510,8 +538,8 @@ public final class PallField {
     }
 
     /**
-     * Ослабление в точке без шума (среднее по шуму — 1), 1/блок: пыль и брызги (снесённые ветром; что из них — по воде
-     * там, откуда их подняло), мгла (шлейф по ветру; над водой у её источника пожаров нет) и базисная волна — так же, как
+     * Ослабление в точке без шума (среднее по шуму — 1), 1/блок: пыль и брызги (снесённые ветром с того мига, как их
+     * подняло, {@link #source}; что из них — по воде там, откуда их подняло), мгла (шлейф по ветру; над водой у её источника пожаров нет) и базисная волна — так же, как
      * {@code pallField} в {@code pall.glsl} по таблице. Точка — от эпицентра по земле (dx, dz, блоки) и высота над землёй
      * под эпицентром (блоки), {@code water} — доля воды под пеленой ({@link PallGround}). Для того, что у камеры: звук,
      * пепел, докуда идёт луч пелены.
@@ -532,9 +560,9 @@ public final class PallField {
     /** {@link #sigma} по веществу: в {@code out} — пыль с мглой и водяная пыль, 1/блок. */
     private void medium(double dx, double dz, double above, double ticks, Water water, double[] out) {
         double[] w = new double[2], v = new double[4];
-        drift(ticks, w);
+        source(dx, dz, ticks, w);
         double dry = 0, mist = 0;
-        double lx = dx - w[0], lz = dz - w[1], lift = Math.hypot(lx, lz), ud = lift / reach;
+        double lx = w[0], lz = w[1], lift = Math.hypot(lx, lz), ud = lift / reach;
         if (ud < 1) {
             dust(bin(ud * reach), ticks, v);
             double k = edge(ud) * profile(above / Math.max(v[1], 1)), wet = v[0] + v[3] > 0 ? water.at(lx, lz) : 0;
@@ -550,7 +578,8 @@ public final class PallField {
         }
         double[] s = new double[3];
         if (surge(ticks, s)) {
-            double u = lift / s[0];
+            drift(ticks, w);
+            double u = Math.hypot(dx - w[0], dz - w[1]) / s[0];
             mist += s[2] * surgeProfile(u) * profile(above / Math.max(s[1] * surgeTop(u), 1));
         }
         out[0] = dry;
@@ -564,9 +593,9 @@ public final class PallField {
      */
     public double ashRate(double dx, double dz, double ticks, Water water) {
         double[] w = new double[2];
-        drift(ticks, w);
+        source(dx, dz, ticks, w);
         double ash = 0;
-        double lx = dx - w[0], lz = dz - w[1], ud = Math.hypot(lx, lz) / reach;
+        double lx = w[0], lz = w[1], ud = Math.hypot(lx, lz) / reach;
         if (ud < 1) {
             int i = bin(ud * reach);
             double age = age(i, ticks);

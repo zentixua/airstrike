@@ -249,7 +249,7 @@ public final class NukeSounds {
 
         /**
          * Фронт у слушателя: оглушающий удар (N-волна; несколько источников вместе — одному OpenAL не даёт громче
-         * единицы), тряска, пыльная стена, ветер, стёкла, оглушение. Вдали — хлопок N-волны (верха съел воздух) и
+         * единицы), тряска, ветер, стёкла, оглушение (пыль у глаза — по голове стены, {@link NukeDust#veil}). Вдали — хлопок N-волны (верха съел воздух) и
          * глухой удар; эхо от рельефа повторяет запись удара ({@link NukeEchoes}). Всё по «Общей громкости».
          */
         private void arrive(Vec3 ear) {
@@ -275,7 +275,6 @@ public final class NukeSounds {
             if (echoes != null) echoes.arrive(ear, echo, tone);
             CameraShake.nuke(psi, ear.subtract(b));
             CameraShake.quake((int) Mth.clamp(20 + psi * 8, 20, 120));
-            NukeDust.arrive(psi);
             if (psi >= 0.5) {
                 ClientSounds.atEarLoud(ModSounds.NUKE_WIND.get(), d.burst(), (float) Mth.clamp(psi / 4, 0.4, 1), 1);
                 if (psi < 12) ClientSounds.atEar(ModSounds.NUKE_GLASS.get(), ear.add(0, 2, 0), (float) Mth.clamp(psi / 3, 0.3, 0.9), 1);
