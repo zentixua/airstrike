@@ -102,20 +102,22 @@ class WaterModelTest {
     }
 
     /**
-     * Базисная волна «Бейкера»: встаёт, когда падает вода столба (~8 с), катится поначалу ~30 м/с, к 4 минутам — около
-     * 3 км по радиусу и ~550 м в высоту; редеет минутами.
+     * Базисная волна: у «Бейкера» встаёт, когда падает вода столба (~8 с), катится поначалу ~30 м/с, к 4 минутам — около
+     * 3 км по радиусу и ~550 м в высоту; у подрыва на поверхности — та же, но меньше ({@link WaterModel#SURFACE_SURGE});
+     * редеет минутами.
      */
     @Test
     void baseSurgeMatchesBaker() {
-        double start = WaterModel.surgeStart(23);
+        double start = WaterModel.surgeStart(23), k = WaterModel.SURFACE_SURGE, wall = 1.2 * WaterModel.columnRadius(23);
         assertEquals(8, start, 1e-9);
+        assertTrue(k > 0.5 && k < 1, "у подрыва на поверхности волна меньше подводной, но того же порядка");
         assertEquals(0, WaterModel.surgeRadius(start - 0.1, 23));
         assertEquals(0, WaterModel.surgeDensity(start, 23));
-        double v = WaterModel.surgeRadius(start + 2, 23) - WaterModel.surgeRadius(start + 1, 23);
-        assertTrue(v > 25 && v < 32, "скорость поначалу " + v + " м/с");
-        double r4 = WaterModel.surgeRadius(240, 23);
-        assertTrue(r4 > 2500 && r4 < 3200, "к 4 минутам " + r4 + " м");
-        assertEquals(550, WaterModel.surgeHeight(240, 23), 1e-6);
+        double v = (WaterModel.surgeRadius(start + 2, 23) - WaterModel.surgeRadius(start + 1, 23)) / k;
+        assertTrue(v > 25 && v < 32, "скорость поначалу у «Бейкера» " + v + " м/с");
+        double r4 = (WaterModel.surgeRadius(240, 23) - wall) / k + wall;
+        assertTrue(r4 > 2500 && r4 < 3200, "к 4 минутам у «Бейкера» " + r4 + " м");
+        assertEquals(550 * k, WaterModel.surgeHeight(240, 23), 1e-6);
         double prev = 0;
         for (double t = start; t < 600; t += 1) {
             double r = WaterModel.surgeRadius(t, 23);

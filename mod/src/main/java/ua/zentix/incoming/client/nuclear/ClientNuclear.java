@@ -59,6 +59,11 @@ public final class ClientNuclear {
             this.sounds = new NukeSounds.Schedule(this);
         }
 
+        /** Свои тики клиента от прихода пакета (после перемотки повтора — от неё). */
+        long age() {
+            return age;
+        }
+
         /** Тики после подрыва (с долей кадра). */
         public double ticks(float partialTick) {
             return before + age + partialTick;

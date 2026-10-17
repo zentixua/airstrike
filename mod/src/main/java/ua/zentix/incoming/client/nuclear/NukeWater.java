@@ -44,11 +44,18 @@ public final class NukeWater {
     private static final int MAX_SPOTS = 64;
     /** Брызги у фронта не быстрее, блоков за тик (как пыль, {@code NukeDust}). */
     private static final double SPRAY_SPEED = 4;
-    /** Вода под эпицентром по догадке (ни чанка, ни плитки) решается заново, пока подрыву меньше стольких секунд модели. */
-    private static final double GUESS_SECONDS = 1.5;
+    /**
+     * Вода под эпицентром по догадке (ни чанка, ни плитки) решается заново, пока подрыв на этом клиенте моложе стольких
+     * своих тиков ({@link ClientNuclear.Active#age()}: от прихода пакета или перемотки повтора, а не от самого подрыва):
+     * у своего подрыва — полторы секунды, у пришедшего прошлым (вход в мир посреди подрыва, повтор) — пять: чанки вокруг
+     * вошедшего игрока приходят за секунды.
+     */
+    static final long GUESS_TICKS = 30, GUESS_TICKS_PAST = 100;
     /** Цвет брызг: светлее у гребня, белее в воздухе. */
     private static final int SPRAY_DARK = 0xC9D2D8, SPRAY_LIGHT = 0xF2F5F7;
 
+    /** Профиль кольца в кадре (поток отрисовки; {@link WaterDecal#ring} сразу копирует его в текстуру). */
+    private static final float[] DARK = new float[WaterDecal.SAMPLES], FOAM = new float[WaterDecal.SAMPLES];
     /** Для строки сценария: мест брызг за последний тик. */
     private static int lastSpots;
 
@@ -65,13 +72,13 @@ public final class NukeWater {
     }
 
     /**
-     * Вода под эпицентром: загруженный чанк клиента (вода в блоке под первым воздухом над землёй, {@code groundY}), иначе
+     * Вода под эпицентром: загруженный чанк клиента (вода в блоке поверхности, {@link #surfaceBlock}), иначе
      * плитка рельефа карты, иначе догадка по высоте: у ровной земли на уровне моря ({@code groundY} = уровень моря —
      * первый воздух над водой моря) — море. Под потолком (Незер) воды нет.
      */
     static Under under(@Nullable ClientLevel level, Detonation d) {
         if (level == null || level.dimensionType().hasCeiling()) return new Under(0, Source.NONE);
-        int x = Mth.floor(d.burst().x), z = Mth.floor(d.burst().z), y = Mth.floor(d.groundY()) - 1;
+        int x = Mth.floor(d.burst().x), z = Mth.floor(d.burst().z), y = surfaceBlock(d.groundY());
         LevelChunk chunk = level.getChunkSource().getChunk(x >> 4, z >> 4, false);
         if (chunk != null) return new Under(chunk.getFluidState(new BlockPos(x, y, z)).is(FluidTags.WATER) ? 1 : 0, Source.CHUNK);
         OptionalInt depth = TerrainTiles.waterDepth(x, z);
@@ -79,9 +86,30 @@ public final class NukeWater {
         return new Under(guess(d.groundY(), WaterDecal.SEA_LEVEL), Source.SEA_LEVEL);
     }
 
-    /** Догадка без данных: первый воздух над землёй ровно на уровне моря — над морем (берег на этой высоте — узкая полоса). */
+    /**
+     * Догадка без данных: первый воздух над землёй ровно на уровне моря — над морем (берег на этой высоте — узкая полоса).
+     * Высота земли — как у {@link #surfaceBlock}: у моря с прицела — 62,889.
+     */
     static double guess(double groundY, int seaLevel) {
-        return Mth.floor(groundY) == seaLevel ? 1 : 0;
+        return Mth.ceil(groundY) == seaLevel ? 1 : 0;
+    }
+
+    /**
+     * Блок поверхности под эпицентром по {@code groundY}: у суши и карты высот это первый воздух над землёй (целое), а
+     * у прицела, бинокля, ракеты и B-2 по лучу с жидкостью — сама гладь: верх стоячей воды на 8/9 блока, 62,889 у моря.
+     * Блок, в котором эта высота (верхний, если она на его грани), — вода или земля.
+     */
+    static int surfaceBlock(double groundY) {
+        return Mth.ceil(groundY) - 1;
+    }
+
+    /**
+     * Вода под эпицентром решена и дальше не меняется: известна наверняка (чанк, плитка) или догадка держится дольше
+     * срока — {@code age} своих тиков подрыва на этом клиенте ({@link ClientNuclear.Active#age()}), {@code live} — свой
+     * подрыв, не пришедший прошлым.
+     */
+    static boolean settles(Under u, long age, boolean live) {
+        return u.sure() || age > (live ? GUESS_TICKS : GUESS_TICKS_PAST);
     }
 
     /**
@@ -94,7 +122,7 @@ public final class NukeWater {
             Under u = under(level, a.d);
             w.wet(u.water() * WaterModel.wetBurst(a.d.hobMetres(), a.d.yieldKt()));
             a.puffs.burst(u.water(), w.wet());
-            if (u.sure() || a.seconds(0) > GUESS_SECONDS) w.settle(u.source());
+            if (settles(u, a.age(), a.live)) w.settle(u.source());
         }
         if (!level.dimensionType().hasCeiling()) a.puffs.water(a.seconds(1), FarTerrain.water(level));
         front(a, level, eye);
@@ -192,9 +220,8 @@ public final class NukeWater {
         double ticks = a.ticks(partial), slant = d.frontRadius(ticks), hob = Math.max(0, d.burst().y - d.groundY());
         if (slant <= hob) return;
         double r = Math.sqrt(slant * slant - hob * hob);
-        float[] dark = new float[WaterDecal.SAMPLES], foam = new float[WaterDecal.SAMPLES];
-        if (!profile(d, ticks, r, hob, dark, foam)) return;
-        WaterDecal.ring(d.burst().x, d.burst().z, r, r, dark, foam);
+        if (!profile(d, ticks, r, hob, DARK, FOAM)) return;
+        WaterDecal.ring(d.burst().x, d.burst().z, r, r, DARK, FOAM);
     }
 
     /**

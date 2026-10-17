@@ -136,14 +136,14 @@ class WaterPuffsTest {
 
     /**
      * Стена над водой — брызги позади тёмного кольца: её передний край отстаёт от головы стены на путь фронта за
-     * {@link WaterModel#SPRAY_LAG} (капли встают не сразу), а стена пыли над сушей идёт с головой.
+     * последние {@link WaterModel#SPRAY_LAG} (капли встают не сразу), а стена пыли над сушей идёт с головой.
      */
     @Test
     void sprayWallTrailsTheDarkRing() {
         for (double t : new double[]{3, 6}) {
             CloudPuffs dry = new CloudPuffs(SEA, 750, false), wet = new CloudPuffs(SEA, 750, false);
             wet.burst(1, 0);
-            double head = dry.wall(t).head(), lag = dry.wall(t + WaterModel.SPRAY_LAG).head() - head;
+            double head = dry.wall(t).head(), lag = head - dry.wall(t - WaterModel.SPRAY_LAG).head();
             double dryEdge = farthestEdge(dry, t), wetEdge = farthestEdge(wet, t);
             assertTrue(lag > 30, t + " с: путь фронта за время подъёма брызг " + lag);
             assertTrue(dryEdge > head - 0.25 * lag, t + " с: пыль с головой: край " + dryEdge + ", голова " + head);
@@ -151,11 +151,44 @@ class WaterPuffsTest {
         }
     }
 
-    /** Догадка без данных: первый воздух над землёй ровно на уровне моря — море, выше — суша. */
+    /**
+     * Догадка без данных: первый воздух над землёй ровно на уровне моря — море, выше — суша; гладь моря с прицела
+     * (луч с жидкостью: верх воды на 8/9 блока, 62,889) — тоже море.
+     */
     @Test
     void seaLevelGuess() {
         assertEquals(1, NukeWater.guess(63, 63));
+        assertEquals(1, NukeWater.guess(62 + 8.0 / 9.0, 63), "гладь моря с прицела");
         assertEquals(0, NukeWater.guess(64, 63));
         assertEquals(0, NukeWater.guess(70.5, 63));
+        assertEquals(0, NukeWater.guess(61, 63), "дно ниже моря — не догадка «море»");
+    }
+
+    /**
+     * Блок поверхности под эпицентром: у целой высоты (первый воздух над землёй) — под ним, у глади с прицела (62,889)
+     * — сам блок воды, а не блок под ним (иначе мелкая вода — суша, без столба, тумана и волны).
+     */
+    @Test
+    void surfaceBlockUnderTheBurst() {
+        assertEquals(62, NukeWater.surfaceBlock(63));
+        assertEquals(62, NukeWater.surfaceBlock(62 + 8.0 / 9.0));
+        assertEquals(63, NukeWater.surfaceBlock(64));
+        assertEquals(70, NukeWater.surfaceBlock(70.5), "верх полублока — сам полублок");
+        assertEquals(-1, NukeWater.surfaceBlock(-0.11));
+    }
+
+    /**
+     * Догадка о воде под эпицентром держится, пока подрыв на клиенте молод по своим тикам от прихода пакета: у
+     * вошедшего посреди подрыва (или в повторе) ей дольше ждать чанков, а известное наверняка решено сразу.
+     */
+    @Test
+    void guessSettlesByOwnAge() {
+        var guess = new NukeWater.Under(1, NukeWater.Source.SEA_LEVEL);
+        assertTrue(NukeWater.settles(new NukeWater.Under(0, NukeWater.Source.CHUNK), 0, false), "чанк — сразу");
+        assertTrue(NukeWater.settles(new NukeWater.Under(1, NukeWater.Source.TILES), 0, true), "плитка — сразу");
+        assertTrue(!NukeWater.settles(guess, NukeWater.GUESS_TICKS, true));
+        assertTrue(NukeWater.settles(guess, NukeWater.GUESS_TICKS + 1, true));
+        assertTrue(!NukeWater.settles(guess, NukeWater.GUESS_TICKS + 1, false), "пришедший прошлым ждёт дольше");
+        assertTrue(NukeWater.settles(guess, NukeWater.GUESS_TICKS_PAST + 1, false));
     }
 }

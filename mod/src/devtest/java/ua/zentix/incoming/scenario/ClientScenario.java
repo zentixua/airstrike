@@ -61,6 +61,8 @@ public final class ClientScenario {
     private boolean started;
     private int tick = -1;
     private Vec3 target = Vec3.ZERO;
+    /** Сценарий {@code nuke}: место зрителя на смотровой площадке (волна потом сносит его с неё). */
+    private BlockPos deck = BlockPos.ZERO;
     private boolean nuke;
     private int detTick = -1;
     /** Ядерный сценарий: точка в следе осадков и игровой тик, когда туда идти (−1 — не ждём). */
@@ -311,6 +313,7 @@ public final class ClientScenario {
             int y = Math.max(ground, 170);
             cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y + 29, z - 1, x + 1, y + 29, z + 1));
             cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 180 -8", x, y + 30, z));
+            deck = new BlockPos(x, y + 30, z);
             cmd("give @s incoming:geiger_counter");
             target = new Vec3(x + 0.5, 320, z - 2000 + 0.5); // высота 320 — сервер опустит на землю
         });
@@ -415,7 +418,7 @@ public final class ClientScenario {
                             Math.round(Math.toDegrees(bestAngle)), (int) best);
                     // зритель — над водой в 40 блоках от берега
                     waterEye = new Vec3(at.getX() + 0.5 + Math.cos(bestAngle) * 40, 0, at.getZ() + 0.5 + Math.sin(bestAngle) * 40);
-                    waterBurst = new Vec3(at.getX() + 0.5 + Math.cos(bestAngle) * 1540, ua.zentix.incoming.client.fx.layer.WaterDecal.SEA_LEVEL, at.getZ() + 0.5 + Math.sin(bestAngle) * 1500);
+                    waterBurst = new Vec3(at.getX() + 0.5 + Math.cos(bestAngle) * 1540, ua.zentix.incoming.client.fx.layer.WaterDecal.SEA_LEVEL, at.getZ() + 0.5 + Math.sin(bestAngle) * 1540);
                 }
                 Minecraft.getInstance().execute(() -> {
                     cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 140 %.1f", waterEye.x, waterEye.z));
@@ -516,6 +519,30 @@ public final class ClientScenario {
         detTick = tick;
         Incoming.LOG.info("SCENARIO detonation at tick {}", tick);
         for (int dt : new int[]{1, 2, 4, 10, 20, 40, 70, 90, 100, 112, 118, 125, 140, 160, 200, 400}) shot(tick + dt, "nuke");
+        // фронт прошёл смотровую площадку (волна сносит с неё зрителя): под ней в воздухе — стена, бревна, трава и пруд
+        // 3×3; в полосе ряби за фронтом тёмное кольцо наклейки на воду — на пруду, а не полосами по рядам блоков на
+        // боковых гранях (вода — только гладь). Строится после фронта — руины волны её не трогают; кадр — без HUD (чат
+        // закрывал пруд) и через 2 с: на llvmpipe секции новых блоков строятся за несколько кадров
+        var nd = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        int passed = tick + (int) Math.ceil(nd.arrivalTicks(Math.sqrt(deck.distToCenterSqr(nd.burst()))));
+        at(passed + 4, () -> {
+            int x = deck.getX(), y = deck.getY() - 16, z = deck.getZ(), b = y - 6;
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 7, b, z - 13, x + 7, b, z - 5));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:short_grass", x - 7, b + 1, z - 13, x + 7, b + 1, z - 5));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 1, b + 1, z - 10, x + 1, b + 1, z - 8));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone", x - 1, b - 1, z - 10, x + 1, b - 1, z - 8));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:water", x - 1, b, z - 10, x + 1, b, z - 8));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 7, b, z - 14, x + 7, b + 8, z - 14));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:oak_log", x - 4, b + 1, z - 12, x - 4, b + 8, z - 12));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:birch_log", x + 3, b + 1, z - 11, x + 3, b + 8, z - 11));
+            cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y - 1, z - 1, x + 1, y - 1, z + 1));
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 180 20", x, y, z));
+        });
+        at(passed + 25, () -> Minecraft.getInstance().options.hideGui = true);
+        at(passed + 45, () -> Incoming.LOG.info("SCENARIO water {}", ua.zentix.incoming.client.nuclear.NukeWater.describe()));
+        shot(passed + 45, "nuke_wall");
+        shot(passed + 75, "nuke_wall");
+        at(passed + 76, () -> Minecraft.getInstance().options.hideGui = false);
         // гриб целиком виден издалека: 9 км к югу от эпицентра, взгляд на 30° вверх
         at(tick + 560, () -> {
             var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;

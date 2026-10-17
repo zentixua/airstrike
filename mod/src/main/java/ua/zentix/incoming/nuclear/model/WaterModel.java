@@ -9,7 +9,8 @@ package ua.zentix.incoming.nuclear.model;
  * и по «Бейкеру» (Crossroads, 1946, 23 кт на глубине 27 м; Glasstone, Dolan 1977, §2.47–2.65): столб ~600 м в поперечнике
  * и 1,8 км в высоту за ~10 с, стенки ~90 м; облако конденсации — купол-бублик вокруг столба на 1–4 с; базисная волна —
  * с ~10 с, когда вода столба падает, поначалу ~25–30 м/с, к 4 минутам — около 2,5–3 км по радиусу и ~550 м в высоту.
- * Подрыв на поверхности или над ней выбрасывает меньше воды, чем подводный: столб ниже, волна слабее.
+ * Подрыв на поверхности или над ней выбрасывает меньше воды, чем подводный: столб ниже ({@link #SURFACE_COLUMN}), волна
+ * меньше ({@link #SURFACE_SURGE}); здесь — подрыв на поверхности (подводных у мода нет).
  */
 public final class WaterModel {
     /** Рябь: с какого ветра вода темнеет и с какого темнее уже некуда, м/с. */
@@ -34,6 +35,12 @@ public final class WaterModel {
     static final double COLUMN_FALL = 10, COLUMN_FALL_SPAN = 25;
     /** Базисная волна у «Бейкера»: начало (с), предел радиуса (м), постоянная (с), высота (м), за сколько тает (с, e-кратно). */
     static final double SURGE_START = 8, SURGE_RADIUS = 3000, SURGE_TAU = 100, SURGE_HEIGHT = 550, SURGE_FADE = 240;
+    /**
+     * Базисная волна у подрыва на поверхности — доля «бейкеровской» (рост радиуса и высота): над глубокой водой подрыв на
+     * поверхности поднимает меньше воды, и волна у него меньше, чем у подводного (Glasstone, Dolan, гл. II); доля —
+     * оценка, как {@link #SURFACE_COLUMN} у столба.
+     */
+    static final double SURFACE_SURGE = 0.7;
     /** Кольцо тумана: появляется, держится и тает (с, у «Бейкера»). */
     static final double MIST_FROM = 0.3, MIST_FULL = 1, MIST_HOLD = 2.5, MIST_GONE = 5;
     /** Подрыв выше этой доли наибольшего радиуса шара — уже не «водяной»: столба, волны и кольца нет. */
@@ -127,18 +134,21 @@ public final class WaterModel {
         return SURGE_START * bakerScale(yieldKt);
     }
 
-    /** Радиус базисной волны в момент t, м (0 — ещё не встала): от стенки столба, поначалу ~30 м/с. */
+    /**
+     * Радиус базисной волны подрыва на поверхности в момент t, м (0 — ещё не встала): от стенки столба, поначалу ~20 м/с
+     * ({@link #SURFACE_SURGE} от ~30 м/с «Бейкера»).
+     */
     public static double surgeRadius(double t, double yieldKt) {
         double s = bakerScale(yieldKt), since = t - surgeStart(yieldKt);
         if (since <= 0) return 0;
-        return columnRadius(yieldKt) * 1.2 + SURGE_RADIUS * s * (1 - Math.exp(-since / (SURGE_TAU * s)));
+        return columnRadius(yieldKt) * 1.2 + SURFACE_SURGE * SURGE_RADIUS * s * (1 - Math.exp(-since / (SURGE_TAU * s)));
     }
 
-    /** Высота базисной волны в момент t, м. */
+    /** Высота базисной волны подрыва на поверхности в момент t, м ({@link #SURFACE_SURGE} от «Бейкера»). */
     public static double surgeHeight(double t, double yieldKt) {
         double s = bakerScale(yieldKt), since = t - surgeStart(yieldKt);
         if (since <= 0) return 0;
-        return SURGE_HEIGHT * s * (0.25 + 0.75 * smooth(0, 60 * s, since));
+        return SURFACE_SURGE * SURGE_HEIGHT * s * (0.25 + 0.75 * smooth(0, 60 * s, since));
     }
 
     /** Густота базисной волны 0..1: встаёт за несколько секунд, тает минутами. */

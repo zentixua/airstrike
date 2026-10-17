@@ -30,10 +30,12 @@ import java.util.Locale;
  * Наклейка на воду в слое эффектов: тёмное кольцо фронта ядерной волны — рябь под ветром за фронтом, у эпицентра с пеной
  * (профиль по модели — {@code client/nuclear/NukeWater}). Один проход во весь кадр перед квадратами слоя: место за
  * пикселем — по расстоянию до мира ({@link SceneDepth}: глубина Minecraft и Distant Horizons) и матрицам кадра,
- * вода ли там — по высоте: верх стоячей воды — 8/9 блока (в прорисовке; вода пишет глубину и в ванили, и под Iris),
- * дальше прорисовки (LOD DH) — вода моря: место на уровне моря или ниже его, тогда — пересечение луча с его гладью
- * (LOD без глубины воды показывает дно). Воду рисует сам Minecraft или шейдерпак, наклейка только темнит её и белит
- * пеной поверх, с той же дымкой воздуха и туманом Minecraft, что у частиц.
+ * вода ли там — гладь (поверхность за пикселем горизонтальна по соседним пикселям: стены, стволы, трава и мобы на той
+ * же высоте в блоке — не вода) на высоте верха стоячей воды — 8/9 блока (в прорисовке; вода пишет глубину и в ванили,
+ * и под Iris; допуск растёт с ошибкой глубины вдали), дальше прорисовки (LOD DH) — гладь моря или место ниже его, тогда
+ * — пересечение луча с его гладью (LOD без глубины воды показывает дно). Шум ряби и пены — от центра кольца. Воду
+ * рисует сам Minecraft или шейдерпак, наклейка только темнит её и белит пеной поверх, с той же дымкой воздуха и туманом
+ * Minecraft, что у частиц.
  * <p>
  * Профиль кольца — строка текстуры {@link #SAMPLES}×{@link #RINGS}: темнота и пена за фронтом на {@link #sampleAt}
  * блоков (выборки гуще у фронта: там кольцо резкое).
@@ -51,6 +53,7 @@ public final class WaterDecal {
     @Nullable
     static ShaderInstance shader;
     private static final double[][] RING = new double[RINGS][4];
+    private static final String[] RING_UNIFORMS = {"Ring0", "Ring1", "Ring2", "Ring3"};
     private static final ByteBuffer PIXELS = BufferUtils.createByteBuffer(SAMPLES * RINGS * 4);
     private static final Matrix4f INV_PROJ = new Matrix4f(), INV_VIEW = new Matrix4f();
     private static int count, texture = -1, lastCount;
@@ -118,8 +121,7 @@ public final class WaterDecal {
         RenderSystem.setShaderTexture(1, texture);
         s.safeGetUniform("InvProj").set(INV_PROJ.set(e.getProjectionMatrix()).invert());
         s.safeGetUniform("InvView").set(INV_VIEW.set(e.getModelViewMatrix()).invert());
-        // шум — от мира по модулю: в float у далёких координат дробной части нет
-        s.safeGetUniform("CamPos").set((float) (cam.x % 4096), (float) cam.y, (float) (cam.z % 4096));
+        s.safeGetUniform("CamY").set((float) cam.y);
         double sea = SEA_LEVEL - 1 + SURFACE;
         s.safeGetUniform("WaterParams").set((float) (0.8 * view.world()), (float) (sea - cam.y), (float) count, view.ambient());
         s.safeGetUniform("Haze").set((float) (Sight.KOSCHMIEDER / view.range()), fog.end > fog.start ? fog.start : 1e9f,
@@ -127,7 +129,7 @@ public final class WaterDecal {
         s.safeGetUniform("Pixel").set((float) view.pixel());
         for (int i = 0; i < RINGS; i++) {
             double[] r = RING[i];
-            s.safeGetUniform("Ring" + i).set((float) (r[0] - cam.x), (float) (r[1] - cam.z), (float) r[2], (float) r[3]);
+            s.safeGetUniform(RING_UNIFORMS[i]).set((float) (r[0] - cam.x), (float) (r[1] - cam.z), (float) r[2], (float) r[3]);
         }
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
@@ -144,9 +146,10 @@ public final class WaterDecal {
         RenderSystem.enableDepthTest();
     }
 
-    /** Профили кадра — в текстуру (своя, 64×4, RGBA8: темнота, пена). */
+    /** Профили кадра — в текстуру (своя, 64×4, RGBA8: темнота, пена; место — один раз, дальше — только пиксели). */
     private static void upload() {
-        if (texture < 0) {
+        boolean fresh = texture < 0;
+        if (fresh) {
             texture = GlStateManager._genTexture();
             GlStateManager._bindTexture(texture);
             GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MIN_FILTER, GlConst.GL_LINEAR);
@@ -160,7 +163,11 @@ public final class WaterDecal {
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0);
         GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, 4);
         PIXELS.position(0);
-        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, SAMPLES, RINGS, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, PIXELS);
+        if (fresh) {
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, SAMPLES, RINGS, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, PIXELS);
+        } else {
+            GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, SAMPLES, RINGS, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, PIXELS);
+        }
     }
 
     /** Для строки сценария: колец на воде в прошлом кадре. */

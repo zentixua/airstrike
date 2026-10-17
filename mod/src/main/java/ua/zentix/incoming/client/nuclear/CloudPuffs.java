@@ -186,8 +186,8 @@ public final class CloudPuffs {
     private static double humidity(Detonation d) {
         var level = net.minecraft.client.Minecraft.getInstance().level;
         if (level == null) return 0.5;
-        // groundY — первый воздух над землёй: вода — блок под ним
-        var pos = net.minecraft.core.BlockPos.containing(d.burst().x, d.groundY() - 1, d.burst().z);
+        // блок поверхности: у суши — под первым воздухом, у воды с прицела (гладь, 62,889) — сама вода
+        var pos = new net.minecraft.core.BlockPos(Mth.floor(d.burst().x), NukeWater.surfaceBlock(d.groundY()), Mth.floor(d.burst().z));
         if (!level.getFluidState(pos).isEmpty()) return 1;
         return level.getBiome(pos).value().getModifiedClimateSettings().downfall();
     }
@@ -543,8 +543,8 @@ public final class CloudPuffs {
         // над водой: брызги с гребней по ветру на голове стены, ниже стены пыли
         double wind = BlastModel.windSpeed(BlastModel.overpressureKpa(Math.hypot(m.head, hob), d.yieldKt()));
         double spray = WaterModel.spray(wind), low = Mth.clamp(WaterModel.sprayHeight(wind) / Math.max(1, m.headWall), 0.15, 1);
-        // брызги встают за фронтом не сразу: стена брызг отстаёт на путь головы за это время
-        double lag = Math.max(0, head(m.t + WaterModel.SPRAY_LAG) - m.head);
+        // брызги встают за фронтом не сразу: стена брызг отстаёт на путь головы за последние столько секунд
+        double lag = Math.max(0, m.head - head(Math.max(0, m.t - WaterModel.SPRAY_LAG)));
         for (int i = 0; i < puffs.length; i++) {
             Puff p = puffs[i];
             if (!place(p, m, s)) continue;
@@ -604,8 +604,8 @@ public final class CloudPuffs {
 
     /**
      * Тик клиента: вода под клубами у земли там, где они будут в момент {@code t} (секунды модели); каждый клуб — раз
-     * в {@link #FAR_EVERY} тиков (вода под ним меняется только у берега), ещё не замеренный — сразу. Где не известно —
-     * прежнее.
+     * в {@link #FAR_EVERY} тиков (вода под ним меняется только у берега; ещё не замеренный — так же: где нет ни чанка,
+     * ни плитки, замер не удаётся минутами). Где не известно — прежнее.
      */
     public void water(double t, FarTerrain.Water water) {
         Moment m = moment(t);
@@ -613,7 +613,7 @@ public final class CloudPuffs {
         Spot s = new Spot();
         for (int i = 0; i < puffs.length; i++) {
             Puff p = puffs[i];
-            if (!p.kind.onGround() || (!Float.isNaN(wet[i]) && (i + ticks) % FAR_EVERY != 0)) continue;
+            if (!p.kind.onGround() || (i + ticks) % FAR_EVERY != 0) continue;
             if (!place(p, m, s) || s.a * m.life < 0.01) continue;
             double w = water.at(Mth.floor(d.burst().x + d.blocks(s.px)), Mth.floor(d.burst().z + d.blocks(s.pz)));
             if (!Double.isNaN(w)) wet[i] = (float) w;
