@@ -189,6 +189,42 @@ class PallFieldTest {
         assertTrue(haze(lag, 17000) > 0, "поправка часов в сумерки — не утро");
     }
 
+    /**
+     * Мир после первых суток: часы мира — 85000 (вечер четвёртых суток), {@code /time set 18000} ставит их как есть, на
+     * полночь первых. Утро — ближайший восход по времени суток (через 6000 тиков), а не утро четвёртых суток по числу
+     * часов; {@code /time set day} — уже утро.
+     */
+    @Test
+    void timeSetInALaterDayFollowsTheTimeOfDay() {
+        long evening = 3 * PallField.DAY + 13000;
+        PallField set = new PallField(GROUND, evening);
+        clock(set, evening, 0, 100);
+        set.daylight(101, 18000);
+        clock(set, 18000 - 101, 102, 6300);
+        assertTrue(haze(set, 4800) > 0, "до восхода мгла держится");
+        assertEquals(0, haze(set, 101 + 6000 + 1), 1e-12, "восход через 6000 тиков после /time set — мгла погасла");
+        assertTrue(haze(new PallField(GROUND, evening), 101 + 6000 + 1) > 0, "без прыжка часов — до утра через 11000");
+
+        PallField day = new PallField(GROUND, evening);
+        clock(day, evening, 0, 100);
+        day.daylight(101, 1000);
+        assertEquals(0, haze(day, 101 + PallField.HAZE_FADE_TICKS + 1), 1e-12, "/time set day — уже утро");
+    }
+
+    /** {@code /time add} до самого рассвета: мгла держится 5 минут после подрыва (ещё не день), а не гаснет за минуту. */
+    @Test
+    void timeAddToDawnKeepsFiveMinutes() {
+        PallField p = new PallField(GROUND, NOON);
+        clock(p, NOON, 0, 100);
+        p.daylight(101, 23600);
+        clock(p, 23600 - 101, 102, 7000);
+        assertTrue(haze(p, PallField.HAZE_MIN_TICKS - PallField.HAZE_FADE_TICKS - 1) > 0, "через 4 минуты мгла ещё есть");
+        assertTrue(haze(p, PallField.HAZE_MIN_TICKS - 300) > 0, "гаснет последнюю минуту, не раньше");
+        assertEquals(0, haze(p, PallField.HAZE_MIN_TICKS + 1), 1e-12, "через 5 минут погасла");
+        // часы потом сами проходят восход — ничего не меняется
+        assertTrue(haze(p, 2000) > 0);
+    }
+
     /** Перемотка повтора: утро — снова по времени суток в миг подрыва. */
     @Test
     void rewindForgetsTheSkippedNight() {

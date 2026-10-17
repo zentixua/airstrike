@@ -27,6 +27,7 @@ import org.lwjgl.opengl.GL33;
 import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.system.MemoryUtil;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.compat.FlashbackReplay;
 
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
@@ -55,8 +56,9 @@ import java.util.concurrent.CompletionException;
  * <p>
  * Подробность сама держит бюджет ({@link Detail}): время проходов на видеокарте меряют метки времени OpenGL, читаемые
  * через кадры (без ожидания), и пока оно дольше {@link Detail#BUDGET_MS} мс, кадр лучей мельчает и шагов меньше
- * ({@link #LADDER}, не ниже LOW); есть запас — подробность возвращается к выбранной в настройке. Строка
- * {@code SCENARIO pall} — {@link #describe}.
+ * ({@link #LADDER}, не ниже LOW); есть запас — подробность возвращается к выбранной в настройке. В сценарии клиента
+ * и пока Flashback выводит видео кадры не в реальном времени: медленный кадр там ничего не стоит, и подробность —
+ * всегда из настройки ({@link Detail#pin}). Строка {@code SCENARIO pall} — {@link #describe}.
  */
 public final class PallPass {
     /** Узлов таблицы по радиусу (ширина текстуры). */
@@ -107,8 +109,8 @@ public final class PallPass {
      * Ступень подробности по времени проходов на видеокарте: дольше бюджета в среднем за полсекунды (и не меньше
      * четырёх замеров) — сразу на ступень, что по цене в него влезет; запас — на ступень вверх, если и с ней по цене
      * выйдет не больше {@link #UP_SHARE} бюджета два окна подряд и после прошлой смены прошло {@link #HOLD_NS} (после
-     * подъёма, за которым сразу пришлось опуститься, — вчетверо дольше). Не выше выбранного в настройке и не ниже LOW.
-     * Без мира и OpenGL — юнит-тест.
+     * подъёма, за которым сразу пришлось опуститься, — вчетверо дольше). Не выше выбранного в настройке и не ниже LOW;
+     * прибитая ({@link #pin}) — ступень настройки, замеры её не трогают. Без мира и OpenGL — юнит-тест.
      */
     static final class Detail {
         /** Бюджет пелены на кадр на видеокарте, мс. */
@@ -125,6 +127,8 @@ public final class PallPass {
         int changes;
         /** Среднее последнего окна, мс. */
         double lastMean;
+        /** Ступень прибита к настройке ({@link #pin}). */
+        boolean pinned;
         private double sum;
         private int samples, calm;
         private long windowStart, holdUntil, raisedAt = Long.MIN_VALUE;
@@ -137,9 +141,31 @@ public final class PallPass {
             set(c);
         }
 
+        /**
+         * Прибить ступень к настройке или отпустить: кадры не в реальном времени (сценарий клиента, вывод видео
+         * Flashback) — медленный кадр не должен снижать подробность. true — сменилось (ступень — потолок, замеры —
+         * заново).
+         */
+        boolean pin(boolean on) {
+            if (on == pinned) return false;
+            pinned = on;
+            calm = 0;
+            if (ceiling >= 0) set(ceiling);
+            return true;
+        }
+
+        /**
+         * Замеры до этого — не в счёт (пелены не было в кадре, сменился размер кадра): пары меток в полёте сняты
+         * на прежнем поколении, первый кадр после — с холодными кэшами.
+         */
+        void restart() {
+            calm = 0;
+            if (ceiling >= 0) set(level);
+        }
+
         /** Замер кадра, снятый на ступени поколения {@code gen}, в момент {@code now} (нс); true — ступень сменилась. */
         boolean sample(double ms, int gen, long now) {
-            if (gen != generation || ceiling < 0) return false;
+            if (gen != generation || ceiling < 0 || pinned) return false;
             // первый кадр ступени — с новыми кадрами и холодными кэшами
             if (skip) {
                 skip = false;
@@ -240,7 +266,7 @@ public final class PallPass {
     private static int ring;
     /** Метки времени: 0 — не проверяли, 1 — есть, −1 — нет (тогда подробность — из настройки). */
     private static int timer;
-    /** Сценарий клиента: смены ступени — в лог строкой INFO. */
+    /** Сценарий клиента ({@code tools/client_scenario.sh}): кадры не в реальном времени, подробность — из настройки. */
     private static final boolean SCENARIO = System.getProperty("incoming.scenario") != null;
     private static double gpuSum, gpuMax, lastGpuMean, lastGpuMax;
     private static int gpuFrames, drawn, lastDrawn;
@@ -288,6 +314,15 @@ public final class PallPass {
         Minecraft mc = Minecraft.getInstance();
         int w = mc.getMainRenderTarget().width, h = mc.getMainRenderTarget().height;
         DETAIL.ceiling(f.quality.step());
+        if (DETAIL.pin(SCENARIO || FlashbackReplay.exporting())) {
+            Step at = LADDER[Math.max(0, DETAIL.level)];
+            if (DETAIL.pinned) {
+                Incoming.LOG.info("Nuclear dust pall: {}, detail pinned at the setting 1/{} × {} steps", SCENARIO ? "client scenario" : "Flashback video export",
+                        at.factor, at.steps);
+            } else {
+                Incoming.LOG.info("Nuclear dust pall: Flashback video export over, detail follows the GPU budget again from 1/{} × {} steps", at.factor, at.steps);
+            }
+        }
         if (timer()) poll(System.nanoTime());
         Step step = LADDER[DETAIL.level];
         if (!ensure(w, h, step.factor)) return false;
@@ -486,6 +521,8 @@ public final class PallPass {
         lowW = Math.max(1, (w + f - 1) / f);
         lowH = Math.max(1, (h + f - 1) / f);
         history = false;
+        // замеры прежнего размера кадра — не этой цены
+        DETAIL.restart();
         int previous = GlStateManager._getInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
         boolean ok = true;
         for (int i = 0; i < TEXTURES.length; i++) {
@@ -539,10 +576,9 @@ public final class PallPass {
             int was = DETAIL.level;
             if (DETAIL.sample(ms, ISSUED[i], now)) {
                 Step from = LADDER[was], to = LADDER[DETAIL.level];
-                String line = String.format(Locale.ROOT, "Nuclear dust pall: %.2f ms on the GPU (budget %.1f), detail 1/%d × %d steps → 1/%d × %d",
-                        DETAIL.lastMean, Detail.BUDGET_MS, from.factor, from.steps, to.factor, to.steps);
-                if (SCENARIO) Incoming.LOG.info(line);
-                else Incoming.LOG.debug(line);
+                // в игре — DEBUG: смена ступени бывает раз в несколько секунд; в сценарии ступень прибита (draw)
+                Incoming.LOG.debug(String.format(Locale.ROOT, "Nuclear dust pall: %.2f ms on the GPU (budget %.1f), detail 1/%d × %d steps → 1/%d × %d",
+                        DETAIL.lastMean, Detail.BUDGET_MS, from.factor, from.steps, to.factor, to.steps));
             }
             ISSUED[i] = -1;
         }
@@ -578,12 +614,17 @@ public final class PallPass {
         Step step = LADDER[Math.max(0, DETAIL.level)];
         Step top = LADDER[Math.max(0, DETAIL.ceiling)];
         String gpu = timer < 0 ? "gpu n/a" : String.format(Locale.ROOT, "gpu %.2f ms (longest %.2f, budget %.1f)", lastGpuMean, lastGpuMax, Detail.BUDGET_MS);
-        return String.format(Locale.ROOT, "%d frames, %d×%d, detail 1/%d × %d steps (step %d of %d, setting 1/%d × %d, %d changes), %s",
-                lastDrawn, lowW, lowH, step.factor, step.steps, DETAIL.level, LADDER.length - 1, top.factor, top.steps, DETAIL.changes, gpu);
+        return String.format(Locale.ROOT, "%d frames, %d×%d, detail 1/%d × %d steps (step %d of %d, setting 1/%d × %d, %s, %d changes), %s",
+                lastDrawn, lowW, lowH, step.factor, step.steps, DETAIL.level, LADDER.length - 1, top.factor, top.steps,
+                DETAIL.pinned ? "pinned" : "by GPU budget", DETAIL.changes, gpu);
     }
 
-    /** Перемотка повтора, смена мира: накопленное — от другого кадра. */
+    /**
+     * Перемотка повтора, смена мира, кадр без пелены: накопленное — от другого кадра; метки времени, снятые до этого,
+     * подробность не считает (пелена вернётся — может быть, в другом месте и через минуты).
+     */
     public static void reset() {
+        if (previousEye != null) DETAIL.restart();
         history = false;
         previousEye = null;
     }

@@ -321,7 +321,8 @@ public final class IncomingConfig {
             nukeCloudQuality = b.comment("Mushroom cloud detail: LOW / MEDIUM / HIGH = 750 / 1500 / 2500 puffs (plus 4/5 as many for the dust wall).")
                     .translation("incoming.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
             nukeDustQuality = b.comment("Dust and smoke pall after a nuclear blast wave: OFF / LOW / MEDIUM / HIGH. LOW is lighter on a weak graphics card;",
-                            "MEDIUM and HIGH lower their own detail (not below LOW) while the pall takes more than about 2 ms of graphics card time a frame.",
+                            "MEDIUM and HIGH lower their own detail (not below LOW) while the pall takes more than about 2 ms of graphics card time a frame,",
+                            "but not while Flashback exports a video.",
                             "OFF leaves only the dust wall and falling ash: no pall, and it does not muffle sounds.")
                     .translation("incoming.config.nuke_dust_quality").defineEnum("nuke_dust_quality", DustQuality.MEDIUM);
             nukeTinnitus = b.comment("Ringing ears and muffled hearing after a nearby blast wave.")

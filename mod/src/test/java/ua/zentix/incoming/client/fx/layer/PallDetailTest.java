@@ -79,6 +79,53 @@ class PallDetailTest {
         assertEquals(level, d.level);
     }
 
+    /**
+     * Прибитая (сценарий клиента, вывод видео): ступень настройки, сколько бы ни шёл кадр; опущенная бюджетом — сразу
+     * вверх до настройки. Отпустили — снова по замерам, без тех, что сняты до этого.
+     */
+    @Test
+    void pinnedStaysAtTheSetting() {
+        PallPass.Detail d = new PallPass.Detail();
+        long[] clock = {0};
+        int high = PallPass.Quality.HIGH.step();
+        d.ceiling(high);
+        frames(d, 8, 40, clock);
+        assertTrue(d.level > high);
+        int old = d.generation;
+        assertTrue(d.pin(true));
+        assertFalse(d.pin(true));
+        assertEquals(high, d.level, "прибита — ступень настройки");
+        frames(d, 150, 400, clock);
+        assertEquals(high, d.level, "медленные кадры вывода видео подробность не снижают");
+        d.ceiling(PallPass.Quality.MEDIUM.step());
+        assertEquals(PallPass.Quality.MEDIUM.step(), d.level, "новая настройка — её ступень");
+        frames(d, 150, 400, clock);
+        assertEquals(PallPass.Quality.MEDIUM.step(), d.level);
+        d.ceiling(high);
+        assertTrue(d.pin(false));
+        for (int i = 0; i < 100; i++) assertFalse(d.sample(150, old, clock[0] += 16 * MS), "замеры до прибитой не считаются");
+        assertEquals(high, d.level);
+        frames(d, 8, 40, clock);
+        assertTrue(d.level > high, "отпустили — снова по бюджету");
+    }
+
+    /** Пелена пропала из кадра или сменился размер кадра: пары меток, снятые до этого, не считаются. */
+    @Test
+    void restartDropsPendingSamples() {
+        PallPass.Detail d = new PallPass.Detail();
+        long[] clock = {0};
+        int medium = PallPass.Quality.MEDIUM.step();
+        d.ceiling(medium);
+        frames(d, 1, 10, clock);
+        int before = d.generation;
+        d.restart();
+        assertEquals(medium, d.level);
+        for (int i = 0; i < 100; i++) assertFalse(d.sample(50, before, clock[0] += 16 * MS));
+        assertEquals(medium, d.level, "старые пары — не в счёт");
+        frames(d, 50, 40, clock);
+        assertTrue(d.level > medium, "новые — в счёт");
+    }
+
     /** Замеры прежней ступени не считаются, первый кадр новой — тоже; без настройки — ничего. */
     @Test
     void staleSamplesIgnored() {

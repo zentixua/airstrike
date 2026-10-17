@@ -60,6 +60,7 @@ public final class ClientNuclear {
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
             this.puffs = puffs;
             ClientLevel level = Minecraft.getInstance().level;
+            // пришедший позже — время суток подрыва по нынешним часам: прыжка часов до входа он не видел (nuclear.md)
             this.pall = pall != null ? pall : new PallField(d, level == null ? 0 : level.getDayTime() - before);
             this.sounds = new NukeSounds.Schedule(this);
         }

@@ -31,7 +31,7 @@ public final class NukePall {
     private static final PallPass.Frame FRAME = new PallPass.Frame();
     private static final float[] ROW = new float[2 * PallPass.WIDTH * 4];
     private static final double[] DRIFT = new double[2];
-    private static final Vector3f LO = new Vector3f(), HI = new Vector3f();
+    private static final Vector3f LO = new Vector3f(), HI = new Vector3f(), CULL = new Vector3f();
     /**
      * Плоскости пирамиды видимости, по которым пелена отсекается, — все, кроме дальней: дальняя плоскость — 4 прорисовки,
      * а пелена видна и дальше (над LOD Distant Horizons, на горизонте).
@@ -140,7 +140,8 @@ public final class NukePall {
         f.min.set(Float.MAX_VALUE);
         f.max.set(-Float.MAX_VALUE);
         int k = 0;
-        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, f)) k++;
+        float bottom = (float) (level.getMinBuildHeight() - eye.y);
+        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, f)) k++;
         if (k == 0) return null;
         light(level, eye, partial, f);
         float s = sigma;
@@ -158,9 +159,11 @@ public final class NukePall {
 
     /**
      * Слот k ({@code pall.glsl}): поле подрыва, его строки таблицы и рамка; false — слот не нужен (в таблице пусто
-     * или рамка вне кадра), он остаётся свободным для следующего подрыва.
+     * или рамка вне кадра), он остаётся свободным для следующего подрыва. {@code bottom} — низ мира от глаза: в кадре
+     * подрыв и тогда, когда видна только земля под пеленой, — днём на ней тень пелены ({@code fx_pall_composite}),
+     * а долина или карьер под эпицентром бывают глубже низа пелены.
      */
-    private static boolean slot(ClientNuclear.Active a, int k, Vec3 eye, float partial, FrustumIntersection frustum, PallPass.Frame f) {
+    private static boolean slot(ClientNuclear.Active a, int k, Vec3 eye, float partial, FrustumIntersection frustum, float bottom, PallPass.Frame f) {
         Detonation d = a.d;
         PallField p = a.pall;
         double ticks = a.ticks(partial);
@@ -179,7 +182,8 @@ public final class NukePall {
         float r = (float) (p.reach() + Math.hypot(DRIFT[0], DRIFT[1]) + plume);
         LO.set(cx - r, (float) (ground - top), cz - r);
         HI.set(cx + r, (float) (ground + top * 1.05), cz + r);
-        if (frustum.intersectAab(LO, HI, SIDES_AND_NEAR) >= 0) return false;
+        CULL.set(LO.x, Math.min(LO.y, bottom), LO.z);
+        if (frustum.intersectAab(CULL, HI, SIDES_AND_NEAR) >= 0) return false;
         System.arraycopy(ROW, 0, f.table, k * ROW.length, ROW.length);
         double ys = Math.cbrt(d.yieldKt() / 15);
         org.joml.Matrix4f m = k == 0 ? f.slot0 : f.slot1;

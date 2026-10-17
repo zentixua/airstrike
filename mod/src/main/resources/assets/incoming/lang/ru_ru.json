@@ -335,7 +335,7 @@
   "incoming.config.nuke_cloud_quality": "Подробность ядерного гриба",
   "incoming.config.nuke_cloud_quality.tooltip": "LOW, MEDIUM, HIGH — 750, 1500 или 2500 клубов в грибе и ещё 4/5 от этого в стене пыли. Ниже — легче для слабого компьютера.",
   "incoming.config.nuke_dust_quality": "Пелена после ядерного удара",
-  "incoming.config.nuke_dust_quality.tooltip": "Пыль и дым, которые висят над местом после ядерной ударной волны. LOW, MEDIUM, HIGH — грубее или тоньше; ниже — легче для слабой видеокарты, а MEDIUM и HIGH сами огрубляются, когда видеокарта не успевает. OFF — пелены нет и звуки в ней не глохнут, только стена пыли и пепел.",
+  "incoming.config.nuke_dust_quality.tooltip": "Пыль и дым, которые висят над местом после ядерной ударной волны. LOW, MEDIUM, HIGH — грубее или тоньше; ниже — легче для слабой видеокарты, а MEDIUM и HIGH сами огрубляются, когда видеокарта не успевает (но не при выводе видео во Flashback). OFF — пелены нет и звуки в ней не глохнут, только стена пыли и пепел.",
   "incoming.config.nuke_tinnitus": "Оглушение и звон в ушах",
   "incoming.config.nuke_tinnitus.tooltip": "После близкой ударной волны звуки на время глохнут и звенит в ушах.",
   "incoming.config.sound_muffling": "Глушить звук вдали и за преградой",

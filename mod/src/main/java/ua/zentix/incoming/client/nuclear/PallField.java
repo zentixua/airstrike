@@ -78,8 +78,6 @@ public final class PallField {
     private final double[] arrival = new double[BINS], cover = new double[BINS], top = new double[BINS], fire = new double[BINS];
     /** Когда мгла гаснет по прошедшим тикам — тики после подрыва (утро, если часы мира идут ровно). */
     private final long hazeEnd;
-    /** Утро, которого ждёт мгла, — время суток мира (как {@code Level.getDayTime}). */
-    private final long morning;
     /**
      * Когда мгла гаснет на самом деле — тики после подрыва: не позже {@link #hazeEnd} и утра по часам мира
      * ({@link #daylight}). Пишет тик клиента, читает и кадр — один поток.
@@ -95,7 +93,6 @@ public final class PallField {
     public PallField(Detonation d, long dayTime) {
         this.d = d;
         this.hazeEnd = hazeEndTicks(dayTime);
-        this.morning = dayTime + hazeEnd;
         this.end = hazeEnd;
         double hob = Math.max(0, d.hobMetres()), ys = Math.cbrt(d.yieldKt() / 15);
         double coverM = groundRange(BlastModel.rangeForOverpressure(BlastModel.kpa(COVER_FROM_PSI), d.yieldKt()), hob);
@@ -135,23 +132,32 @@ public final class PallField {
     }
 
     /**
-     * Тик клиента: часы мира ({@code dayTime} — время суток, {@code ticks} — тики после подрыва). Мгла гаснет к утру по
-     * ним, а не только по прошедшим тикам: {@code /time add} приближает утро. Утро не раньше чем через 5 минут
-     * ({@link #hazeEndTicks}) — правило для хода часов; если часы прыгнули через восход (сон) или назад из ночи в день
-     * ({@code /time set day}), уже день — мгла гаснет за минуту, и до 5 минут. Часы стоят ({@code doDaylightCycle false}) —
+     * Тик клиента: часы мира ({@code dayTime} — время суток, {@code ticks} — тики после подрыва). Пока часы идут ровно,
+     * мгла ждёт утра, выбранного в миг подрыва ({@link #hazeEndTicks}: подрыв на рассвете — до следующего). Прыгнули
+     * (сон, {@code /time add}, {@code /time set}) — утро заново по времени суток после прыжка: уже день, а был ночью или
+     * часы прошли через восход, — мгла гаснет за минуту; иначе — к ближайшему восходу, но не раньше 5 минут после подрыва
+     * ({@link #HAZE_MIN_TICKS}). Позже, чем ждала до прыжка, мгла не гаснет. Часы стоят ({@code doDaylightCycle false}) —
      * гаснет по прошедшим тикам.
      */
     public void daylight(double ticks, long dayTime) {
         if (!Double.isNaN(lastTicks)) {
             double jump = (dayTime - lastDay) - (ticks - lastTicks);
-            boolean dawn = jump > SKIP_TICKS && Math.floorDiv(dayTime, DAY) > Math.floorDiv(lastDay, DAY)
-                    || jump < -SET_TICKS && Math.floorMod(dayTime, DAY) < DAY / 2 && Math.floorMod(lastDay, DAY) >= DAY / 2;
-            double by = dawn ? ticks : ticks + (morning - dayTime);
-            // раньше — не скачком: гаснет не быстрее чем за минуту (уже гаснет — как гасла)
-            if (by < end) end = Math.min(end, Math.max(by, ticks + HAZE_FADE_TICKS));
+            if (jump > SKIP_TICKS || jump < -SET_TICKS) {
+                // по времени суток, а не по числу часов: /time set ставит их как есть, и в мире после первых суток
+                // «назад» бывает и на ночь позже прежней (85000 → 18000 — с вечера на полночь)
+                boolean dawn = day(dayTime) && (!day(lastDay) || Math.floorDiv(dayTime, DAY) > Math.floorDiv(lastDay, DAY));
+                double by = dawn ? ticks : Math.max(ticks + Math.floorMod(-dayTime, DAY), HAZE_MIN_TICKS);
+                // раньше — не скачком: гаснет не быстрее чем за минуту (уже гаснет — как гасла)
+                if (by < end) end = Math.min(end, Math.max(by, ticks + HAZE_FADE_TICKS));
+            }
         }
         lastDay = dayTime;
         lastTicks = ticks;
+    }
+
+    /** День — первая половина суток (с 6:00 до 18:00). */
+    private static boolean day(long dayTime) {
+        return Math.floorMod(dayTime, DAY) < DAY / 2;
     }
 
     /** Перемотка повтора: часы мира — с другого места записи, утро — снова по времени суток в миг подрыва. */
