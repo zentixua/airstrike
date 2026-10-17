@@ -530,7 +530,7 @@
    "after": [{"do": "nuke.clear"}]
   },
   {
-   "id": "T24", "title": "Конец света: бой в Городе 2 встаёт у вспышки, мирные бегут, одеяло пыли", "from": "chain", "clock": "night", "siren": true, "minutes": 16,
+   "id": "T24", "title": "Конец света: бой в Городе 2 встаёт у вспышки, мирные бегут, одеяло пыли", "from": "chain", "clock": "night", "siren": true, "minutes": 16, "nuke_scale": 0.5,
    "stage": [
     {"do": "silo.build", "at": "silo", "depth": 30, "size": 5},
     {"do": "silo.open"},
@@ -551,7 +551,7 @@
    "after": [{"do": "fight.remove"}, {"do": "crowd.remove", "group": "civil"}, {"do": "crowd.remove", "group": "south"}, {"do": "crowd.remove", "group": "north"}, {"do": "crowd.remove", "group": "roof"}]
   },
   {
-   "id": "T25", "title": "Финал: толпа на холме у Города 2, ты среди неё — одеяло пыли идёт на вас", "from": "branch:T22", "clock": "night", "siren": true, "minutes": 12,
+   "id": "T25", "title": "Финал: толпа на холме у Города 2, ты среди неё — одеяло пыли идёт на вас", "from": "branch:T22", "clock": "night", "siren": true, "minutes": 12, "nuke_scale": 0.5,
    "artem": {"mark": "camera:n66", "stand": [-557.5, 910.5], "look": "c1_core", "hints": ["Ночь, открытый склон у залива юго-восточнее Города 2. Встань в толпе лицом к Городу 1 (через залив, на северо-восток).", "Нажми Enter — начнём.", "Смотри на Город 1. Будет вспышка — можешь пригнуться и отвернуться, потом смотри на гриб. Волна пойдёт через город на вас: стой и смотри, пока экран не станет чёрным. Двигайся, как живой человек, — на тебе держится кадр."]},
    "stage": [
     {"do": "silo.build", "at": "silo", "depth": 30, "size": 5},
