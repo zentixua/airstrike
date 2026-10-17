@@ -17,7 +17,8 @@
 //   8 = (середина юбки по земле; её полуширина; высота; ослабление, 1/блок)
 //   9 = (ω' юбки rgb; g')
 //  10 = (воздух вокруг, K; перепад температуры ядра, K; низ шапки; плитка клубов ножки)
-//  11 = (свет пожаров снизу 0..1; подъём клубов ножки, блоки; 0; 0)
+//  11 = (подъём клубов ножки, блоки; верх дыма пожаров; радиус зоны пожаров; ослабление воздуха, 1/блок — дымка вдали)
+//  12 = (свет пожаров под грибом rgb, как у пелены: карта огня шторма и свет кадра; 0)
 
 const int MUSHROOMS = 4;
 const int MUSH_BB_ROW = 4;
@@ -36,6 +37,9 @@ const float MUSH_SKIRT_EDGE = 0.25;
 // сглаживание объединения кольца и купола, в единицах клубов шапки (мягкий минимум опускает край не больше чем на
 // четверть его)
 const float MUSH_BLEND = 0.25;
+// доля перепада температуры ядра у края шапки (MushroomModel.EDGE_HEAT): край смешан с подхваченным воздухом (термик
+// Мортона–Тейлора–Тёрнера: горячее всего — ядро кольца)
+const float MUSH_EDGE_HEAT = 0.35;
 // докуда за край без клубов доходит вещество (сдвиг клубами до ±0,68 размаха, мягкость края, у шапки — и мягкий
 // минимум), в единицах клубов — шапка, ножка, юбка
 const float MUSH_CAP_REACH = 0.68 * MUSH_CAP_LOBES + MUSH_CAP_EDGE + 0.25 * MUSH_BLEND;
@@ -77,6 +81,7 @@ struct Mush {
     float stemRise;
     float fireTop;
     float fireR;
+    float airSigma;
     vec3 fire;
 };
 
@@ -87,7 +92,7 @@ Mush mushLoad(sampler2D data, int k) {
     // эпицентр в таблице — x, z и земля по y (как у слота пелены): в место — x, y, z
     return Mush(t0.xzy, t1.xy, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w, t3.x, t3.y, t3.z, t3.w, t4.x, t4.y, t4.z, t4.w,
             texelFetch(data, ivec2(5, k), 0), t6.x, t6.y, t6.z, t6.w, texelFetch(data, ivec2(7, k), 0), t8.x, t8.y, t8.z, t8.w,
-            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, texelFetch(data, ivec2(12, k), 0).rgb);
+            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, t11.w, texelFetch(data, ivec2(12, k), 0).rgb);
 }
 
 // есть ли гриб k в кадре
@@ -244,20 +249,28 @@ vec3 mushBlackBody(sampler2D data, float kelvin) {
     return texture(data, vec2(x, (float(MUSH_BB_ROW) + 0.5) / size.y)).rgb;
 }
 
+// Дымка воздуха до гриба на расстоянии d, блоки (Кошмидер, по погоде мира — как у всего дальнего, Sight): гриб тает
+// в небе за ним — его свет и непрозрачность × эта доля, а не цвет тумана
+float mushAir(Mush m, float d) {
+    return exp(-m.airSigma * d);
+}
+
 // Пропускание гриба k вдоль луча dir на [0, len] без шума (steps шагов) — квадраты слоя перед частицей
 float mushTransmit(sampler2D data, vec3 dir, float len, int steps) {
-    float tau = 0.0;
+    float through = 1.0;
     for (int k = 0; k < MUSHROOMS; k++) {
         if (!mushOn(data, k)) continue;
         Mush m = mushLoad(data, k);
         vec2 span = mushSpan(m, dir);
         span.y = min(span.y, len);
         if (span.y <= span.x) continue;
-        float ds = (span.y - span.x) / float(steps);
+        float ds = (span.y - span.x) / float(steps), tau = 0.0;
         for (int i = 0; i < steps; i++) {
             vec3 s = mushMean(m, mushLocal(m, dir * (span.x + (float(i) + 0.5) * ds)));
             tau += (s.x + s.y + s.z) * ds;
         }
+        // гриб в дымке воздуха тает в небе за ним (mushAir): то, что за ним, видно сильнее
+        through *= 1.0 - mushAir(m, 0.5 * (span.x + span.y)) * (1.0 - exp(-tau));
     }
-    return exp(-tau);
+    return through;
 }

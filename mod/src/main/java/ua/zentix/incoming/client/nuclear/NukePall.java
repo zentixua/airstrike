@@ -154,7 +154,8 @@ public final class NukePall {
         if (all.isEmpty()) return null;
         PallPass.Quality q = quality();
         PallPass.Frame f = FRAME;
-        f.mushroomCount = MushroomField.frame(all, eye, partial, frustum, f.mushrooms);
+        double air = Sight.KOSCHMIEDER / Sight.range(level.getRainLevel(partial), level.getThunderLevel(partial));
+        f.mushroomCount = MushroomField.frame(all, eye, partial, frustum, air, f.mushrooms);
         List<ClientNuclear.Active> visible = new ArrayList<>();
         if (q != PallPass.Quality.OFF) for (ClientNuclear.Active a : all) if (a.pall.visible(a.ticks(partial))) visible.add(a);
         if (visible.isEmpty() && f.mushroomCount == 0) return null;
@@ -187,7 +188,8 @@ public final class NukePall {
         MushroomField.fire(partial, f);
         float clouds = level.effects().getCloudHeight();
         FireStorms.frame(SLOTTED, k, eye, partial, frustum, Float.isNaN(clouds) ? 1e6f : (float) (clouds - eye.y), f);
-        float s = sigma;
+        // дальше 12 толщ пыли у глаза луч не идёт; выключенная пелена не рисуется — и гриб за ней не прячет
+        float s = q == PallPass.Quality.OFF ? 0 : sigma;
         f.clip = s > 1e-4f ? 12 / s : 1e6f;
         return f;
     }

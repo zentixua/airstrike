@@ -18,9 +18,9 @@ class CloudPuffsTest {
         return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
     }
 
-    /** Гриб 15 кт светится изнутри больше минуты: к 70 с — почти в полную силу, к 90 с — ещё больше половины. */
+    /** Отсвет пожаров под пылью стены у 15 кт — больше минуты: к 70 с — почти в полную силу, к 90 с — больше половины. */
     @Test
-    void glowsForMoreThanAMinute() {
+    void wallFireGlowLastsMoreThanAMinute() {
         assertTrue(CloudPuffs.glow(30, 15) > 0.99);
         assertTrue(CloudPuffs.glow(70, 15) > 0.75, "70 с: " + CloudPuffs.glow(70, 15));
         assertTrue(CloudPuffs.glow(90, 15) > 0.5, "90 с: " + CloudPuffs.glow(90, 15));
@@ -28,16 +28,23 @@ class CloudPuffsTest {
         assertTrue(CloudPuffs.glow(50, 1) < CloudPuffs.glow(50, 15) - 0.3, "у 1 кт заметно короче");
     }
 
-    /** Цвет накала тёплый и не тёмно-красный: зелёного не меньше трети красного, синий не выше зелёного. */
+    /**
+     * Накал шапки сверху — свет края объёма гриба: полный, пока шар не свернулся в кольцо, дальше только гаснет и через
+     * 30 с меньше процента; цвет — чёрное тело края, красный канал ярче всех.
+     */
     @Test
-    void glowColourStaysWarmAndBright() {
-        for (double t = 0; t <= 400; t += 2.5) {
-            int c = CloudPuffs.glowRgb(t, 15);
-            int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-            assertTrue(r >= g && g >= b, t + " с: " + Integer.toHexString(c));
-            assertTrue(g >= r / 3, t + " с: тёмно-красный " + Integer.toHexString(c));
-            assertTrue(r >= 0xA0, t + " с: тёмный " + Integer.toHexString(c));
+    void capGlowFollowsTheVolumeEdge() {
+        assertEquals(1, CloudPuffs.capGlow(0.5, 15, true), 1e-9);
+        double was = 1;
+        for (double t = 0.5; t < 120; t += 0.5) {
+            double g = CloudPuffs.capGlow(t, 15, true);
+            assertTrue(g <= was + 1e-12, t + " с: накал растёт");
+            was = g;
         }
+        assertTrue(CloudPuffs.capGlow(30, 15, true) < 0.01, "30 с: " + CloudPuffs.capGlow(30, 15, true));
+        int c = CloudPuffs.capRgb(10, 15, true);
+        int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+        assertTrue(r == 0xFF && r >= g && g >= b, Integer.toHexString(c));
     }
 
     /** 15 кт у земли на высоте 64, без ветра, в масштабе 1 блок = 4 м. */

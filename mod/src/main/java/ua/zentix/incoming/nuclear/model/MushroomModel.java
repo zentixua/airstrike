@@ -87,6 +87,20 @@ public final class MushroomModel {
     }
 
     /**
+     * Нагрев края шапки — доля перепада температуры ядра ({@code MUSH_EDGE_HEAT} в {@code fx_pall.fsh}): край смешан
+     * с подхваченным воздухом.
+     */
+    public static final double EDGE_HEAT = 0.35;
+
+    /**
+     * Температура видимого края шапки, K ({@link #EDGE_HEAT}): её свет виден у объёма гриба и светит вниз, на пыль и
+     * пелену. Ядро горячее, но под толщей края его не видно.
+     */
+    public static double edgeTemperature(double t, double yieldKt, boolean surface) {
+        return AMBIENT_K + (coreTemperature(t, yieldKt, surface) - AMBIENT_K) * EDGE_HEAT;
+    }
+
+    /**
      * Температура ядра шапки, K: до сворачивания шапка — сам шар ({@link #fireballTemperature}), дальше кольцо остывает
      * смешением с воздухом: T_окр + ΔT_св·(t/t_св)^−0,27. Непрерывна на сворачивании.
      */
@@ -150,11 +164,12 @@ public final class MushroomModel {
         double stemTau = TAU_STEM * stemShare * smooth(4, 20, tau) * life;
         double lowDust = Math.exp(-Math.max(0, t - stab * 0.1) / (hob <= rf ? DUST_SETTLE_SURFACE : DUST_SETTLE_AIR));
         // юбка — пыль у основания ножки, поднятая за фронтом: её край без клубов — на 0,85 пути фронта по земле (с клубами
-        // — до него), не дальше 0,7 радиуса шапки
+        // — до него), не дальше 0,7 радиуса шапки. Пока фронт не дошёл до земли (воздушный), поднимать её нечему — юбки
+        // нет; сечение — не меньше метра (единица клубов юбки делит)
         double outer = Math.min(Math.max(0, groundFrontM), capR * 0.7);
-        double skirtR = 0.6 * outer, skirtW = 0.25 * outer;
+        double skirtR = 0.6 * outer, skirtW = Math.max(1, 0.25 * outer);
         double skirtH = Math.max(1, Math.min(capBot * 0.12, 350 * Math.cbrt(yieldKt / 15)) * smooth(0, 30, t));
-        double skirtTau = TAU_SKIRT * smooth(0.5, 3, t) * (hob <= rf * 4 ? 1 : 0.5) * lowDust * life;
+        double skirtTau = outer <= 0 ? 0 : TAU_SKIRT * smooth(0.5, 3, t) * (hob <= rf * 4 ? 1 : 0.5) * lowDust * life;
         return new Shape(t, life, top, capBot, capY, capR, ringR, ringA, ringB, domeY, domeR, domeH, capTau, stemTop,
                 capR * 0.16, stemTau, lowDust, skirtR, skirtW, skirtH, skirtTau, endTop);
     }

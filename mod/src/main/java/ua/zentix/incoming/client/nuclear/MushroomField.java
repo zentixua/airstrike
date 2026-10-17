@@ -93,9 +93,10 @@ public final class MushroomField {
     /**
      * Грибы кадра в строки таблицы {@code into} (строки 0..{@link #MUSHROOMS}−1, по {@link #TEXELS} текселей; строка без
      * гриба — нули): самые крупные на экране, чья рамка в пирамиде видимости ({@code frustum} — от глаза, без дальней
-     * плоскости). Возвращает число грибов.
+     * плоскости). {@code airSigma} — ослабление воздуха по погоде мира, 1/м ({@code Sight}: дымка вдали). Возвращает
+     * число грибов.
      */
-    public static int frame(List<ClientNuclear.Active> all, Vec3 eye, float partial, FrustumIntersection frustum, float[] into) {
+    public static int frame(List<ClientNuclear.Active> all, Vec3 eye, float partial, FrustumIntersection frustum, double airSigma, float[] into) {
         for (int k = 0; k < MUSHROOMS; k++) java.util.Arrays.fill(into, k * WIDTH * 4, k * WIDTH * 4 + TEXELS * 4, 0f);
         int n = 0;
         for (int i = 0; i < all.size(); i++) {
@@ -119,7 +120,7 @@ public final class MushroomField {
         for (int k = 0; k < MUSHROOMS; k++) {
             ClientNuclear.Active a = k < n ? all.get(ORDER[k]) : null;
             ROW[k] = a;
-            if (a != null) write(a, shape(a, partial), eye, partial, into, k * WIDTH * 4);
+            if (a != null) write(a, shape(a, partial), eye, partial, airSigma, into, k * WIDTH * 4);
         }
         return n;
     }
@@ -136,6 +137,8 @@ public final class MushroomField {
         for (int k = 0; k < MUSHROOMS; k++) {
             ClientNuclear.Active a = ROW[k];
             if (a == null) continue;
+            // карта огня на этот кадр: шторм без слота пелены (третий подрыв) сам её не обновляет
+            a.storm.refresh(a.ticks(partial));
             double gate = a.storm.gate(), storm = FireStorms.glow(gate, night) * a.storm.meanFlame();
             double table = (1 - gate) * a.pall.fireBelow(a.ticks(partial));
             put(f.mushrooms, k * WIDTH * 4, 12, storm * FireStorms.FIRE_R + table * f.fireLight.x, storm * FireStorms.FIRE_G + table * f.fireLight.y,
@@ -184,7 +187,7 @@ public final class MushroomField {
         double u = capUnit(s);
         double cap = Math.max(s.capY() + s.ringB() * (1 + REACH_CAP * u / Math.min(s.ringA(), s.ringB())),
                 s.domeY() + s.domeH() * (1 + REACH_CAP * u / Math.min(s.domeR(), s.domeH())));
-        double skirt = s.skirtH() * (1 + REACH_SKIRT * skirtUnit(s) / Math.min(s.skirtW(), s.skirtH()));
+        double skirt = s.skirtTau() > 0 ? s.skirtH() * (1 + REACH_SKIRT * skirtUnit(s) / Math.min(s.skirtW(), s.skirtH())) : 0;
         return Math.max(1, Math.max(cap, Math.max(s.stemTop(), skirt)));
     }
 
@@ -210,7 +213,7 @@ public final class MushroomField {
     }
 
     /** Гриб в строку таблицы с {@code o} ({@code mushroom.glsl}: таблица грибов). */
-    private static void write(ClientNuclear.Active a, MushroomModel.Shape s, Vec3 eye, float partial, float[] into, int o) {
+    private static void write(ClientNuclear.Active a, MushroomModel.Shape s, Vec3 eye, float partial, double airSigma, float[] into, int o) {
         Detonation d = a.d;
         double t = s.t(), y = d.yieldKt();
         double[] w = DRIFT;
@@ -237,8 +240,9 @@ public final class MushroomField {
         matter(into, o, 9, mix(SKIRT, CloudPuffs.SPRAY, a.puffs.burstUnder()));
         // воздух ножки поднимается с подъёмом шара (втягивается кольцом): клубы — вверх
         put(into, o, 10, MushroomModel.AMBIENT_K, tCore - MushroomModel.AMBIENT_K, d.blocks(s.capBottom()), Math.max(1, 3 * d.blocks(s.stemR())));
-        // пожары под грибом: верх дыма шторма и радиус зоны пожаров (свет — fire, после света кадра)
-        put(into, o, 11, d.blocks(0.3 * FireballModel.riseSpeed(y) * t), a.pall.hazeTop(), a.pall.fireReach(), 0);
+        // пожары под грибом: верх дыма шторма и радиус зоны пожаров (свет — fire, после света кадра); дымка воздуха —
+        // по настоящей дальности, как у дальнего (в блоках гриб меньше в effects_scale раз)
+        put(into, o, 11, d.blocks(0.3 * FireballModel.riseSpeed(y) * t), a.pall.hazeTop(), a.pall.fireReach(), airSigma / d.scale());
     }
 
     /** Вещество по цвету толстого слоя (на экране): альбедо ω' по каналам и асимметрия g' — как у пелены ({@link PallLight}). */

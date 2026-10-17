@@ -6,9 +6,11 @@ import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.far.FarTerrain;
 import ua.zentix.incoming.client.far.Sightline;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.model.BlackBody;
 import ua.zentix.incoming.nuclear.model.BlastModel;
 import ua.zentix.incoming.nuclear.model.CloudModel;
 import ua.zentix.incoming.nuclear.model.FireballModel;
+import ua.zentix.incoming.nuclear.model.MushroomModel;
 import ua.zentix.incoming.nuclear.model.ThermalModel;
 import ua.zentix.incoming.nuclear.model.WaterModel;
 
@@ -72,14 +74,6 @@ public final class CloudPuffs {
      * всему числу: клубы стены — те же при любой доле.
      */
     private static final float WILSON_FROM = 0.93f;
-    /**
-     * Цвет накала изнутри по времени (с при 15 кт, у 1 кт короче — {@link #glowScale}): бело-жёлтый у шара,
-     * жёлто-оранжевый, оранжевый, к минуте — тёплый буро-оранжевый, потом — дым, освещённый снизу пожарами и небом.
-     * Яркость накала — отдельно ({@link #glow}); цвет не темнеет до тёмно-красного: на ночном небе тёмно-красный
-     * дым, умноженный на гаснущий накал, выглядел бы чёрным.
-     */
-    private static final double[] GLOW_T = {0, 10, 35, 65, 100, 160};
-    private static final int[] GLOW_RGB = {0xFFD890, 0xFFB050, 0xFF8C3C, 0xF27838, 0xC87A50, 0xB08C78};
     /** Пожары под стеной — оранжевое пламя. */
     private static final int FIRE = 0xFF8A2E;
     /** Отсвет накала в самом дыме и сила свечения клуба поверх дыма. */
@@ -201,22 +195,33 @@ public final class CloudPuffs {
     }
 
     /**
-     * Накал гриба изнутри 0..1: у 15 кт полный 40 с, к 70 с — 0.8, к 90 с — 0.57, гаснет к 150 с (дальше шапку
-     * и ножку освещают пожары и небо, {@link #EMBER}); у 1 кт — вдвое короче ({@link #glowScale}).
+     * Отсвет пожаров под пылью стены во времени 0..1 ({@link #burn}): у 15 кт полный 40 с, к 90 с — 0.57, гаснет к 150 с;
+     * у 1 кт — вдвое короче ({@link #glowScale}).
      */
     static double glow(double t, double yieldKt) {
         double k = glowScale(yieldKt);
         return 1 - smooth(40 * k, 150 * k, t);
     }
 
-    /** Цвет накала в момент t (RGB): по ключам {@link #GLOW_T}, растянутым с мощностью. */
-    static int glowRgb(double t, double yieldKt) {
-        double x = t / glowScale(yieldKt);
-        int n = GLOW_T.length;
-        if (x >= GLOW_T[n - 1]) return GLOW_RGB[n - 1];
-        int i = 1;
-        while (GLOW_T[i] < x) i++;
-        return lerpRgb(GLOW_RGB[i - 1], GLOW_RGB[i], Mth.clamp((x - GLOW_T[i - 1]) / (GLOW_T[i] - GLOW_T[i - 1]), 0, 1));
+    /**
+     * Накал шапки сверху 0..1 — свет её видимого края ({@link MushroomModel#edgeTemperature}, как у объёма гриба) против
+     * света края, когда шар свернулся в кольцо: край смешан с воздухом и гаснет за секунды, дальше пыль у земли освещают
+     * пожары и небо.
+     */
+    static double capGlow(double t, double yieldKt, boolean surface) {
+        double tr = MushroomModel.rollUpSeconds(yieldKt, surface);
+        double rolled = BlackBody.luminance(MushroomModel.edgeTemperature(tr, yieldKt, surface));
+        return Math.min(1, BlackBody.luminance(MushroomModel.edgeTemperature(t, yieldKt, surface)) / Math.max(rolled, 1e-30));
+    }
+
+    /** Цвет накала края шапки (RGB, ярчайший канал — 255): чёрное тело его температуры ({@link #capGlow}). */
+    static int capRgb(double t, double yieldKt, boolean surface) {
+        double[] c = new double[4];
+        BlackBody.light(MushroomModel.edgeTemperature(t, yieldKt, surface), c);
+        double max = Math.max(c[0], Math.max(c[1], Math.max(c[2], 1e-30)));
+        int rgb = 0;
+        for (int i = 0; i < 3; i++) rgb |= (int) Math.round(255 * c[i] / max) << (16 - 8 * i);
+        return rgb;
     }
 
     /**
@@ -318,12 +323,13 @@ public final class CloudPuffs {
         // середина шапки — откуда её накал светит пыль у земли
         m.yc = capBot + Math.max(rf, top - capBot) * 0.5;
         m.glow = glow(t, y);
-        m.glowRgb = glowRgb(t, y);
         // шар освещает всё вокруг себя: облако Вильсона, пыль под ним
         m.fireball = fireballGlow(t, y);
         m.fireballRgb = FireballModel.colorArgb(t, y) & 0xFFFFFF;
-        // свет сверху на пыль у земли: от шара, потом от раскалённой шапки
-        m.overhead = Math.max(m.fireball, 0.5 * m.glow);
+        // свет сверху на пыль у земли: от шара, потом от раскалённого края шапки — его цвета
+        double cap = 0.5 * capGlow(t, y, d.surface());
+        m.overhead = Math.max(m.fireball, cap);
+        m.glowRgb = m.fireball >= cap ? m.fireballRgb : capRgb(t, y, d.surface());
         // волна у земли: наклонная дальность фронта → радиус по земле
         m.front = d.metres(d.frontRadius(t * 20 * d.scale()));
         m.groundFront = Math.sqrt(Math.max(0, m.front * m.front - hob * hob));
