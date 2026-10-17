@@ -1345,11 +1345,21 @@ final class Newisle {
             Vec3 c = feet(a.get("at"));
             Crowd crowd = crowds.computeIfAbsent(group, k -> new Crowd(film.cast(), film.mc.getSingleplayerServer()));
             Fight squad = armed ? squads.computeIfAbsent(group, k -> new Fight(film.cast(), film.mc.getSingleplayerServer())) : null;
+            // места по порядку имён ({@code spots}: [x, z]) — где камера плана снята под этих людей (n30a через плечо
+            // Волкова); остальные — вразброс вокруг {@code at}
+            JsonArray spots = a.has("spots") ? a.getAsJsonArray("spots") : new JsonArray();
             for (int i = 0, tries = 0; i < n && tries < 40 * n; tries++) {
-                double ang = random.nextDouble() * Math.PI * 2, d = Math.sqrt(random.nextDouble()) * spread;
-                double x = Math.floor(c.x + Math.cos(ang) * d) + 0.5, z = Math.floor(c.z + Math.sin(ang) * d) + 0.5;
+                double x, z;
+                if (i < spots.size()) {
+                    x = spots.get(i).getAsJsonArray().get(0).getAsDouble();
+                    z = spots.get(i).getAsJsonArray().get(1).getAsDouble();
+                } else {
+                    double ang = random.nextDouble() * Math.PI * 2, d = Math.sqrt(random.nextDouble()) * spread;
+                    x = Math.floor(c.x + Math.cos(ang) * d) + 0.5;
+                    z = Math.floor(c.z + Math.sin(ang) * d) + 0.5;
+                }
                 int y = War.groundY(level, x, z);
-                if (Math.abs(y - c.y) > 3 || !level.getFluidState(BlockPos.containing(x, y - 1, z)).isEmpty()) continue;
+                if (i >= spots.size() && (Math.abs(y - c.y) > 3 || !level.getFluidState(BlockPos.containing(x, y - 1, z)).isEmpty())) continue;
                 String name = i < names.size() ? names.get(i) : prefix + i;
                 i++;
                 Vec3 p = new Vec3(x, y, z);
