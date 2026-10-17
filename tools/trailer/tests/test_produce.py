@@ -335,6 +335,48 @@ class ProduceTest(unittest.TestCase):
         self.assertIn("nw-A-old", os.listdir(self.cfg["saves"]), "и лежит, пока место есть")
         self.assertEqual("passed", c.state["takes"]["A"]["status"])
 
+    def test_failed_attempt_with_passed_plans_keeps_its_world_in_the_release_queue(self):
+        # попытка 2 записана, план a1 выведен с PASS, но дубль не прошёл (второй план); запасной уже есть (попытка 1):
+        # мир попытки 2 — в очередь удаления, а не прочь, — черновик берёт её a1
+        with open(self.takes, encoding="utf-8") as f:
+            data = json.load(f)
+        data["takes"][0]["shots"] = [{"plans": ["a1", "a2"], "seconds": 4,
+                                      "cover": {"a1": {"subject": "scene"}, "a2": {"subject": "scene"}}}]
+        with open(self.takes, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        script = {("A", "record"): {"seconds": 300, "result": ok_result("A", ["a1", "a2"])}}
+        renders = []
+
+        def render(env):
+            renders.append(1)
+            return {"seconds": 60, "render": {"a2": "FAIL"} if len(renders) < 3 else {}}
+        script[("A", "render")] = render
+        c, m = self.conveyor(script)
+        self.assertEqual(0, c.run(["A"]))
+        tries = c.state["takes"]["A"]["attempts"]
+        self.assertFalse(tries[1]["ok"])
+        self.assertEqual("PASS", tries[1]["plans"]["a1"][0])
+        self.assertIn(tries[1]["world"], c.state["released"])
+        self.assertIn(tries[1]["world"], os.listdir(self.cfg["saves"]))
+
+    def test_hand_reset_with_kept_equal_to_snapshot_still_keeps_the_new_recording(self):
+        # сброс руками, где snapshot и kept из прошлого прогона совпадают: прежний — в очередь, мир попытки 1 цел
+        os.makedirs(os.path.join(self.cfg["saves"], "nw-A-old"))
+        c, m = self.conveyor({("A", "render"): lambda env: {"seconds": 60, "render": {"a1": "FAIL"}}
+                              if len([s for s in m.starts if s[0][1] == "render"]) == 1 else {"seconds": 60, "render": {}}})
+        c.state["takes"]["A"] = {"attempts": [], "kept": "nw-A-old", "snapshot": "nw-A-old"}
+        c.save()
+        seen = []
+        orig = c.attempt
+
+        def attempt(take, n, variant, src, **kw):
+            seen.append(c.state["takes"][take].get("kept"))
+            return orig(take, n, variant, src, **kw)
+        c.attempt = attempt
+        self.assertEqual(0, c.run(["A"]))
+        self.assertEqual("nw-A-a0", seen[1])
+        self.assertIn("nw-A-old", c.state["released"])
+
     def test_retake_releases_the_old_spare_snapshot(self):
         c, m = self.conveyor()
         self.assertEqual(0, c.run(["A", "B", "C", "D"]))

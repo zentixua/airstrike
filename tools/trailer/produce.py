@@ -683,10 +683,11 @@ class Conveyor:
         # продолжение после остановки: пересъёмки, что уже были, в счёт
         variant = sum(1 for x in st["attempts"] if not x.get("interrupted"))
         kept = st.get("kept")
-        if kept and kept != st.get("snapshot") and not any(x.get("world") == kept for x in st["attempts"]):
+        if kept and not any(x.get("world") == kept for x in st["attempts"]):
             # запасной снимок не из попыток этого прогона: дубль сброшен (retake или руками в state.json). Его мир — в
-            # очередь удаления, запасным станет первая записанная попытка: иначе её мир удалялся на старте следующей,
-            # а из её повтора выводятся планы (LOD DH — из мира записи; 17.10: nw-T24-a0r4, перевыводы n36 без LOD)
+            # очередь удаления (мир, который ещё чей-то вход или голова цепочки, release держит сам), запасным станет
+            # первая записанная попытка: иначе её мир удалялся на старте следующей, а из её повтора выводятся планы
+            # (LOD DH — из мира записи; 17.10: nw-T24-a0r4, перевыводы n36 без LOD)
             self.release(kept)
             kept = st["kept"] = None
         t0 = self.m.now()
@@ -733,6 +734,10 @@ class Conveyor:
             # мир, где удары уже легли, — запасной снимок цепочки, если ни одна попытка не пройдёт
             if saved and kept is None:
                 kept = st["kept"] = a["world"]
+            elif any(r[0] == "PASS" for r in plans.values()):
+                # выведенные планы неудачной попытки черновик берёт (17.10: n33 и n47 — из T24 a0r4, не прошедшей из-за
+                # n36): перевывод по замечанию — из её повтора, LOD DH — из её мира; в очередь удаления, а не прочь
+                self.release(a["world"])
             else:
                 self.remove(os.path.join(self.saves, a["world"]))
             variant += 1
