@@ -104,16 +104,21 @@ class MushroomGlslTest {
         assertEquals(MushroomField.EDGE_CAP, c.get("MUSH_CAP_EDGE"), 0);
         assertEquals(MushroomField.EDGE_STEM, c.get("MUSH_STEM_EDGE"), 0);
         assertEquals(MushroomField.EDGE_SKIRT, c.get("MUSH_SKIRT_EDGE"), 0);
+        assertEquals(MushroomField.LOBES_COLUMN, c.get("MUSH_COLUMN_LOBES"), 0);
+        assertEquals(MushroomField.EDGE_COLUMN, c.get("MUSH_COLUMN_EDGE"), 0);
         assertEquals(MushroomField.BLEND, c.get("MUSH_BLEND"), 0);
         assertEquals(MushroomModel.EDGE_HEAT, c.get("MUSH_EDGE_HEAT"), 0);
         assertEquals(MushroomField.REACH_CAP, c.get("MUSH_CAP_REACH"), 1e-12);
         assertEquals(MushroomField.REACH_STEM, c.get("MUSH_STEM_REACH"), 1e-12);
         assertEquals(MushroomField.REACH_SKIRT, c.get("MUSH_SKIRT_REACH"), 1e-12);
+        assertEquals(MushroomField.REACH_COLUMN, c.get("MUSH_COLUMN_REACH"), 1e-12);
         GlslFunction edge = GlslFunction.parse(GLSL, "mushEdge");
-        // у шапки рамка берёт ещё четверть сглаживания объединения кольца и купола: мягкий минимум опускает край
+        // у шапки и столба рамка берёт ещё четверть сглаживания объединения кольца и купола, стенки и короны: мягкий
+        // минимум опускает край
         double[][] parts = {{MushroomField.LOBES_CAP, MushroomField.EDGE_CAP, MushroomField.REACH_CAP - MushroomField.BLEND / 4},
                 {MushroomField.LOBES_STEM, MushroomField.EDGE_STEM, MushroomField.REACH_STEM},
-                {MushroomField.LOBES_SKIRT, MushroomField.EDGE_SKIRT, MushroomField.REACH_SKIRT}};
+                {MushroomField.LOBES_SKIRT, MushroomField.EDGE_SKIRT, MushroomField.REACH_SKIRT},
+                {MushroomField.LOBES_COLUMN, MushroomField.EDGE_COLUMN, MushroomField.REACH_COLUMN - MushroomField.BLEND / 4}};
         for (double[] p : parts) {
             double lobes = MushroomField.LOBES_MAX * p[0];
             assertEquals(0, edge.call(Map.of("d", p[2] - lobes, "e", p[1])), 1e-12);

@@ -64,7 +64,7 @@ class PallLightTest {
 
     /**
      * Отсвет, что стена пыли на экране прибавляет к свету неба ({@link PallLight#lift}): толстый слой в свете неба base и
-     * этом отсвете на экране — ровно цвет × (base + x), как клуб стены ({@code CloudPuffs.smoke}).
+     * этом отсвете на экране — ровно цвет × (base + x).
      */
     @Test
     void liftedLightShowsAsOnTheWall() {
