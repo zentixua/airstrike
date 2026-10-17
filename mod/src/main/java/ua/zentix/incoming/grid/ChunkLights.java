@@ -1,5 +1,6 @@
 package ua.zentix.incoming.grid;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -199,6 +200,36 @@ public final class ChunkLights {
                 section.setBlockState(x, y, z, to, false);
                 changed++;
             }
+        }
+        return changed;
+    }
+
+    /**
+     * Горящие лампы сети в копии чанка не из мира (любой поток): места {@code номер секции << 12 | номер блока в ней} —
+     * погасить потом ({@link #darken}) без прохода по секциям.
+     */
+    public static int[] litLamps(LevelChunkSection[] sections) {
+        IntArrayList out = new IntArrayList();
+        for (int i = 0; i < sections.length; i++) {
+            LevelChunkSection section = sections[i];
+            if (section == null || !needs(section, true)) continue;
+            for (int b = 0; b < 4096; b++) {
+                if (GridLights.isLit(section.getBlockState(b & 15, b >> 8, b >> 4 & 15))) out.add(i << 12 | b);
+            }
+        }
+        return out.toIntArray();
+    }
+
+    /** Погасить лампы копии на местах из {@link #litLamps} (прямо в секциях, без света и соседей); сколько погашено. */
+    public static int darken(LevelChunkSection[] sections, int[] lamps) {
+        int changed = 0;
+        for (int at : lamps) {
+            LevelChunkSection section = sections[at >>> 12];
+            int x = at & 15, z = at >> 4 & 15, y = at >> 8 & 15;
+            BlockState to = GridLights.unlit(section.getBlockState(x, y, z));
+            if (to == null) continue;
+            section.setBlockState(x, y, z, to, false);
+            changed++;
         }
         return changed;
     }

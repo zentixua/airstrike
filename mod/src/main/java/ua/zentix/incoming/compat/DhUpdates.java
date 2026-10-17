@@ -1,5 +1,6 @@
 package ua.zentix.incoming.compat;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
@@ -16,6 +17,9 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.registry.ModAttachments;
 
 import java.util.ArrayDeque;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Что мод изменил в мире — в LOD Distant Horizons ({@link DhChunks}), в темпе, который его очередь выдерживает.
@@ -27,10 +31,14 @@ import java.util.ArrayDeque;
  * пропускается: DH видит его сохранение при выгрузке сам.</li>
  * <li>Чанки не в мире, собранные модом с изменениями (руины ядерки вдали — с диска и по готовому плану), —
  * {@link #offer}: их ссылку DH держит, пока не разберёт; сколько ещё ждут отправки — {@link #room}.</li>
+ * <li>Копии тяжёлой зоны ядерки, собранные заранее и отданные к приходу фронта, — {@link #sendHeld}: сразу, мимо
+ * {@link #PER_TICK}; их темп держит окно ({@link #heldRoom}): отданных и не подтверждённых записью в базу DH — не
+ * больше половины наименьшей очереди DH ({@link DhQueue}).</li>
  * </ul>
  * За тик — не больше {@link #PER_TICK} вызовов (и {@link #SCAN} просмотренных отметок): очередь DH на мир — от 1000
  * позиций на поток его разбора, переполненная выкидывает дальние (на выделенном сервере — дальние от 0 0) с одной
- * строкой «overloaded» в лог DH раз в 30 с.
+ * строкой «overloaded» в лог DH раз в 30 с. Чанк, отданный DH любым путём, снова уходит не раньше {@link #RESEND}
+ * тиков: позицию, которая ещё в его очереди, DH молча пропускает.
  * Без DH ничего не копится. Несохраняемый attachment мира ({@link ModAttachments#DH_UPDATES}): перезапуск теряет
  * очередь, а чанки, ушедшие в DH, он помнит в своей базе.
  */
@@ -48,6 +56,13 @@ public final class DhUpdates {
      * тысячи чанков) не обходится вся каждый тик, а наступившая за ними ждёт не дольше нескольких тиков.
      */
     static final int SCAN = 256;
+    /**
+     * Своя задержка DH от вызова до записи LOD в базу, тиков, — наименьшая ({@link DhQueue#LEAD}): держанная копия
+     * ({@link #sendHeld}) уходит за столько до прихода фронта — LOD меняется не раньше него.
+     */
+    public static final int LEAD = DhQueue.LEAD;
+    /** Миры, ждущие подтверждений держанных копий: поток DH ({@link #saved}) находит по миру его очередь. */
+    private static final Map<Object, DhUpdates> LISTENING = new ConcurrentHashMap<>();
 
     /** Чанк → тик, не раньше которого его отправить; по порядку отметок. */
     private final Long2LongLinkedOpenHashMap due = new Long2LongLinkedOpenHashMap();
@@ -56,6 +71,12 @@ public final class DhUpdates {
     /** Чанк → тик последней отправки (старше {@link #RESEND} — забываются). */
     private final Long2LongOpenHashMap sent = new Long2LongOpenHashMap();
     private final ArrayDeque<ChunkAccess> offered = new ArrayDeque<>();
+    /** Чанки в {@link #offered} (сколько копий каждого ждёт отправки). */
+    private final Long2IntOpenHashMap offeredCount = new Long2IntOpenHashMap();
+    /** Держанные копии, отданные и не подтверждённые ({@link #sendHeld}). */
+    private final DhQueue held = new DhQueue();
+    /** Подтверждения из потока DH ({@link #saved}): чанк и когда. */
+    private final ConcurrentLinkedQueue<long[]> acks = new ConcurrentLinkedQueue<>();
     private long sentTotal, offeredTotal;
     /** Для проверок: больше всего отметок, просмотренных за один тик. */
     private int scannedMax;
@@ -86,6 +107,9 @@ public final class DhUpdates {
             u.due.clear();
             u.later.clear();
             u.offered.clear();
+            u.offeredCount.clear();
+            u.held.clear();
+            LISTENING.remove(level, u);
         }
     }
 
@@ -139,7 +163,61 @@ public final class DhUpdates {
         DhUpdates u = active(level);
         if (u == null) return;
         u.offered.add(chunk);
+        u.offeredCount.addTo(chunk.getPos().toLong(), 1);
         u.offeredTotal++;
+    }
+
+    /**
+     * Сколько ещё держанных копий можно отдать сейчас ({@link #sendHeld}): окно — половина наименьшей очереди DH на мир
+     * по числу его потоков ({@link DhQueue#window}), минус отданные и не подтверждённые; без DH — 0.
+     */
+    public static int heldRoom(ServerLevel level) {
+        DhUpdates u = active(level);
+        return u == null ? 0 : DhQueue.window(DhChunks.threads()) - u.held.waiting();
+    }
+
+    /**
+     * Держанная копия чанка не в мире (собрана заранее, {@code ProtoChunk}) — в DH сейчас, мимо {@link #PER_TICK}: её
+     * срок — приход фронта, а темп держит окно ({@link #heldRoom}); после этого копию не менять. Поток сервера.
+     *
+     * @return false — не сейчас: тот же чанк отдан DH меньше {@link #RESEND} тиков назад или ждёт отправки
+     * ({@link #offer}) — DH пропустил бы копию или накрыл бы её той
+     */
+    public static boolean sendHeld(ServerLevel level, ChunkAccess copy) {
+        DhUpdates u = active(level);
+        if (u == null) return true;
+        long key = copy.getPos().toLong(), now = level.getGameTime();
+        if (u.offeredCount.containsKey(key) || u.sent.containsKey(key) && now - u.sent.get(key) < RESEND) return false;
+        if (u.held.waiting() == 0) {
+            LISTENING.put(level, u);
+            DhChunks.listen();
+        }
+        u.sink.overwrite(level, copy);
+        u.held.sent(key, System.nanoTime());
+        u.sent.put(key, now);
+        return true;
+    }
+
+    /**
+     * DH записал LOD чанка в свою базу ({@code DhApiChunkModifiedEvent}; поток DH, проверки — любой): подтверждение
+     * держанной копии ({@link #sendHeld}). Мир — тот, что DH обёртывает ({@code getWrappedMcObject}).
+     */
+    public static void saved(Object level, int x, int z) {
+        DhUpdates u = LISTENING.get(level);
+        if (u != null) u.acks.add(new long[] {ChunkPos.asLong(x, z), System.nanoTime()});
+    }
+
+    /** Сервер остановлен: подтверждения больше никто не ждёт. */
+    static void forgetLevels() {
+        LISTENING.clear();
+    }
+
+    /**
+     * Держанные копии мира с прошлого вызова (счёт начинается заново): отдано, подтверждено, без подтверждения за срок,
+     * задержка подтверждённых — средняя и наибольшая (мс), ждут подтверждения сейчас.
+     */
+    public static long[] takeHeldStats(ServerLevel level) {
+        return level.getData(ModAttachments.DH_UPDATES).held.take();
     }
 
     public static void onLevelTick(LevelTickEvent.Post event) {
@@ -147,12 +225,22 @@ public final class DhUpdates {
     }
 
     private void tick(ServerLevel level) {
-        if (due.isEmpty() && offered.isEmpty()) return;
         long now = level.getGameTime();
+        if (held.waiting() > 0) {
+            for (long[] a; (a = acks.poll()) != null; ) held.ack(a[0], a[1]);
+            held.expire(System.nanoTime());
+            if (held.waiting() == 0) LISTENING.remove(level, this);
+        }
+        if (due.isEmpty() && offered.isEmpty()) return;
         int budget = PER_TICK;
         // собранные чанки — первыми: отметки чанков в мире подождут тик, а собранные держат память
-        for (ChunkAccess c; budget > 0 && (c = offered.poll()) != null; budget--) sink.overwrite(level, c);
-        // отправленных за RESEND тиков — не больше PER_TICK × RESEND
+        for (ChunkAccess c; budget > 0 && (c = offered.poll()) != null; budget--) {
+            long key = c.getPos().toLong();
+            if (offeredCount.addTo(key, -1) <= 1) offeredCount.remove(key);
+            sink.overwrite(level, c);
+            sent.put(key, now);
+        }
+        // отправленных за RESEND тиков — не больше (PER_TICK + окно держанных копий) × RESEND
         sent.long2LongEntrySet().removeIf(e -> now - e.getLongValue() >= RESEND);
         Pending pending = new Pending();
         LongArrayList notYet = new LongArrayList();

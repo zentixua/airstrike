@@ -99,7 +99,7 @@ public final class FarLods {
     private record Request(long chunk, long since) {}
 
     /** Готовая копия (или почему её нет) из фонового потока; {@code scorched} — в ней след подрыва без руин. */
-    private record Built(long chunk, @Nullable ProtoChunk copy, boolean ruined, boolean lights, @Nullable String skip, boolean scorched) {
+    record Built(long chunk, @Nullable ProtoChunk copy, boolean ruined, boolean lights, @Nullable String skip, boolean scorched) {
         Built(long chunk, @Nullable ProtoChunk copy, boolean ruined, boolean lights, @Nullable String skip) {
             this(chunk, copy, ruined, lights, skip, false);
         }
@@ -228,6 +228,25 @@ public final class FarLods {
 
     private void request(ServerLevel level, long chunk, byte kind) {
         if (!DhUpdates.enabled(level) || !nearPlayer(level, chunk)) return;
+        // копия тяжёлой зоны, собранная заранее, уходит к фронту сама: руины её чанка и свет квартала — с ней
+        if (kind != SCORCH && front(level, chunk, kind == LIGHTS)) return;
+        queue(level, chunk, kind);
+    }
+
+    /**
+     * Чанк, чью копию держит фронт ({@link FrontLods#claim}): запрос — её; тьма квартала к фронту иная, чем у ушедшей
+     * копии, — копия заново запросом руин и света (руины ждут плана, то есть фронта).
+     */
+    private boolean front(ServerLevel level, long chunk, boolean lights) {
+        int claim = NuclearWorld.get(level).prep().frontClaim(level, chunk, lights, level.getGameTime());
+        if (claim == FrontLods.AFTER_FRONT) {
+            queue(level, chunk, RUINS);
+            queue(level, chunk, LIGHTS);
+        }
+        return claim != FrontLods.NONE;
+    }
+
+    private void queue(ServerLevel level, long chunk, byte kind) {
         if (reading.contains(chunk)) {
             again.put(chunk, (byte) (again.get(chunk) | kind));
             return;
@@ -434,6 +453,19 @@ public final class FarLods {
         byte kind = queued.get(r.chunk);
         // снят раньше или попросился и с руинами (со следом) — его проходит очередь руин (следа)
         if (kind == 0 || from != ruinQueue && (kind & RUINS) != 0 || from == lightQueue && (kind & SCORCH) != 0) return false;
+        if (kind == LIGHTS) {
+            // копия чанка к фронту собралась, пока запрос ждал: свет — с ней
+            int claim = nuclear.prep().frontClaim(level, r.chunk, true, now);
+            if (claim == FrontLods.OURS) {
+                done(r.chunk);
+                return false;
+            }
+            if (claim == FrontLods.AFTER_FRONT) {
+                queued.put(r.chunk, (byte) (RUINS | LIGHTS));
+                ruinQueue.add(new Request(r.chunk, now));
+                return false;
+            }
+        }
         boolean ruins = (kind & RUINS) != 0;
         ChunkPos pos = new ChunkPos(r.chunk);
         if (inWorld(level, r.chunk)) {
@@ -508,7 +540,7 @@ public final class FarLods {
     }
 
     /** Копия чанка с руинами или следом (фоновый поток): секции с диска, места плана. */
-    private static Built build(DiskShots.Format f, DiskShots.Sections s, @Nullable RuinPlan plan, boolean fires, boolean lights, boolean scorch) {
+    static Built build(DiskShots.Format f, DiskShots.Sections s, @Nullable RuinPlan plan, boolean fires, boolean lights, boolean scorch) {
         long chunk = s.pos().toLong();
         if (s.skip() != null) return new Built(chunk, null, false, lights, s.skip());
         int biomes = plan == null ? 0 : plan.applyToCopy(s.sections(), fires, f.biomes(), f.minSection());
@@ -524,7 +556,7 @@ public final class FarLods {
         reading.remove(b.chunk);
         scorchReading.remove(b.chunk);
         byte asked = again.remove(b.chunk);
-        for (byte kind : new byte[]{RUINS, SCORCH, LIGHTS}) if ((asked & kind) != 0) request(level, b.chunk, kind);
+        for (byte kind : new byte[]{RUINS, SCORCH, LIGHTS}) if ((asked & kind) != 0) queue(level, b.chunk, kind);
         if (b.copy == null) {
             if ("stale plan".equals(b.skip)) stale++;
             else unread++;
@@ -532,6 +564,8 @@ public final class FarLods {
         }
         // загрузили, пока читали: у мира свой путь
         if (inWorld(level, b.chunk)) return;
+        // копия без руин чанка, чью копию с руинами держит фронт: ушла бы поверх неё
+        if (!b.ruined && front(level, b.chunk, true)) return;
         // на диске двойников нет: погасить, если квартал тёмный
         boolean dark = PowerGrid.get(level).dark(ChunkPos.getX(b.chunk), ChunkPos.getZ(b.chunk), level.getGameTime());
         int lamps = dark ? ChunkLights.applyToCopy(b.copy.getSections(), true) : 0;
@@ -564,7 +598,7 @@ public final class FarLods {
      * ({@link ScarQueue}, блэкаут). Недогенерированный чанк в памяти (кольцо вокруг загруженного мира) — не в мире: его
      * никто не пройдёт, пока он не загрузится.
      */
-    private static boolean inWorld(ServerLevel level, long chunk) {
+    static boolean inWorld(ServerLevel level, long chunk) {
         ChunkHolder holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(chunk);
         return holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk;
     }

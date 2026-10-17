@@ -58,6 +58,11 @@ light burns grass, flowers and crops in patches and leaves black char where it w
 water around turn yellow-brown and grey. The edge is ragged, not a ring. The scorched colours stay for good, also in
 Distant Horizons terrain.
 
+After an ICBM strike, Distant Horizons terrain shows the ruins of the hardest-hit area as the wave reaches them: the
+server prepares them while the missile flies. At 15 kt the far edge of that area may show later. After a cruise
+missile, a bomb or `/incoming nuke now` the distant ruins show some time after the wave. Broken windows and fallen trees
+farther out show in the distant terrain once you come close.
+
 The flash also marks what it lights. Wood, wool and hay that face the fireball char black in patches, and brick,
 concrete, stone bricks and sandstone darken with soot. A player, a mob, an armor stand or a boat standing in the light
 leaves a pale shadow of its shape on the wood or masonry behind it. These marks stay until the block is broken or

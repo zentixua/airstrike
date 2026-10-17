@@ -1,9 +1,13 @@
 package ua.zentix.incoming.compat;
 
 import com.seibel.distanthorizons.api.DhApi;
+import com.seibel.distanthorizons.api.interfaces.config.IDhApiConfig;
 import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataRepo;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiWorldProxy;
+import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
+import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiChunkModifiedEvent;
+import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiEventParam;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
 import com.seibel.distanthorizons.coreapi.DependencyInjection.WorldGeneratorInjector;
 import net.minecraft.server.level.ServerLevel;
@@ -31,6 +35,8 @@ public final class DhChunks {
     private static volatile int state;
     /** Ошибка или отказ API уже в логе (с запуска сервера): дальше — молча. Классы DH здесь не нужны. */
     private static boolean logged, refused;
+    /** Подписка на записи LOD ({@link #listen}) есть: события API DH живут, пока жива игра, — одна на запуск игры. */
+    private static volatile boolean listening;
 
     private DhChunks() {
     }
@@ -54,6 +60,7 @@ public final class DhChunks {
      * в следующем мире — мод туда не лезет.
      */
     public static void onServerStopped(ServerStoppedEvent e) {
+        DhUpdates.forgetLevels();
         if (!available()) return;
         try {
             Api.forgetGenerators();
@@ -87,6 +94,33 @@ public final class DhChunks {
         }
     }
 
+    /**
+     * Потоки разбора обновлений DH ({@code numberOfThreads} в его настройках): по ним DH считает предел своей очереди
+     * обновлений ({@link DhQueue}). Без DH — 1.
+     */
+    static int threads() {
+        if (!available()) return 1;
+        try {
+            return Math.max(1, Api.threads());
+        } catch (LinkageError | RuntimeException e) {
+            return 1;
+        }
+    }
+
+    /**
+     * Подписка на записи LOD чанков в базу DH ({@code DhApiChunkModifiedEvent} — после записи участка, по чанку) —
+     * подтверждения держанных копий ({@link DhUpdates#saved}). Один раз за запуск игры. Поток сервера.
+     */
+    static void listen() {
+        if (listening || !available()) return;
+        listening = true;
+        try {
+            Api.listen();
+        } catch (LinkageError | RuntimeException e) {
+            Incoming.LOG.warn("Distant Horizons: no notice of saved LODs — LODs sent ahead of the blast wave are paced by a timeout instead", e);
+        }
+    }
+
     private static boolean supported() {
         try {
             return Api.major() == API_MAJOR;
@@ -98,6 +132,20 @@ public final class DhChunks {
     private static final class Api {
         static int major() {
             return DhApi.getApiMajorVersion();
+        }
+
+        static int threads() {
+            IDhApiConfig configs = DhApi.Delayed.configs;
+            return configs == null ? 1 : configs.multiThreading().threadCount().getValue();
+        }
+
+        static void listen() {
+            DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
+                @Override
+                public void onChunkModified(DhApiEventParam<EventParam> input) {
+                    DhUpdates.saved(input.value.levelWrapper.getWrappedMcObject(), input.value.chunkX, input.value.chunkZ);
+                }
+            });
         }
 
         static void forgetGenerators() {
