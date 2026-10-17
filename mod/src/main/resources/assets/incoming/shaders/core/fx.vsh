@@ -95,6 +95,26 @@ vec3 firelight(sampler2D map, mat4 S, mat4 F, vec3 p) {
     return F[3].rgb * (0.5 * F[1].w * flame * exp(-max(h, 0.0) / F[0].z));
 }
 
+// Голова стены слота перед квадратом на [t0, t1]: доля, которую она пропускает, — по каждому её отрезку на луче
+// (pallWallSpans), в дымке воздуха у его середины
+float pallWallThrough(sampler2D ground, mat4 S, mat4 V, vec4 G, vec4 W, vec3 dir, float t0, float t1, float air) {
+    vec4 spans = pallWallSpans(S, V, G, dir, t0, t1);
+    float through = 1.0;
+    for (int k = 0; k < 2; k++) {
+        vec2 sp = k == 0 ? spans.xy : spans.zw;
+        if (sp.y <= sp.x) continue;
+        float tau = pallWallTau(ground, S, V, G, W, dir, sp.x, sp.y, 4);
+        through *= 1.0 - exp(-air * 0.5 * (sp.x + sp.y)) * (1.0 - exp(-tau));
+    }
+    return through;
+}
+
+// Облако Вильсона слота перед квадратом (до end): доля, которую пропускают оба прохода луча, каждый в дымке у своего места
+float pallWilsonThrough(mat4 S, vec4 L, vec3 dir, float end, float air) {
+    vec4 w = pallWilson(S, L, dir, end);
+    return (1.0 - exp(-air * w.x) * (1.0 - exp(-w.y))) * (1.0 - exp(-air * w.z) * (1.0 - exp(-w.w)));
+}
+
 // Пелена перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем; квадрат
 // ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно);
 // грибы — так же, по своему полю без шума. Пелена вдали тает в дымке воздуха, как гриб (mushAir; слот: [3].w): та доля
@@ -123,12 +143,10 @@ float pall(vec3 p) {
         }
         through *= 1.0 - exp(-air * t) * (1.0 - exp(-tau));
     }
-    // голова стены пыли (средняя, по своим отрезкам луча) и облако Вильсона перед квадратом — дымка по середине отрезка
-    float tau = pallWallTau(Sampler9, PallSlot0, PallWall0, PallGround0, PallWater0, dir, t0, t1, 4)
-            + pallWallTau(Sampler10, PallSlot1, PallWall1, PallGround1, PallWater1, dir, t0, t1, 4);
-    vec4 w0 = pallWilson(PallSlot0, PallWilson0, dir, t1), w1 = pallWilson(PallSlot1, PallWilson1, dir, t1);
-    tau += w0.y + w0.w + w1.y + w1.w;
-    through *= 1.0 - exp(-air * 0.5 * (t0 + t1)) * (1.0 - exp(-tau));
+    // голова стены пыли (средняя, по своим отрезкам луча) и облако Вильсона перед квадратом
+    through *= pallWallThrough(Sampler9, PallSlot0, PallWall0, PallGround0, PallWater0, dir, t0, t1, air)
+            * pallWallThrough(Sampler10, PallSlot1, PallWall1, PallGround1, PallWater1, dir, t0, t1, air)
+            * pallWilsonThrough(PallSlot0, PallWilson0, dir, t1, air) * pallWilsonThrough(PallSlot1, PallWilson1, dir, t1, air);
     return through * mush;
 }
 
