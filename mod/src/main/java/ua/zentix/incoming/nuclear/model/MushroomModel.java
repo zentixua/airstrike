@@ -110,8 +110,8 @@ public final class MushroomModel {
 
     /**
      * Видимая температура шара и шапки снаружи, K: перепад ядра × {@link #edgeShare}. Пока шар — его температура
-     * ({@link FireballModel#temperature}); свернувшись, он темнеет снаружи (край смешан с воздухом), а горячее ядро
-     * светит из глубины — в ложбинах клубов (шейдер).
+     * ({@link FireballModel#temperature}); свернувшись, он темнеет снаружи: край смешан с воздухом, а ядро за толщей
+     * шапки (τ ≈ 40) не видно. У 15 кт через 9 с — ~1 250 K, через 12 с — ~830 K.
      */
     public static double edgeTemperature(double t, double yieldKt, boolean surface) {
         return AMBIENT_K + (coreTemperature(t, yieldKt, surface) - AMBIENT_K) * edgeShare(t, yieldKt, surface);

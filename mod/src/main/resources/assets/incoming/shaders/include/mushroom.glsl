@@ -187,7 +187,8 @@ vec3 mushDist(Mush m, vec3 q) {
 // Густота ножки на высоте h без доли края: её толща поперёк на её ширине; верх тает у верха ножки, под землёй её нет
 float mushStemSigma(Mush m, float h) {
     if (h < -0.02 * m.capBot || h > m.stemTop) return 0.0;
-    float topFade = clamp((m.stemTop - h) / (0.05 * m.capBot + 1.0), 0.0, 1.0);
+    // у шара у земли низ шапки ниже земли (capBot < 0): ширина таяния — не меньше блока
+    float topFade = clamp((m.stemTop - h) / max(0.05 * m.capBot + 1.0, 1.0), 0.0, 1.0);
     return m.stemTau / (2.0 * mushStemAt(m, h)) * topFade;
 }
 

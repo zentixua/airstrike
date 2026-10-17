@@ -763,7 +763,9 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
     // свечение (ниже)
     float lowShare = (sig.y + sig.z) / st;
     if (lowShare > 0.0 && m.capSigma > 0.0) {
+        // к середине шапки в осях мира: тело гриба снесено ветром по высоте (mushLocal), его оси — не мировые
         vec3 c = vec3(0.0, m.capY, 0.0) - q;
+        c.xz += m.drift * (mushShare(m.capY, m.endTop) - mushShare(q.y, m.endTop));
         float d2 = dot(c, c), r2 = m.capR * m.capR;
         vec3 ball = mushBlackBody(Sampler7, m.tAmb + m.dT * m.edge) * (PallExposure * r2 / max(d2, r2));
         if (dot(ball, LUMA) > 1e-4 * dot(PallSkyLight, LUMA)) {

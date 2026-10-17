@@ -3,7 +3,7 @@
 // Какая доля источника видна в кадре (client/fx/layer/SourceProbes): расстояние до мира за пикселем (SceneDepth,
 // с LOD Distant Horizons) в середине источника на экране и по верхней половине круга вокруг неё — против расстояния
 // до его передней половины. Вне кадра — 1: там видимость решают лучи вызывающего. Глубина мира не видит объёма грибов
-// (огненный шар за чужой шапкой или ножкой): их пропускание до передней половины источника — здесь же, в кадре и вне его.
+// (огненный шар за чужой шапкой или ножкой): их пропускание до источника — здесь же, в кадре и вне его.
 #moj_import <incoming:mushroom.glsl>
 
 uniform sampler2D Sampler0;
@@ -21,6 +21,32 @@ in vec3 center;
 in float radius;
 
 out vec4 fragColor;
+
+// Пропускание грибов от глаза до источника с серединой center радиуса radius, без шума (как mushTransmit). Гриб, чья
+// середина шапки — сам источник (огненный шар и шапка светят из неё), себя не закрывает: его шапка — только до передней
+// границы источника с размахом клубов края, а ножка и юбка между глазом и шапкой — до середины
+float probeMush(sampler2D data, vec3 center, float radius) {
+    float len = length(center), through = 1.0;
+    vec3 dir = center / len;
+    for (int k = 0; k < MUSHROOMS; k++) {
+        if (!mushOn(data, k)) continue;
+        Mush m = mushLoad(data, k);
+        vec3 c = mushLocal(m, center) - vec3(0.0, m.capY, 0.0);
+        float capEnd = len;
+        if (dot(c, c) < 0.25 * m.capR * m.capR) capEnd = len - radius - MUSH_CAP_REACH * mushCapUnit(m);
+        vec2 span = mushSpan(m, dir);
+        span.y = min(span.y, len);
+        if (span.y <= span.x) continue;
+        float ds = (span.y - span.x) / 8.0, tau = 0.0;
+        for (int i = 0; i < 8; i++) {
+            float t = span.x + (float(i) + 0.5) * ds;
+            vec3 s = mushMean(m, mushLocal(m, dir * t));
+            tau += (step(t, capEnd) * s.x + s.y + s.z) * ds;
+        }
+        through *= 1.0 - mushAir(m, 0.5 * (span.x + span.y)) * (1.0 - exp(-tau));
+    }
+    return through;
+}
 
 // круг проб — доля радиуса (как лучи по блокам, FarBlasts.RING); середина, бока и верх: низ диска у земли закрыт землёй
 // под самим источником
@@ -52,9 +78,6 @@ void main() {
         }
         if (n > 0) seen = sum / float(n);
     }
-    // до передней границы источника: свой шар (середина шапки, радиус шапки) себя не закрывает, а ножка и юбка своего
-    // гриба между глазом и шапкой — закрывают
-    float len = length(center);
-    if (ProbeMush > 0.5 && len > radius) seen *= mushTransmit(Sampler1, center / len, len - radius, 8);
+    if (ProbeMush > 0.5 && length(center) > radius) seen *= probeMush(Sampler1, center, radius);
     fragColor = vec4(seen, 0.0, 0.0, 1.0);
 }
