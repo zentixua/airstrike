@@ -92,12 +92,13 @@ vec3 firelight(sampler2D map, mat4 S, mat4 F, vec3 p) {
 
 // Пелена перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем; квадрат
 // ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно);
-// грибы — так же, по своему полю без шума.
-float pall(vec3 p) {
+// грибы (withMush) — так же, по своему полю без шума.
+float pall(vec3 p, bool withMush) {
     float len = length(p);
     if (PallAmbient.w < 0.5 || len < 1e-3) return 1.0;
     vec3 dir = p / len;
-    float mush = mushTransmit(Sampler11, dir, len, 6);
+    float mush = 1.0;
+    if (withMush) mush = mushTransmit(Sampler11, dir, len, 6);
     vec2 span = pallBox(dir, PallMin, PallMax);
     float t0 = span.x, t1 = min(span.y, len);
     if (t1 <= t0) return mush;
@@ -143,5 +144,7 @@ void main() {
     fog = Normal.x;
     nearest = Normal.y;
     opacity = Normal.z;
-    pallFront = pall(Position / unfold);
+    // блик и вуаль с пробой: грибы перед источником — уже в ней (fx_probe), а по углам квадрата у глаза — нет: угол блика
+    // в своей же шапке гасил бы его над ней
+    pallFront = pall(Position / unfold, UV1.x >= 0 || FxProbes < 0.5);
 }

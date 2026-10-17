@@ -184,7 +184,7 @@ public final class FxLayer {
         }
         int models = FarRenderer.renderModels();
         int scene = SceneDepth.update(e.getProjectionMatrix());
-        int seen = PROBES.update(scene, FarDraw.view(e, view.camera(), VIEW), e.getProjectionMatrix(), view.pixel());
+        FarDraw.view(e, view.camera(), VIEW);
         LightTexture light = mc.gameRenderer.lightTexture();
         FarDraw.begin(e, view.camera());
         try {
@@ -194,6 +194,8 @@ public final class FxLayer {
             boolean pallDrawn = pall != null && scene >= 0 && PallPass.draw(pall, scene, VIEW, e.getProjectionMatrix(), view.camera());
             if (!pallDrawn) PallPass.reset();
             PallPass.Frame front = pallDrawn ? pall : PallPass.empty();
+            // пробы — после пелены: её проход кладёт таблицу грибов кадра, а проба берёт и их пропускание
+            int seen = PROBES.update(scene, pallDrawn ? PallPass.mushroomMap() : -1, VIEW, e.getProjectionMatrix(), view.pixel());
             RenderSystem.setShader(() -> s);
             RenderSystem.setShaderTexture(0, atlas);
             RenderSystem.setShaderTexture(1, scene >= 0 ? scene : atlas);

@@ -30,7 +30,9 @@ import java.util.Arrays;
  * экране и по верхней половине круга вокруг неё (как лучи по блокам в прорисовке, {@code FarBlasts#clear}: нижнюю
  * часть диска у земли закрывает земля под самим источником) и сравнивает с расстоянием до его передней половины, с той
  * же мягкостью, что у тела в слое. Квадрат блика берёт свою пробу в вершинном шейдере слоя ({@code fx.vsh}) по номеру
- * ({@link FxQuads#seenBy}). Источник вне кадра пробе не виден — там видимость решают лучи вызывающего.
+ * ({@link FxQuads#seenBy}). Источник вне кадра пробе не виден — там видимость решают лучи вызывающего. Объёма грибов
+ * ядерного удара глубина мира не видит (огненный шар за чужой шапкой или ножкой) — проба берёт и их пропускание до
+ * передней границы источника ({@code mushTransmit}), в кадре и вне его.
  */
 public final class SourceProbes {
     /** Проб в строке текстуры. */
@@ -73,11 +75,12 @@ public final class SourceProbes {
     }
 
     /**
-     * Посчитать пробы кадра по текстуре расстояний до мира {@code scene} ({@link SceneDepth#update}): вид от глаза,
-     * проекция кадра, угол пикселя, рад. Текстура видимости (доля, по номеру пробы − 1: x — остаток от {@link #WIDTH},
-     * y — частное); −1 — проб нет или не вышло.
+     * Посчитать пробы кадра по текстуре расстояний до мира {@code scene} ({@link SceneDepth#update}) и таблице грибов
+     * кадра {@code mushrooms} ({@link PallPass#mushroomMap}; −1 — грибов в кадре нет): вид от глаза, проекция кадра,
+     * угол пикселя, рад. Текстура видимости (доля, по номеру пробы − 1: x — остаток от {@link #WIDTH}, y — частное);
+     * −1 — проб нет или не вышло.
      */
-    int update(int scene, Matrix4f view, Matrix4f projection, double pixel) {
+    int update(int scene, int mushrooms, Matrix4f view, Matrix4f projection, double pixel) {
         ShaderInstance s = shader;
         if (n == 0 || s == null || scene < 0 || !ensure((n + WIDTH - 1) / WIDTH)) return -1;
         int previous = GlStateManager._getInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
@@ -89,6 +92,8 @@ public final class SourceProbes {
         RenderSystem.disableBlend();
         RenderSystem.setShader(() -> s);
         RenderSystem.setShaderTexture(0, scene);
+        RenderSystem.setShaderTexture(1, mushrooms >= 0 ? mushrooms : scene);
+        s.safeGetUniform("ProbeMush").set(mushrooms >= 0 ? 1f : 0f);
         s.safeGetUniform("SourceView").set(view);
         s.safeGetUniform("SourceProj").set(projection);
         s.safeGetUniform("ProbeSize").set((float) WIDTH, (float) rows);

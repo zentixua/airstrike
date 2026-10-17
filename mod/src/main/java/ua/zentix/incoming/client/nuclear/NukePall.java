@@ -197,7 +197,7 @@ public final class NukePall {
     /**
      * Сколько света проходит сквозь пелену всех подрывов от глаза {@code eye} до точки (x, y, z) мира: поле без шума
      * ({@link PallField#sigma}, его среднее по клубам), 16 шагов. Блику и вуали яркого (шар) за пылью — их проба видит
-     * только мир. Пелена выключена (OFF) — 1: невидимая пыль ничего не закрывает.
+     * мир и грибы, но не пелену. Пелена выключена (OFF) — 1: невидимая пыль ничего не закрывает.
      */
     static double through(Vec3 eye, double x, double y, double z, float partial) {
         if (quality() == PallPass.Quality.OFF) return 1;
