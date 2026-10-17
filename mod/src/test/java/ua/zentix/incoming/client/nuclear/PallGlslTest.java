@@ -292,8 +292,8 @@ class PallGlslTest {
                 double mu = ly / toBall;
                 // верх головы стены, будь она здесь (точка — посреди её толщи), — до неё пелена здесь и была ею
                 NukePall.dustLight(here, wall, night, wind, r, 0.9 * here[2], 0, 0.9 * here[2], high);
-                double sum = 0;
-                double[] side = new double[3], top = new double[3];
+                double sum = 0, fires = 0;
+                double[] side = new double[3], top = new double[3], luma = {0.2126, 0.7152, 0.0722};
                 // отсвет пожаров на пыли — уже цвет огня: свет пелены — пламя (pallFlame)
                 boolean flames = false;
                 for (int c = 0; c < 3; c++) {
@@ -303,6 +303,7 @@ class PallGlslTest {
                     double capF = wall[4 + c] * a;
                     double burnF = Math.min(lift.call(Map.of("base", (double) ambient, "x", fire[c] * b * k / dust[c])),
                             linear.call(Map.of("v", fire[c])));
+                    fires += luma[c] * burnF;
                     Map<String, Double> args = new HashMap<>(Map.of("w", w[c], "g", g, "tc", tc, "ground", PallLight.LAND, "mu1", 1.0,
                             "f1", 0.0, "mu2", Math.max(mu, 0.12), "f2", capF, "top", sky, "bottom", burnF));
                     args.put("tau", tc);
@@ -325,8 +326,8 @@ class PallGlslTest {
                         checked++;
                     }
                 }
-                // пожары светят ярче шара (fx_pall: главный свет — снизу)
-                if (flames && b * k > (0.2126 * wall[4] + 0.7152 * wall[5] + 0.0722 * wall[6]) * a) {
+                // пожары светят ярче шара (fx_pall: главный свет — снизу; оба — линейный свет на белой стене)
+                if (flames && fires > (luma[0] * wall[4] + luma[1] * wall[5] + luma[2] * wall[6]) * a) {
                     String at = t + " с, " + r + " блоков, у пола сбоку: ";
                     for (int c = 0; c < 3; c++) assertTrue(side[c] <= fire[c] + 0.03, at + "ярче пламени в канале " + c + ", " + side[c]);
                     assertTrue(side[0] > side[1] && side[1] > side[2], at + "не цвета огня");
