@@ -191,6 +191,15 @@ public final class MushroomField {
         return Math.max(1, Math.max(cap, Math.max(s.stemTop(), skirt)));
     }
 
+    /**
+     * Радиус рамки ({@code mushSpan}): цилиндр вдоль оси, наклонённой сносом {@code drift} на конец подъёма {@code end}.
+     * Доля сноса растёт с высотой только до {@code end} ({@code mushShare}), выше верха и под землёй (до 0,05 верха) ось
+     * гриба не наклоняется дальше, а наклонная — уходит: рамка на столько шире. Все величины — в одних единицах.
+     */
+    static double boundRadius(double reach, double drift, double top, double end) {
+        return reach + drift * Math.max(0.05 * top, top - end) / end;
+    }
+
     /** Единица клубов шапки, м ({@code mushCapUnit}): меньшая полуось сечения кольца. */
     static double capUnit(MushroomModel.Shape s) {
         return Math.min(s.ringA(), s.ringB());
@@ -218,10 +227,8 @@ public final class MushroomField {
         double t = s.t(), y = d.yieldKt();
         double[] w = DRIFT;
         drift(d, t, w);
-        // рамка — цилиндр вдоль оси, наклонённой сносом (mushSpan): доля сноса растёт с высотой до конца подъёма,
-        // выше и под землёй ось не наклоняется дальше, наклонный цилиндр уходит в сторону — на столько шире
         double top = d.blocks(top(s)), end = Math.max(d.blocks(s.endTop()), 1);
-        double boundR = d.blocks(reach(s)) + Math.hypot(w[0], w[1]) * Math.max(0.05 * top, top - end) / end;
+        double boundR = boundRadius(d.blocks(reach(s)), Math.hypot(w[0], w[1]), top, end);
         double ringA = d.blocks(s.ringA()), ringB = d.blocks(s.ringB());
         // ослабление шапки: толща поперёк меньшего поперечника сечения кольца
         double across = 2 * Math.min(ringA, ringB);

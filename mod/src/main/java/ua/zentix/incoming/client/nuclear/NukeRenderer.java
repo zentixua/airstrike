@@ -171,7 +171,7 @@ public final class NukeRenderer {
             Detonation d = a.d;
             double t = a.seconds(partial);
             if (t <= 0) continue;
-            // светится весь объём, пока не остынет; потом его свет — накал шапки и ножки (CloudPuffs)
+            // светится весь объём, пока не остынет; потом его свет — накал шапки в объёме гриба (MushroomField)
             float fade = (float) CloudPuffs.fireballGlow(t, d.yieldKt());
             if (fade <= 0) continue;
             double r = d.blocks(FireballModel.radius(t, d.yieldKt(), d.surface()));

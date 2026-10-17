@@ -9,7 +9,7 @@
 // (квадратично), начало сдвинуто синим шумом по кадрам (накопление сглаживает зерно, fx_pall_resolve). Плотность —
 // поле подрыва по таблице × клубы по трёхмерному шуму, снесённому ветром: крупные и в них мелкие — те, что луч здесь
 // различает. Свет (client/nuclear/PallLight): пелена над точкой и под ней — плоский слой, в нём два потока Эддингтона
-// после дельта-Эддингтона: солнце и отсвет шара и шапки — пучками сверху, небо сверху, пожары под пылью (свет стены пыли:
+// после дельта-Эддингтона: солнце и отсвет шара — пучками сверху, небо сверху, пожары под пылью (свет стены пыли:
 // у фронта пелена продолжает её цвет) — снизу, земля под слоем; клубы у точки (выборки шума к главному свету) — её тень
 // или просвет: глубже в слой или ближе к его краю. К глазу точка рассеивает пучки с фазой Хеньи–Гринстейна, рассеянный
 // свет — по Эддингтону; вещество — альбедо ω' и асимметрия g' пыли, дыма, мглы и водяной пыли (pall.glsl): тонкая
@@ -183,7 +183,7 @@ struct Sample {
     float capUp;
     float capView;
     vec3 burn;
-    // тень своего и соседних клубов — толща против средней к солнцу, к шару и шапке, к небу сверху и к пожарам снизу
+    // тень своего и соседних клубов — толща против средней к солнцу, к шару (shadeCap), к небу сверху и к пожарам снизу
     float shadeSun;
     float shadeCap;
     float shadeUp;
@@ -220,7 +220,7 @@ void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3
     s.slabPhase += (f.slab.x + f.slab.y) * PALL_DUST_G + f.slab.z * PALL_MIST_G;
     // пыль — над водой, если её подняло с воды; водяная пыль — всегда
     s.water += (f.slab.x + f.slab.y) * f.wet + f.slab.z;
-    // Свет стены пыли (CloudPuffs.wallColor): шар и шапка — пучок к верху слоя (свет на верху стены, pallLit), пожары под
+    // Свет стены пыли (CloudPuffs.wallColor): шар — пучок к верху слоя (свет на верху стены, pallLit), пожары под
     // пылью — свет снизу (у низа стены, pallBurn); сила — та, что на клубе стены даёт отсвет (× PallGlowOnSmoke), делённая
     // на цвет пыли, — на экране поверх света неба, в линейный — разностью (pallLift): толстая пыль у фронта отражает его
     // как клубы стены — пелена продолжает её цвет. Свет пожаров — не ярче пламени (pallFlame): ночью над зоной пожаров
@@ -249,8 +249,8 @@ void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3
     float shape = coarse * mix(1.0, detail, fine);
     s.clumps = shape;
     float d = f.sigma.x * shape, h = f.sigma.y * mix(1.0, shape, 0.5), m = f.sigma.z * shape;
-    // главный свет — солнце или, пока он ярче, шар и шапка над эпицентром или пожары под пылью (ночью это весь свет
-    // пыли); светят пожары внизу — к ним, а не к шапке
+    // главный свет — солнце или, пока он ярче, шар над эпицентром или пожары под пылью (ночью это весь свет
+    // пыли); светят пожары внизу — к ним, а не к шару
     float heat = max(lit, burn) * PallGlowOnSmoke;
     float key = clamp(heat / (heat + 0.5 * PallSun.w + 0.02), 0.0, 1.0);
     vec3 keyLight = lightDir;
@@ -296,7 +296,7 @@ float slabGround(Sample s) {
     return mix(PALL_LAND, PALL_SEA, water);
 }
 
-// Рассеянный свет слоя пелены в точке от света сверху (солнце, шар и шапка, небо), I0 + c·I1 по каналам (pallDiffuse;
+// Рассеянный свет слоя пелены в точке от света сверху (солнце, шар, небо), I0 + c·I1 по каналам (pallDiffuse;
 // без альбедо точки) — на глубине, сдвинутой тенью клубов к нему
 vec3 scattered(Sample s, float c) {
     float slab = max(s.slab, s.tau);
@@ -549,20 +549,22 @@ int gMushes;
 // толща грибов от глаза до шага: настоящая, с клубами, — сколько свет неба со стороны глаза теряет до точки
 float gTauEye;
 
-// смерчи, в которые луч вошёл до t, — в свет луча (каждый раз)
-void whirlsBefore(float t, inout vec3 light, inout float transmit) {
+// смерчи, в которые луч вошёл до t, — в свет луча (каждый раз). Пелену и смерчи глаз видит и там, где гриб растаял
+// в дымке (lost): их свет — с долей transmit + lost, и обе доли за ними меньше
+void whirlsBefore(float t, inout vec3 light, inout float transmit, inout float lost) {
     for (int k = 0; k < 4; k++) {
         if (gWhirlIn[k] <= t) {
-            light += transmit * gWhirlLight[k].rgb;
+            light += (transmit + lost) * gWhirlLight[k].rgb;
             transmit *= gWhirlLight[k].a;
+            lost *= gWhirlLight[k].a;
             gWhirlIn[k] = 1e9;
         }
     }
 }
 
 // Шаг пелены на [ta, ta + ds]: её свет в луч
-void pallStep(float ta, float ds, inout vec3 light, inout float transmit) {
-    whirlsBefore(ta, light, transmit);
+void pallStep(float ta, float ds, inout vec3 light, inout float transmit, inout float lost) {
+    whirlsBefore(ta, light, transmit, lost);
     vec3 dir = gDir, sunDir = gSun;
     float muS = gMuS, c = gC, mv = gMv;
     vec3 p = dir * ta;
@@ -589,7 +591,7 @@ void pallStep(float ta, float ds, inout vec3 light, inout float transmit) {
         w = s.albedo / s.sigma;
         g = s.phase / s.sigma;
     }
-    // рассеянный свет слоя и пучки: солнце, шар и шапка — по Бугеру–Ламберту сквозь столб над точкой и тень клубов,
+    // рассеянный свет слоя и пучки: солнце и шар — по Бугеру–Ламберту сквозь столб над точкой и тень клубов,
     // с фазой Хеньи–Гринстейна (её среднее по сфере — 1, пучок на белой стене — его сила: отсюда ¼)
     vec3 field = scattered(s, g * mv);
     vec3 beams = PallSunLight * (0.25 * hg(g, c) * exp(-max(s.tau / muS + s.shadeSun, 0.0)));
@@ -627,8 +629,9 @@ void pallStep(float ta, float ds, inout vec3 light, inout float transmit) {
         emit += soot * PALL_SOOT_W * sootLit;
     }
     float tr = exp(-st * ds);
-    light += transmit * emit * (1.0 - tr) / st;
+    light += (transmit + lost) * emit * (1.0 - tr) / st;
     transmit *= tr;
+    lost *= tr;
 }
 
 // Толща гриба m без шума от места p (от глаза) по направлению v на длину len — четыре выборки (MUSH_AT)
@@ -937,11 +940,12 @@ void main() {
     }
     for (int it = 0; it < steps + mSteps; it++) {
         bool pallLeft = i < steps && ta < t1;
-        bool mushLeft = mk < mSteps && tm < m1;
+        // гриб за почти непрозрачным для себя же лучом не виден и в дымке (его свет — с долей transmit)
+        bool mushLeft = mk < mSteps && tm < m1 && transmit >= 0.005;
         if (!pallLeft && !mushLeft) break;
         if (pallLeft && (!mushLeft || ta <= tm)) {
             float next = min(along((float(i) + 1.0 + jitter) / n, t0, fa, fb, t1, a, b), t1);
-            pallStep(ta, next - ta, light, transmit);
+            pallStep(ta, next - ta, light, transmit, lost);
             i += 1;
             ta = next;
             if (i >= steps) ta = 1e9;
@@ -956,7 +960,7 @@ void main() {
             if (r.w > 1e-7) {
                 ds = clamp(0.5 / r.w, dsMin, dsMax);
                 ds = min(ds, m1 - tm);
-                whirlsBefore(tm, light, transmit);
+                whirlsBefore(tm, light, transmit, lost);
                 // дымка воздуха до шага (mushAir; погода и масштаб — одни на все грибы): свет и непрозрачность гриба вдали тают в
                 // небе за ним
                 float tr = exp(-r.w * ds), air = mushAir(gMush[0], tm);
@@ -968,13 +972,14 @@ void main() {
             tm += ds;
             mk += 1;
         }
-        if (transmit < 0.005) {
+        if (transmit + lost < 0.005) {
             transmit = 0.0;
+            lost = 0.0;
             break;
         }
     }
     // смерчи за последним шагом (до мира)
-    whirlsBefore(1e8, light, transmit);
+    whirlsBefore(1e8, light, transmit, lost);
     // на экран: цвет пелены как вещества — свет, делённый на непрозрачность (в однородной — её функция источника), в
     // значения экрана, умноженный на непрозрачность; с миром смешивается, как всё полупрозрачное в кадре. Ярче белого —
     // к белому (CROSS)
@@ -984,6 +989,7 @@ void main() {
     vec3 shown = shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * cover;
     // негодный итог (NaN, бесконечность — из глубины, матриц или поля) — пропускание −1: накопление возьмёт прошлое
     // этого места, а без него пиксель — без пелены (fx_pall_resolve)
-    vec4 res = vec4(shown, transmit + lost);
+    // сумма долей в float32 бывает на ulp больше 1 — pallValid счёл бы пиксель негодным
+    vec4 res = vec4(shown, min(transmit + lost, 1.0));
     fragColor = pallValid(res) ? res : vec4(0.0, 0.0, 0.0, -1.0);
 }

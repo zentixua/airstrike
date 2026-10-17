@@ -678,7 +678,7 @@ public final class CloudPuffs {
         return 1 - smooth(fireGround * 0.92, fireGround * 1.04, groundM);
     }
 
-    /** Отсвет шара и шапки на пыли у земли: слабеет с расстоянием от эпицентра. */
+    /** Отсвет шара на пыли у земли: слабеет с расстоянием от эпицентра. */
     private static double lightFalloff(double groundM, double fireballM) {
         double x = groundM / (6 * fireballM);
         return 1 / (1 + x * x);

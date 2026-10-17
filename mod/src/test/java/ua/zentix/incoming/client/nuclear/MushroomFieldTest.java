@@ -26,4 +26,23 @@ class MushroomFieldTest {
             }
         }
     }
+
+    /**
+     * Рамка луча — наклонный цилиндр (mushSpan): каждое место тела (ось сдвинута сносом на долю высоты, mushShare, вокруг
+     * неё — до reach) лежит в ней на любой высоте от 0,05 верха под землёй до верха, и ниже и выше конца подъёма.
+     */
+    @Test
+    void boundHoldsTheDriftedBody() {
+        double reach = 900, drift = 1700;
+        for (double[] te : new double[][] {{4000, 3000}, {2500, 3000}, {500, 3000}}) {
+            double top = te[0], end = te[1], k = drift / end;
+            double r = MushroomField.boundRadius(reach, drift, top, end);
+            for (double h = -0.05 * top; h <= top; h += top / 200) {
+                double axis = drift * Math.clamp(h / end, 0, 1), tilted = k * h;
+                // дальше всего от наклонной оси — место тела на краю reach в сторону расхождения осей
+                double worst = Math.abs(axis - tilted) + reach;
+                assertTrue(worst <= r + 1e-9, "верх " + top + ", конец " + end + ", высота " + h + ": " + worst + " > " + r);
+            }
+        }
+    }
 }
