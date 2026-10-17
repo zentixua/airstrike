@@ -184,11 +184,13 @@ public final class FlashAftermath {
             // свечение — гладко: ближайшим пикселем крупная вспышка распадается на квадраты пикселей картинки
             Fx.flash().smooth().color(ARC, ARC_EDGE).size(1.4f * strength, 2.6f * strength).life(2 + rnd.nextInt(2)).spawn(level, at);
             Fx.flash().smooth().color(0xFFFFFF, ARC).size(0.5f, 0.9f).life(2).spawn(level, at);
-            // сам разряд — ломаная из искр-звёздочек вниз по столбу: светлое пятно на земле, которую вспышка и так
-            // залила светом, днём почти не видно, мягкие точки — тоже, а звёздочки искр видны
+            // сам разряд — ломаная из искр-звёздочек от лампы в сторону и вниз: светлое пятно на земле, которую вспышка
+            // и так залила светом, днём почти не видно, мягкие точки — тоже, а звёздочки искр видны. Вниз по самому
+            // столбу ломаную закрывали бы фонарь и столб
+            double dir = rnd.nextDouble() * Math.PI * 2, ox = Math.cos(dir) * 0.24, oz = Math.sin(dir) * 0.24;
             Vec3 p = at;
             for (int seg = 0; seg < BOLT_SEGMENTS; seg++) {
-                Vec3 q = p.add(rnd.nextGaussian() * 0.16, -0.18, rnd.nextGaussian() * 0.16);
+                Vec3 q = p.add(ox + rnd.nextGaussian() * 0.09, -0.14 + rnd.nextGaussian() * 0.09, oz + rnd.nextGaussian() * 0.09);
                 for (int k = 0; k < BOLT_DOTS; k++) {
                     Fx.spark().color(0xFFFFFF, 0x9FB4FF).size(0.11f * strength, 0.07f).life(2).spawn(level, p.lerp(q, (double) k / BOLT_DOTS));
                 }
