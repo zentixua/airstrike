@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -81,12 +82,111 @@ class MushroomGlslTest {
         }
     }
 
-    /** Таблица грибов: шейдер читает тексели 0..TEXELS−1 строки гриба. */
+    /** Карта тени: та же плитка и та же низшая высота солнца; свет над точкой по трём слоям — как в Java. */
+    @Test
+    void shadowLawsMatchJava() {
+        Map<String, Double> c = constants();
+        assertEquals(MushroomField.SHADOW, c.get("MUSH_SHADOW"), 0);
+        assertEquals(MushroomField.SHADOW_LOW, c.get("MUSH_SHADOW_LOW"), 1e-12);
+        assertEquals(MushroomField.SHADOW_RECT, c.get("MUSH_SHADOW_RECT"), 0);
+        assertEquals(MushroomField.SHADOW_TOP, c.get("MUSH_SHADOW_TOP"), 0);
+        GlslFunction layer = GlslFunction.parse(GLSL, "mushShadowLayer");
+        for (double top : new double[]{0.5, 320, 384}) {
+            for (double h = -60; h <= 460; h += 3.7) {
+                assertEquals(MushroomField.shadowLayer(h, top, 0.3, 0.6, 0.95), layer.call(Map.of("h", h, "top", top, "t0", 0.3, "t1", 0.6, "t2", 0.95)),
+                        1e-9, "верх " + top + ", высота " + h);
+            }
+        }
+        GlslFunction seen = GlslFunction.parse(GLSL, "mushSeen"), across = GlslFunction.parse(GLSL, "mushAcross");
+        for (double mu : new double[]{0.05, 0.3, 1}) {
+            for (double w : new double[]{1, 30, 300}) {
+                for (double d : new double[]{0, 10, 500, 5000}) {
+                    assertEquals(MushroomField.seen(w, d, mu), seen.call(Map.of("w", w, "d", d, "mu", mu)), 1e-9,
+                            "μ " + mu + ", ширина " + w + ", расстояние " + d);
+                    assertEquals(MushroomField.across(w, d, mu), across.call(Map.of("r", w, "h", d, "mu", mu)), 1e-6 * MushroomField.across(w, d, mu),
+                            "μ " + mu + ", радиус " + w + ", высота " + d);
+                }
+            }
+        }
+        // свет к слою в проходе карты: с двумя потоками пелены (pallDiffuse) — как в Java
+        GlslFunction through = GlslFunction.parse(read("include/pall.glsl") + GLSL + read("core/fx_mush_shadow.fsh"), "through");
+        for (double tau : new double[]{0, 0.3, 2, 9, 64}) {
+            for (double w : new double[]{0.5, 0.9, 0.99}) {
+                for (double d : new double[]{0, 200, 3000}) {
+                    for (double width : new double[]{20, 150, 900}) {
+                        for (double g : new double[]{0.375, 0.7}) {
+                            Map<String, Double> args = Map.of("tau", tau, "d", d, "width", width, "w", w, "g", g, "mu", 0.3);
+                            // −2/3 в шейдере — семью знаками
+                            assertEquals(MushroomField.shadowThrough(tau, d, width, w, g, 0.3), through.call(args), 1e-7,
+                                    "толща " + tau + ", альбедо " + w + ", расстояние " + d + ", ширина " + width + ", g " + g);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Рассеянное грибом вперёд на землю: облако во всё полушарие — как слой без края (на горизонтальную землю (1 + μ)/2
+     * его потока), узкое и далёкое — как пучок с неба у солнца (v·μ). Поэтому тонкая ножка в сотнях блоков от земли тень
+     * даёт почти прямым пучком (рассеянное ею вперёд приходит из малой доли неба), а широкий слой низко над землёй — как
+     * два потока слоя. Ширина облака — по площади его тени поперёк солнца: сверху — круг, сбоку — во всю высоту.
+     */
+    @Test
+    void forwardLightSeenLikeTheCloud() {
+        for (double mu : new double[]{0.05, 0.3, 1}) {
+            assertEquals((1 + mu) / (2 * mu), MushroomField.seen(1e9, 1, mu), 1e-9);
+            assertEquals(1e-8, MushroomField.seen(1, 1e4, mu), 1e-14);
+            for (double v = 0.01; v < 1; v += 0.01) {
+                double w = Math.sqrt(v / (1 - v));
+                assertTrue(MushroomField.seen(w + 0.01, 1, mu) > MushroomField.seen(w, 1, mu), "шире — виднее");
+            }
+            assertEquals(40 * Math.sqrt(mu), MushroomField.across(40, 0, mu), 1e-9, "плоское — круг, сжатый наклоном");
+        }
+        assertEquals(40, MushroomField.across(40, 900, 1), 1e-9, "солнце над головой — круг сверху");
+        assertEquals(Math.sqrt(2 / Math.PI * 40 * 900), MushroomField.across(40, 900, 0), 1e-9, "солнце у горизонта — столб сбоку");
+        double stem = PallLight.albedo(PallLight.linear(((MushroomField.STEM >> 8) & 0xFF) / 255.0), PallLight.truncated(MushroomField.G));
+        // ножка: толща 2 поперёк, полуширина 60 блоков, в 400 блоках по прямой к солнцу на высоте 30°
+        double g = PallLight.truncated(MushroomField.G);
+        double t = MushroomField.shadowThrough(2, 400, 60, stem, g, 0.5);
+        assertTrue(t < Math.exp(-2) + 0.02, String.format(Locale.ROOT, "ножка пропускает %.3f", t));
+        // слой шире в тысячу раз, чем расстояние до него, — как слой без края
+        double slab = Math.exp(-2) + PallLight.diffuse(stem, g, 2, 2, 0, 1, 1, 1, 0, 0, 0, -2.0 / 3) * 1.5 / (2 * 0.5);
+        assertEquals(slab, MushroomField.shadowThrough(2, 50, 5e4, stem, g, 0.5), 1e-5);
+    }
+
+    /**
+     * Прямую карты тени дальше толщи MUSH_SHADOW_DARK не считают, и вывод на кадр берёт свет под ней как под этой толщей:
+     * сквозь неё и у самого белого вещества гриба (водяная пыль юбки, пар шапки) проходит меньше процента света солнца —
+     * прямым пучком и рассеянным вперёд, даже если облако закрывает всё полушарие у низкого солнца (косинус пучка у вывода
+     * на кадр — не меньше 0,12).
+     */
+    @Test
+    void shadowCutLosesUnderAPercent() {
+        double dark = constants().get("MUSH_SHADOW_DARK"), dust = PallLight.truncated(MushroomField.G);
+        // вещество гриба — с асимметрией пыли пелены, столб воды — капель
+        double[][] matter = {{MushroomField.CAP_YOUNG, dust}, {MushroomField.CAP_OLD, dust}, {MushroomField.STEM, dust}, {MushroomField.SKIRT, dust},
+                {MushroomField.STEAM, dust}, {CloudPuffs.SPRAY, dust}, {CloudPuffs.SPRAY, PallLight.truncated(MushroomField.G_WATER)}};
+        for (double[] at : matter) {
+            int rgb = (int) at[0];
+            double g = at[1], w = PallLight.albedo(PallLight.linear(((rgb >> 8) & 0xFF) / 255.0), g);
+            for (double mu = 0.12; mu <= 1; mu += 0.01) {
+                double through = MushroomField.shadowThrough(dark, 0, 1, w, g, mu);
+                assertTrue(through < 0.01, String.format(Locale.ROOT, "%06X, g %.3f, солнце %.2f: %.4f", rgb, g, mu, through));
+            }
+        }
+    }
+
+    /** Таблица грибов: шейдер читает тексели 0..TEXELS−1 строки гриба (номером или константой). */
     @Test
     void tableLayoutMatchesJava() {
-        Matcher m = Pattern.compile("ivec2\\((\\d+), k\\)").matcher(GLSL);
+        Map<String, Double> c = constants();
+        Matcher m = Pattern.compile("ivec2\\((\\w+), k\\)").matcher(GLSL);
         int max = -1;
-        while (m.find()) max = Math.max(max, Integer.parseInt(m.group(1)));
+        while (m.find()) {
+            String at = m.group(1);
+            max = Math.max(max, at.matches("\\d+") ? Integer.parseInt(at) : c.get(at).intValue());
+        }
         assertEquals(MushroomField.TEXELS - 1, max);
     }
 

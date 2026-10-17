@@ -63,8 +63,12 @@ import java.util.concurrent.CompletionException;
  * слоя (что гриб закрывает перед частицей). Гриб рисуется и без пелены, и при пелене, выключенной в настройке (тогда —
  * на ступени LOW): другого гриба нет.
  * <p>
- * Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, таблица грибов 256×5 (RGBA32F), шум 64³
- * (RG8) и 64² (R8): всё вместе меньше 2 МБ на 1080p; карты огня — до 0,7 МБ на слот (сторона до 256 клеток), карты рельефа и воды под пеленой — 64 КБ на слот. Шум считается в фоне при первом
+ * Днём грибы кладут тень на мир: до лучей — карта тени ({@code fx_mush_shadow}, плитка
+ * {@link MushroomField#SHADOW}² на гриб в плоскости поперёк солнца: доля света солнца, что гриб пропускает к трём
+ * высотам, — прямым пучком и рассеянным вперёд), на кадре — выборка из неё в каждом пикселе мира ({@code fx_pall_composite}).
+ * <p>
+ * Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, таблица грибов 256×5 (RGBA32F), карта тени
+ * грибов 128×512 (RGBA16F, 0,5 МБ), шум 64³ (RG8) и 64² (R8): всё вместе меньше 2,5 МБ на 1080p; карты огня — до 0,7 МБ на слот (сторона до 256 клеток), карты рельефа и воды под пеленой — 64 КБ на слот. Шум считается в фоне при первом
  * подрыве (около секунды); пока он не готов, пелены нет.
  * <p>
  * Подробность сама держит бюджет ({@link Detail}): время проходов на видеокарте меряют метки времени OpenGL, читаемые
@@ -353,7 +357,7 @@ public final class PallPass {
     }
 
     @Nullable
-    static ShaderInstance march, resolve, composite;
+    static ShaderInstance march, resolve, composite, shadow;
     private static final Frame EMPTY = new Frame();
     private static final Detail DETAIL = new Detail();
     /** Шум не вышел (ошибка в фоне): пелены нет до перезапуска. */
@@ -364,6 +368,8 @@ public final class PallPass {
     private static final int[] TEXTURES = {-1, -1, -1}, FBOS = {-1, -1, -1};
     private static int latest;
     private static int table = -1, noise = -1, blue = -1, mushrooms = -1;
+    /** Карта тени грибов от солнца (плитка {@link MushroomField#SHADOW}² на гриб) и её кадр; −1 — не вышла, тени нет. */
+    private static int shadowMap = -1, shadowFbo = -1;
     /** Карты огня слотов (текстура, её сторона, чья и какое заполнение) и карты этого кадра (−1 — нет). */
     private static final int[] FIRE = {-1, -1}, FIRE_SIDE = new int[2], FIRE_VERSION = new int[2], FIRE_NOW = {-1, -1};
     private static final Object[] FIRE_SOURCE = new Object[2];
@@ -488,10 +494,11 @@ public final class PallPass {
 
     /**
      * Нарисовать пелену кадра в текущий кадр (после мира, до квадратов слоя); false — не вышло (нет шейдеров, шум не
-     * готов). {@code view} — вид кадра от глаза {@code eye}, {@code scene} — расстояния до мира ({@link SceneDepth}).
+     * готов). {@code view} — вид кадра от глаза {@code eye}, {@code scene} — расстояния до мира ({@link SceneDepth}),
+     * {@code haze} — дымка воздуха и туман Minecraft ({@link FxFrame.Fog#haze}): тень на мире за ними тает.
      */
-    static boolean draw(Frame f, int scene, Matrix4f view, Matrix4f projection, Vec3 eye) {
-        ShaderInstance m = march, r = resolve, c = composite;
+    static boolean draw(Frame f, int scene, Matrix4f view, Matrix4f projection, Vec3 eye, Vector4f haze) {
+        ShaderInstance m = march, r = resolve, c = composite, sh = shadow;
         if (m == null || r == null || c == null || f.quality == Quality.OFF || !upload()) return false;
         Minecraft mc = Minecraft.getInstance();
         int w = mc.getMainRenderTarget().width, h = mc.getMainRenderTarget().height;
@@ -515,6 +522,14 @@ public final class PallPass {
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0);
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, 0);
         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, WIDTH, ROWS, GL11.GL_RGBA, GL11.GL_FLOAT, tableBuffer);
+        // тень грибов — днём, если карта есть; иначе плиток нет (их тексели — нули): вывод на кадр карту не читает
+        boolean shade = sh != null && shadowMap >= 0 && f.sun.w > 0 && f.mushroomCount > 0;
+        if (!shade) {
+            for (int k = 0; k < MushroomField.MUSHROOMS; k++) {
+                int at = (k * MushroomField.WIDTH + MushroomField.SHADOW_RECT) * 4;
+                Arrays.fill(f.mushrooms, at, at + 4, 0f);
+            }
+        }
         // строки грибов (свет чёрного тела под ними — с начала)
         mushroomBuffer.clear();
         mushroomBuffer.put(f.mushrooms, 0, MushroomField.WIDTH * MushroomField.MUSHROOMS * 4).flip();
@@ -546,6 +561,15 @@ public final class PallPass {
         RenderSystem.depthMask(false);
         RenderSystem.disableBlend();
         RenderSystem.colorMask(true, true, true, true);
+
+        // 0. карта тени грибов от солнца — плитки грибов кадра одна над другой
+        if (shade) {
+            GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, shadowFbo);
+            RenderSystem.viewport(0, 0, MushroomField.SHADOW, MushroomField.SHADOW * f.mushroomCount);
+            RenderSystem.setShaderTexture(0, mushrooms);
+            sh.safeGetUniform("PallSun").set(f.sun.x, f.sun.y, f.sun.z, f.sun.w);
+            quad(sh, false);
+        }
 
         // 1. лучи
         GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, FBOS[0]);
@@ -622,6 +646,8 @@ public final class PallPass {
         RenderSystem.setShaderTexture(4, fire1);
         RenderSystem.setShaderTexture(5, ground0);
         RenderSystem.setShaderTexture(6, ground1);
+        RenderSystem.setShaderTexture(7, mushrooms);
+        RenderSystem.setShaderTexture(8, shade ? shadowMap : table);
         c.safeGetUniform("InvViewProj").set(INVERSE);
         c.safeGetUniform("PallForward").set(FORWARD.x, FORWARD.y, FORWARD.z);
         c.safeGetUniform("PallSlot0").set(f.slot0);
@@ -637,6 +663,7 @@ public final class PallPass {
         c.safeGetUniform("PallWater0").set(f.water0.x, f.water0.y, f.water0.z, f.water0.w);
         c.safeGetUniform("PallWater1").set(f.water1.x, f.water1.y, f.water1.z, f.water1.w);
         c.safeGetUniform("PallFloorFrom").set(f.floorFrom);
+        c.safeGetUniform("Haze").set(haze.x, haze.y, haze.z, haze.w);
         // пламя на поверхностях мерцает по трёхмерному шуму
         quad(c, true);
         RenderSystem.enableDepthTest();
@@ -830,11 +857,39 @@ public final class PallPass {
             mushroomBuffer = MemoryUtil.memAllocFloat(start.length);
             mushroomBuffer.put(start).flip();
             GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA32F, MushroomField.WIDTH, MushroomField.ROWS, 0, GL11.GL_RGBA, GL11.GL_FLOAT, mushroomBuffer);
+            shadowMap();
         } finally {
             MemoryUtil.memFree(buf);
             GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, 4);
         }
         return true;
+    }
+
+    /**
+     * Карта тени грибов: плитки {@link MushroomField#SHADOW}² грибов одна над другой, линейно между текселями (тень на земле
+     * гладкая), без повтора на краю; не вышла — тени нет.
+     */
+    private static void shadowMap() {
+        int previous = GlStateManager._getInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+        shadowMap = GlStateManager._genTexture();
+        GlStateManager._bindTexture(shadowMap);
+        GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MIN_FILTER, GlConst.GL_LINEAR);
+        GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MAG_FILTER, GlConst.GL_LINEAR);
+        GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_S, GlConst.GL_CLAMP_TO_EDGE);
+        GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_T, GlConst.GL_CLAMP_TO_EDGE);
+        GlStateManager._texImage2D(GlConst.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, MushroomField.SHADOW, MushroomField.SHADOW * MushroomField.MUSHROOMS, 0,
+                GL11.GL_RGBA, GL11.GL_FLOAT, null);
+        shadowFbo = GlStateManager.glGenFramebuffers();
+        GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, shadowFbo);
+        GlStateManager._glFramebufferTexture2D(GlConst.GL_FRAMEBUFFER, GlConst.GL_COLOR_ATTACHMENT0, GlConst.GL_TEXTURE_2D, shadowMap, 0);
+        boolean ok = GlStateManager.glCheckFramebufferStatus(GlConst.GL_FRAMEBUFFER) == GlConst.GL_FRAMEBUFFER_COMPLETE;
+        GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, previous);
+        if (!ok) {
+            Incoming.LOG.error("Mushroom shadow map not created: no mushroom shadow on the ground");
+            GlStateManager._glDeleteFramebuffers(shadowFbo);
+            GlStateManager._deleteTexture(shadowMap);
+            shadowMap = shadowFbo = -1;
+        }
     }
 
     /** Кадры пониженного разрешения под размер кадра игры и качество (заново при смене). */
