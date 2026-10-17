@@ -187,13 +187,19 @@ public final class FireStorm {
     /** Сколько горит в последнем заполнении (сумма пламени по клеткам). */
     private double burning;
     private double filledAt = Double.NaN, lastStart = Double.NaN;
-    /** Доверие модели огня (пожары у сервера включены): 0..1, пишет тик клиента. */
-    private double gate = 1;
+    /** Доверие модели огня (пожары у сервера включены): 0..1, пишет тик клиента ({@link #trust}, плавно). */
+    private double gate;
+    /**
+     * Сколько горит в своих чанках против модели там же, пока огонь молод ({@code NukeAfter}): 1 — как в модели, 0 —
+     * сервер не жжёт или погасили. Живёт со штормом и после перемотки повтора: огонь, сверенный молодым, позже не
+     * сверить — ванильный прогорает по-своему, а шторм горит до утра.
+     */
+    private double seen = 1;
     /** Верх рельефа под смерчами, блоки (NaN — не замеряли: тогда земля под эпицентром); пишет тик клиента. */
     private double[] whirlGround = new double[0];
     /**
-     * Доля клетки, где есть чему гореть, по рельефу у клиента ({@link #survey}): вода, лёд и снег не горят; 1 — суша или
-     * не знаем (дальше прорисовки без карты рельефа). По номеру клетки зоны, как у сетки.
+     * Доля клетки, где есть чему гореть, по рельефу у клиента ({@link #survey}): вода, лёд и снег не горят; где не знаем
+     * (дальше прорисовки без карты рельефа) — как под эпицентром. По номеру клетки зоны, как у сетки.
      */
     private float[] dry = new float[0];
     private int surveyAt;
@@ -203,6 +209,7 @@ public final class FireStorm {
     FireStorm(Detonation d, PallField pall) {
         this.d = d;
         this.pall = pall;
+        this.gate = d.fires() ? 1 : 0;
     }
 
     /** Сетка готова (в первый раз — запуск счёта в фоне); null — ещё нет или шторма нет (не горит ничего). */
@@ -245,7 +252,20 @@ public final class FireStorm {
         return g == null ? List.of() : g.whirls;
     }
 
-    /** Доверие модели (пожары у сервера включены, {@link NukeAfter#visualTrust}). */
+    /** Сверка с огнём в своих чанках, пока он молод (пишет {@code NukeAfter}). */
+    void seen(double trust) {
+        seen = trust;
+    }
+
+    /**
+     * Горят ли пожары у сервера на деле, 0..1: нет, если сервер их не зажигает ({@link Detonation#fires}) или в своих
+     * чанках, где модель ждёт огня, его не было, пока он молод.
+     */
+    double trust() {
+        return d.fires() ? Math.min(1, seen / 0.3) : 0;
+    }
+
+    /** Доверие модели, к которому плавно идёт тик клиента ({@link #trust}). */
     void gate(double g) {
         gate = g;
     }
@@ -300,14 +320,15 @@ public final class FireStorm {
     /**
      * Тик клиента: доля сухой земли в следующих {@link #SURVEY_CELLS} клетках зоны по кругу — по точкам 3 × 3 в клетке,
      * что знает клиент ({@code surface}: свои чанки и плитки карты рельефа). Модель огня рельефа не знает, а горящее море
-     * или ледник видно сразу; где не знаем — горит, как в модели.
+     * или ледник видно сразу. Где не знаем ничего, клетка — как под эпицентром ({@code unknownWet}: доля воды там,
+     * {@code NukeWater.under}, у подрыва над морем — и догадка по высоте земли): подрыв над морем вдали иначе жёг бы море.
      */
-    void survey(Surface surface) {
+    void survey(Surface surface, double unknownWet) {
         Grid g = grid;
         if (g == null || g.index.length == 0) return;
         if (dry.length != g.index.length) {
             dry = new float[g.index.length];
-            Arrays.fill(dry, 1);
+            Arrays.fill(dry, (float) (1 - unknownWet));
             surveyAt = 0;
         }
         double half = g.side * g.cell / 2, step = g.cell / SURVEY_POINTS;
@@ -327,8 +348,7 @@ public final class FireStorm {
                     wet += w;
                 }
             }
-            if (known == 0) continue;
-            float v = 1 - (float) wet / known;
+            float v = known == 0 ? (float) (1 - unknownWet) : 1 - (float) wet / known;
             if (v != dry[k]) {
                 dry[k] = v;
                 dirty = true;
@@ -336,7 +356,7 @@ public final class FireStorm {
         }
     }
 
-    /** Доля сухой земли в клетке под точкой (блоки мира); вне зоны и где не знаем — 1. */
+    /** Доля сухой земли в клетке под точкой (блоки мира); вне зоны пожаров — 1. */
     double dryAt(double x, double z) {
         Grid g = grid;
         if (g == null || dry.length != g.index.length) return 1;

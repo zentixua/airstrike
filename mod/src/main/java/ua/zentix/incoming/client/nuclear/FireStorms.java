@@ -22,7 +22,7 @@ import java.util.Locale;
 /**
  * Огненный шторм кадра для слоя эффектов ({@link FireStorm} → {@link PallPass.Frame}): у слотов пелены ({@link NukePall})
  * — слот огня (карта и числа для {@code pall.glsl}), рамка шторма, до четырёх смерчей в кадре. Своего пакета нет:
- * всё — по возрасту подрыва, а гаснет шторм там, где сервер не жжёт (доверие {@link NukeAfter#visualTrust}).
+ * всё — по возрасту подрыва, а гаснет шторм там, где сервер не жжёт (доверие {@link FireStorm#trust}).
  */
 final class FireStorms {
     /** Цвет огня на экране (пламя с сажей, около 1100 K). */
@@ -44,7 +44,7 @@ final class FireStorms {
      */
     static final double SMOKE_SIGMA_M = 0.07;
     /**
-     * Пламя на поверхностях — дальше стольких блоков от глаза (с половины — плавно): ближе пятно краски на блоках видно,
+     * Пламя на поверхностях — дальше стольких блоков от глаза (проступает до полутора): ближе пятно краски на блоках видно,
      * а там горит настоящий огонь ванили, если сервер его зажёг.
      */
     static final float FLAME_NEAR = 96;
@@ -72,14 +72,14 @@ final class FireStorms {
 
     /**
      * Тик клиента: доверие модели огня — к сверке с огнём в своих чанках; что из зоны пожаров — вода, лёд или снег (по
-     * своим чанкам и плиткам карты рельефа, {@link FireStorm#survey}).
+     * своим чанкам и плиткам карты рельефа, где не знаем — как под эпицентром, {@link FireStorm#survey}).
      */
     static void tick(List<ClientNuclear.Active> all) {
         ClientLevel level = Minecraft.getInstance().level;
         for (ClientNuclear.Active a : all) {
             double was = a.storm.gate();
-            a.storm.gate(was + GATE_RATE * (a.sounds.after.visualTrust() - was));
-            if (level != null) a.storm.survey(surface(level));
+            a.storm.gate(was + GATE_RATE * (a.storm.trust() - was));
+            if (level != null) a.storm.survey(surface(level), NukeWater.under(level, a.d).water());
         }
     }
 

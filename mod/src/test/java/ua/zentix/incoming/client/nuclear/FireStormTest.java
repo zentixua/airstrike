@@ -164,10 +164,16 @@ class FireStormTest {
         assertNotNull(g);
         // к западу от эпицентра — море, у самого эпицентра — не знаем, к востоку — суша
         FireStorm.Surface surface = (x, z) -> Math.abs(x - AIR.burst().x) < 100 ? -1 : x < AIR.burst().x ? 1 : 0;
-        for (int i = 0; i <= g.index().length / FireStorm.SURVEY_CELLS; i++) s.survey(surface);
+        for (int i = 0; i <= g.index().length / FireStorm.SURVEY_CELLS; i++) s.survey(surface, 0);
         assertEquals(0, s.dryAt(AIR.burst().x - 500, AIR.burst().z), 0);
         assertEquals(1, s.dryAt(AIR.burst().x + 500, AIR.burst().z), 0);
-        assertEquals(1, s.dryAt(AIR.burst().x + 5, AIR.burst().z), 0, "не знаем — горит, как в модели");
+        assertEquals(1, s.dryAt(AIR.burst().x + 5, AIR.burst().z), 0, "не знаем, под эпицентром суша — горит, как в модели");
+        // под эпицентром море: где не знаем ничего, не горит (подрыв над морем вдали)
+        FireStorm sea = new FireStorm(AIR, new PallField(AIR, NIGHT));
+        for (int i = 0; i < 600 && sea.grid() == null; i++) Thread.sleep(10);
+        for (int i = 0; i <= g.index().length / FireStorm.SURVEY_CELLS; i++) sea.survey(surface, 1);
+        assertEquals(0, sea.dryAt(AIR.burst().x + 5, AIR.burst().z), 0, "не знаем, под эпицентром море — не горит");
+        assertEquals(1, sea.dryAt(AIR.burst().x + 500, AIR.burst().z), 0, "суша, которую знаем, горит");
         // ночь подрыва — утро через 5 минут: карта — на 3-й минуте
         assertTrue(s.refresh(20 * 180));
         float[] map = s.map();
@@ -181,6 +187,20 @@ class FireStormTest {
         }
         assertEquals(0, west, 0, "море не горит");
         assertTrue(east > 100 && middle > 0, "суша и неизвестное горят: " + east + ", " + middle);
+    }
+
+    @Test
+    void noStormWhereTheServerStartsNoFires() {
+        FireStorm off = new FireStorm(AIR.withFires(false), new PallField(AIR, NIGHT));
+        assertEquals(0, off.gate(), 0, "с первого кадра");
+        assertEquals(0, off.trust(), 0);
+        FireStorm on = new FireStorm(AIR, new PallField(AIR, NIGHT));
+        assertEquals(1, on.gate(), 0);
+        assertEquals(1, on.trust(), 0);
+        on.seen(0);
+        assertEquals(0, on.trust(), 0, "в своих чанках модель ждала огня, а его нет");
+        on.seen(0.15);
+        assertEquals(0.5, on.trust(), 1e-12);
     }
 
     @Test

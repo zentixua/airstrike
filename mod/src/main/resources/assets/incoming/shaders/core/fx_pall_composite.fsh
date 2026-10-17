@@ -50,8 +50,8 @@ float shade(vec3 p) {
 
 // Пламя горящего города на поверхности в точке p (от глаза), dist — до неё, pixel — ширина пикселя там (блоки): где
 // горит — пятна по шуму (дома и дворы) с силой клетки карты, мерцает; мельче пикселя — средняя доля пятен (вдали не
-// рябит). Ближе FLAME_NEAR (F[2].w) тает: там пятно краски на блоках видно, а горит настоящий огонь ванили. И ровный
-// отсвет пожаров на всём вокруг (ночью горящий город рыжий).
+// рябит). Ближе FLAME_NEAR (F[2].w) нет, до полутора — проступает: там пятно краски на блоках видно, а горит настоящий
+// огонь ванили. И ровный отсвет пожаров на всём вокруг (ночью горящий город рыжий).
 vec3 flames(sampler2D map, mat4 S, mat4 F, vec3 p, float dist, float pixel) {
     if (F[0].x <= 0.0) return vec3(0.0);
     float h = p.y - S[0].z;
@@ -65,7 +65,7 @@ vec3 flames(sampler2D map, mat4 S, mat4 F, vec3 p, float dist, float pixel) {
     float spots = smoothstep(0.52, 0.72, texture(PallNoise, vec3(rel.x / 70.0, p.y / 90.0, rel.y / 70.0)).r);
     spots = mix(spots, 0.3, smoothstep(4.0, 16.0, pixel));
     float flicker = 0.55 + 0.9 * texture(PallNoise, vec3(rel.x / 25.0, t * 0.4, rel.y / 25.0)).g;
-    float near = smoothstep(0.5 * F[2].w, 1.5 * F[2].w, dist);
+    float near = smoothstep(F[2].w, 1.5 * F[2].w, dist);
     float e = F[2].x * min(r, 1.5) * spots * flicker;
     vec3 hot = mix(F[3].rgb, vec3(1.0, 0.72, 0.36), clamp(e - 0.6, 0.0, 0.5));
     return near * (hot * e + F[3].rgb * (0.12 * F[1].w * around));
