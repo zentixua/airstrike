@@ -748,6 +748,8 @@ final class Newisle {
         @Nullable
         volatile Vec3 lastServer;
         volatile boolean intercepted;
+        /** Сбитие отмечено в журнале повтора ({@code mark:intercept} — якорь куска в монтажном листе). */
+        boolean downMarked;
 
         Launched(int index, Strike strike, double flight, double after, double delay) {
             this.index = index;
@@ -785,6 +787,10 @@ final class Newisle {
         }
 
         void tick() {
+            if (intercepted && !downMarked) {
+                downMarked = true;
+                if (film.marking()) film.mark("intercept");
+            }
             if (id == null) {
                 // свой — первый появившийся (номер ClientFlights): пуски идут по порядку, а цель у клиента — с рассеиванием
                 // (у «Града» СКО — 1 % дальности, ~10 блоков; соседние цели n21 — через 15 блоков)

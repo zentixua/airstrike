@@ -487,16 +487,22 @@ def sam_outcome(take, result):
     """Исход ПВО плана против `expect` его записи в листе дублей: `{"kills": [от, до], "interceptors": n}` — сбито ЗРК
     столько ударов плана (поле `intercepted` у удара в result.json) и зенитных ракет в полёте за запись не меньше
     `sam_launched` (Артём 17.10 о n17: батарей стреляет много, сбито одно-два, остальные шахеды прорываются к городу).
-    Исход случаен (вероятность поражения), поэтому провал — пересъёмка."""
+    План без `expect` не должен терять удары от ЗРК. Исход случаен (вероятность поражения), поэтому провал — пересъёмка."""
     out = []
     by_plans = {tuple(s.get("plans", [])): s for s in (result or {}).get("shots", [])}
     for spec in take.get("shots", []):
         want = spec.get("expect")
         s = by_plans.get(tuple(spec.get("plans", [])))
-        if not want or s is None:
+        if s is None:
             continue
         plan = spec["plans"][0]
         kills = sum(1 for k in s.get("strikes", []) if k.get("intercepted"))
+        if not want:
+            # ЗРК в плане нет, а удар сбит: остался ЗРК прошлой сцены (17.10: sam.clear в незагруженном чанке —
+            # старый ЗРК у (-538, 308) сбил шахед n46 до его окна)
+            if kills:
+                out.append(f"{plan}: сбито ЗРК {kills}, а ЗРК в плане нет")
+            continue
         lo, hi = want.get("kills", [0, len(s.get("strikes", []))])
         if not lo <= kills <= hi:
             out.append(f"{plan}: сбито {kills}, нужно {lo}–{hi}")

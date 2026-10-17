@@ -1,6 +1,6 @@
 {
  "about": "Дубли трейлера на Newisle для постановщика (mod/src/devtest/.../trailer/Newisle.java) и конвейера (tools/trailer/produce.py). Дубль — одна запись на одной копии мира: время суток и погода стоят весь дубль, планы — по порядку истории, после дубля мир сохраняется снимком, следующий дубль цепочки (`from: chain`) идёт на копии этого снимка. `intact` — копия нетронутого мастера (живые дубли Артёма); `branch:<дубль>` — копия снимка после того дубля, дальше цепочка эту копию не берёт (МБР из шахты). У дубля с `artem` два прогона: живой (Артём в игре, копия мастера) и цепочный (удары без записи). План — запись повтора (`shots`); несколько планов на одном повторе — `plans` с `offsets` (секунда окна, где начинается план; камеры ставит вывод после записи). Удары — из newisle.json (`strikes` плана, `eta` — секунда плана), `strikes` здесь заменяет их для постановки: `route` — путь из `routes` (пуск — с начала пути, точки `via`), `pass` — точка пролёта: `eta` — когда снаряд у неё, а не удар. Точки — как в newisle.json: [x, z] (верх колонки + 2), [x, y, z], {at, above}, {at, ground}, имя места; у людей и пусковых [x, z] — ноги на верху колонки. Действия (`do`) — Newisle.java (Actions); `stage` идёт до планов, `ready` — когда камера плана готова, `cues` — на секундах плана, `end` — в конце плана, `after` — после планов. `minutes` — оценка записи до первого замера (конвейер считает сроки по замерам).",
- "clock": {"night": 20000, "dawn": 23500, "morning": 1000, "day": 4000, "afternoon": 8000, "sunset": 12300, "dusk": 13000},
+ "clock": {"night": 20000, "dawn": 23500, "sunrise": 0, "morning": 1000, "day": 4000, "afternoon": 8000, "sunset": 12300, "dusk": 13000},
  "limits": {"retries": 2, "stall_seconds": 600, "heap_share": 0.95, "take_factor": 2.0, "night_hours": 9.5, "disk_floor_gb": 4, "ram_floor_gb": 3, "client_gb": 10, "pause_minutes": 30, "flights_wait_s": 120, "launch_lag": {"missile": 2.2}},
  "smoke": ["T02", "T04", "T24"],
  "places": {
@@ -158,21 +158,22 @@
    ]
   },
   {
-   "id": "T10", "title": "ЗРК против стаи шахедов и мобильная группа", "from": "branch:T09", "clock": "dawn", "siren": true, "minutes": 12,
+   "id": "T10", "title": "ЗРК против стаи шахедов и мобильная группа", "from": "branch:T09", "clock": "sunrise", "siren": true, "minutes": 12,
    "stage": [
     {"do": "sam", "at": "c1_sam_w", "load": 0},
     {"do": "sam", "at": "c1_sam", "load": 0},
     {"do": "sam", "at": "c1_sam_e", "load": 0},
     {"do": "sam", "at": "c1_sam_e2", "load": 0},
-    {"do": "player", "at": {"at": [-200, 260], "above": 40}, "look": "c1_sam", "mode": "spectator"},
+    {"do": "player", "at": {"at": [-530, 296], "above": 40}, "look": "c1_sam", "mode": "spectator"},
     {"do": "wait", "s": 4},
     {"do": "sam.clear", "at": [-530, 296], "r": 40},
+    {"do": "player", "at": {"at": [-200, 260], "above": 40}, "look": "c1_sam", "mode": "spectator"},
     {"do": "gunners", "group": "mg", "at": "mg_group", "n": 4, "spread": 3, "prefix": "Mg", "gun": "pointblank:ak47"},
     {"do": "settle"},
     {"do": "wait", "s": 10}
    ],
    "shots": [
-    {"plans": ["n17"], "seconds": 8,
+    {"plans": ["n17"], "seconds": 7,
      "strikes": [
       {"weapon": "drone", "route": "herd_w", "eta": 8.2},
       {"weapon": "drone", "route": "herd_e", "eta": 9.85},
@@ -185,7 +186,7 @@
       {"weapon": "drone", "route": "herd_c", "eta": 10.3}
      ],
      "ready": [
-      {"do": "sam.config", "kill": 0.2, "engage": 220, "reload": 0},
+      {"do": "sam.config", "kill": 0.2, "engage": 120, "reload": 0},
       {"do": "sam", "at": "c1_sam_w", "load": 2},
       {"do": "sam", "at": "c1_sam", "load": 2},
       {"do": "sam", "at": "c1_sam_e", "load": 2},

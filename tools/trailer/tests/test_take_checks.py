@@ -449,8 +449,9 @@ class SamOutcomeTest(unittest.TestCase):
         r = self.result(3, 8)
         self.assertEqual(T.sam_outcome(self.TAKE, r), T.record_problems(tempfile.mkdtemp(), self.TAKE, r))
 
-    def test_shot_without_expect_is_not_checked(self):
-        self.assertEqual([], T.sam_outcome({"shots": [{"plans": ["n17"]}]}, self.result(5, 0)))
+    def test_shot_without_expect_must_lose_nothing_to_a_sam(self):
+        self.assertEqual([], T.sam_outcome({"shots": [{"plans": ["n17"]}]}, self.result(0, 0)))
+        self.assertEqual(["n17: сбито ЗРК 1, а ЗРК в плане нет"], T.sam_outcome({"shots": [{"plans": ["n17"]}]}, self.result(1, 0)))
 
 
 class RecordProblemsTest(unittest.TestCase):
