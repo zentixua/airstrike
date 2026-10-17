@@ -84,8 +84,11 @@ class ShaderSourceTest {
                 for (String[] stage : new String[][]{{"vertex", ".vsh"}, {"fragment", ".fsh"}}) {
                     String file = program.get(stage[0]).getAsString().replaceFirst("^incoming:", "") + stage[1];
                     Matcher m = uniform.matcher(blankComments(withImports(core.resolveSibling("include"), Files.readString(core.resolve(file)), new HashSet<>())));
+                    Set<String> declared = new HashSet<>();
                     while (m.find()) {
                         String type = m.group(1), u = m.group(2);
+                        // объявленный и в include, и в самом шейдере — переопределение, шейдер не собирается
+                        if (!declared.add(u)) bad.add(name + ": " + file + " объявлен дважды " + u);
                         used.add(u);
                         if (type.equals("sampler3D")) continue;
                         if (!(type.startsWith("sampler") ? samplers : numbers).contains(u)) bad.add(name + ": " + file + " " + type + " " + u);

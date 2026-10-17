@@ -78,7 +78,8 @@ void main() {
         }
         if (n > 0) seen = sum / float(n);
     }
-    // пелена и грибы до передней границы источника (пелены и грибов на кадре нет — PallAmbient.w = 0)
+    // пелена — до передней границы источника, грибы — до середины без своей шапки (пелены и грибов на кадре нет —
+    // PallAmbient.w = 0)
     float len = length(center);
     if (PallAmbient.w > 0.5 && len > radius) seen *= pallThrough(center / len, len - radius) * probeMush(Sampler11, center, radius);
     fragColor = vec4(seen, 0.0, 0.0, 1.0);

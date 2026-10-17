@@ -136,7 +136,7 @@ public final class ClientScenario {
     /** Зритель висит в воздухе (far-models): после телепорта сервер присылает способности, и полёт сбрасывается. */
     private boolean hover;
     /** Сценарий {@code mushroom}: куда от зрителя эпицентр (поворот, как у игрока), — туда, где суша. */
-    private volatile int mushroomYaw = 180;
+    private int mushroomYaw = 180;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
     /** Ядерный подрыв у воды ({@code nuke-water}, {@code nuke-lake}): кадры от подрыва ({@link #waterEvents}). */
@@ -588,30 +588,30 @@ public final class ClientScenario {
         boolean night = "night".equals(System.getenv("INCOMING_MUSHROOM"));
         at(20, () -> {
             // эпицентр в 10 км — на суше по генератору (у зерна сценария к северу море: подрыв там водяной, и столб воды
-            // закрывал бы шар): первое направление, где суша и под эпицентром, и в 600 блоках вокруг (юбка, пелена)
-            var server = Minecraft.getInstance().getSingleplayerServer();
-            server.execute(() -> {
-                var level = server.overworld();
-                var gen = level.getChunkSource().getGenerator();
-                var random = level.getChunkSource().randomState();
-                int bestYaw = 180, best = -1;
-                for (int k = 0; k < 36 && best < 9; k++) {
-                    int yaw = 180 + 10 * k;
-                    double sx = -Math.sin(Math.toRadians(yaw)), sz = Math.cos(Math.toRadians(yaw));
-                    int land = 0;
-                    for (int i = 0; i < 9; i++) {
-                        double r = i == 0 ? 0 : 600, a = Math.PI / 4 * i;
-                        int x = (int) Math.round(10000 * sx + r * Math.cos(a)), z = (int) Math.round(10000 * sz + r * Math.sin(a));
-                        if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) >= 64) land++;
-                    }
-                    if (land > best) {
-                        best = land;
-                        bestYaw = yaw;
-                    }
+            // закрывал бы шар): первое направление, где суша под эпицентром и в 600 блоках вокруг (юбка, пелена), а нет
+            // такого — где больше суши, но под эпицентром суша прежде всего. Сразу, до телепорта: шум генератора читают
+            // и потоки генерации мира одновременно
+            var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+            var gen = level.getChunkSource().getGenerator();
+            var random = level.getChunkSource().randomState();
+            int bestYaw = 180, best = -1;
+            for (int k = 0; k < 36 && best < 18; k++) {
+                int yaw = 180 + 10 * k;
+                double sx = -Math.sin(Math.toRadians(yaw)), sz = Math.cos(Math.toRadians(yaw));
+                int land = 0;
+                for (int i = 0; i < 9; i++) {
+                    double r = i == 0 ? 0 : 600, a = Math.PI / 4 * i;
+                    int x = (int) Math.round(10000 * sx + r * Math.cos(a)), z = (int) Math.round(10000 * sz + r * Math.sin(a));
+                    if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) >= 64) land += i == 0 ? 10 : 1;
                 }
-                mushroomYaw = bestYaw;
-                Incoming.LOG.info("SCENARIO mushroom burst to yaw {} ({} of 9 points on land)", bestYaw, best);
-            });
+                if (land > best) {
+                    best = land;
+                    bestYaw = yaw;
+                }
+            }
+            mushroomYaw = bestYaw;
+            Incoming.LOG.info("SCENARIO mushroom burst to yaw {} (epicentre on land {}, {} of 8 points around)", bestYaw, best >= 10,
+                    best % 10);
         });
         at(40, () -> {
             String q = System.getenv().getOrDefault("INCOMING_PALL", "MEDIUM");
