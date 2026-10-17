@@ -1107,7 +1107,8 @@ final class Newisle {
                 film.withServer(s -> spots.forEach(p -> film.cast().command("setblock " + block(p) + " minecraft:lantern")));
             };
             case "crowd.watch" -> () -> {
-                Vec3 p = at(a.get("at"), 0);
+                // в метке «at» — время, место тогда в «look»
+                Vec3 p = at(a.has("look") ? a.get("look") : a.get("at"), 0);
                 double j = a.has("jitter") ? a.get("jitter").getAsDouble() : 10;
                 film.withServer(s -> group(a).watch(p, j));
             };

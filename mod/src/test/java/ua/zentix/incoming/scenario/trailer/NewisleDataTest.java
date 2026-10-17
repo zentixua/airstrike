@@ -128,6 +128,12 @@ class NewisleDataTest {
         assertEquals(new Vec3(-1000, 70, 0), route.from(), "место пуска — на высоте цели, без мира");
         assertEquals(2, route.via().size());
         assertEquals(new Vec3(7, 70, 8), route.to());
+        // свои точки у удара без пути сценария, цель — точкой в мире как есть
+        Strike own = d.strike(json("{\"weapon\": \"drone\", \"from\": [-300, 1100], \"via\": [[-250, 640]],"
+                + " \"to\": [-200, 90, 0], \"eta\": 9.5}").getAsJsonObject(), 0, null, HEIGHTS);
+        assertEquals(List.of(new Vec3(-250, 0, 640)), own.via());
+        assertEquals(new Vec3(-200, 90, 0), own.to());
+        assertEquals(new Vec3(-300, 90, 1100), own.from(), "место пуска — на высоте цели");
     }
 
     // ================================================================ дубли Newisle
@@ -173,6 +179,10 @@ class NewisleDataTest {
                     for (JsonElement a : list(s, key)) {
                         String what = a.getAsJsonObject().get("do").getAsString();
                         if (!NewisleData.INSTANT.contains(what)) bad.add(id + " " + key + ": шагом нельзя — " + what);
+                        JsonElement at = a.getAsJsonObject().get("at");
+                        if (key.equals("cues") && (at == null || !at.isJsonPrimitive() || !at.getAsJsonPrimitive().isNumber())) {
+                            bad.add(id + " cues: " + what + " — «at» у метки только секунды, место — «look»");
+                        }
                         places(d, id, a.getAsJsonObject(), bad);
                     }
                 }

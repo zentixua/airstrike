@@ -162,7 +162,34 @@
     {"do": "settle"}
    ],
    "shots": [
-    {"plans": ["n02"], "seconds": 6, "strikes": [{"weapon": "drone", "route": "lake_0", "eta": 9.0}, {"weapon": "drone", "route": "lake_1", "eta": 9.08}, {"weapon": "drone", "route": "lake_2", "eta": 9.16}, {"weapon": "drone", "route": "lake_3", "eta": 9.24}, {"weapon": "drone", "route": "lake_4", "eta": 9.32}, {"weapon": "drone", "route": "lake_5", "eta": 9.4}, {"weapon": "drone", "route": "lake_6", "eta": 9.48}, {"weapon": "drone", "route": "lake_0", "eta": 9.5}, {"weapon": "drone", "route": "lake_1", "eta": 9.58}, {"weapon": "drone", "route": "lake_2", "eta": 9.66}, {"weapon": "drone", "route": "lake_3", "eta": 9.74}, {"weapon": "drone", "route": "lake_4", "eta": 9.82}, {"weapon": "drone", "route": "lake_5", "eta": 9.9}, {"weapon": "drone", "route": "lake_6", "eta": 9.98}, {"weapon": "drone", "route": "lake_0", "eta": 10.0}, {"weapon": "drone", "route": "lake_1", "eta": 10.08}, {"weapon": "drone", "route": "lake_2", "eta": 10.16}, {"weapon": "drone", "route": "lake_3", "eta": 10.24}, {"weapon": "drone", "route": "lake_4", "eta": 10.32}, {"weapon": "drone", "route": "lake_5", "eta": 10.4}], "ready": [{"do": "sam.config", "kill": 0.75, "engage": 170, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 2}, {"do": "sam", "at": "c1_sam", "load": 2}, {"do": "sam", "at": "c1_sam_e", "load": 1}], "cues": [{"at": 0.0, "do": "gunners.fire", "group": "mg", "weapon": "drone", "range": 200}], "expect": {"kills": [3, 5], "interceptors": 3}, "end": [{"do": "gunners.stop", "group": "mg"}, {"do": "sam.config"}], "cover": {"n02": {"subject": "scene"}}}
+    {"plans": ["n02"], "seconds": 6,
+     "strikes": [
+      {"weapon": "drone", "from": [-110, 1303], "via": [[-136, 784]], "to": [-60, 136, 19], "eta": 6.87},
+      {"weapon": "drone", "from": [-558, 1233], "via": [[-437, 727]], "to": [-127, 84, 22], "eta": 7.27},
+      {"weapon": "drone", "from": [-236, 1301], "via": [[-235, 781]], "to": [-282, 75, -73], "eta": 9.42},
+      {"weapon": "drone", "from": [-659, 1245], "via": [[-441, 772]], "to": [-159, 135, -26], "eta": 9.2},
+      {"weapon": "drone", "from": [489, 1193], "via": [[235, 739]], "to": [-153, 132, -34], "eta": 9.65},
+      {"weapon": "drone", "from": [-273, 1292], "via": [[-233, 774]], "to": [-173, 138, -13], "eta": 7.99},
+      {"weapon": "drone", "from": [-23, 1282], "via": [[28, 765]], "to": [-51, 129, -63], "eta": 9.46},
+      {"weapon": "drone", "from": [47, 1262], "via": [[46, 742]], "to": [-94, 146, -86], "eta": 9.91},
+      {"weapon": "drone", "from": [-219, 1298], "via": [[-172, 781]], "to": [2, 138, 45], "eta": 7.93},
+      {"weapon": "drone", "from": [-314, 1289], "via": [[-255, 773]], "to": [-242, 141, 31], "eta": 7.66},
+      {"weapon": "drone", "from": [332, 1254], "via": [[112, 783]], "to": [-223, 74, -83], "eta": 12.39},
+      {"weapon": "drone", "from": [-436, 1287], "via": [[-340, 775]], "to": [-236, 103, -24], "eta": 9.67},
+      {"weapon": "drone", "from": [44, 1258], "via": [[-54, 747]], "to": [-313, 136, 2], "eta": 9.82},
+      {"weapon": "drone", "from": [-99, 1242], "via": [[-7, 730]], "to": [-42, 147, 34], "eta": 7.7},
+      {"weapon": "drone", "from": [-401, 1253], "via": [[-309, 741]], "to": [-262, 140, -9], "eta": 9.13},
+      {"weapon": "drone", "from": [-282, 1254], "via": [[-187, 743]], "to": [-224, 146, -107], "eta": 11.58},
+      {"weapon": "drone", "from": [-225, 1277], "via": [[-284, 761]], "to": [-336, 141, 26], "eta": 9.18},
+      {"weapon": "drone", "from": [-80, 1288], "via": [[-127, 770]], "to": [-112, 94, -103], "eta": 12.75},
+      {"weapon": "drone", "from": [95, 1232], "via": [[-32, 728]], "to": [-71, 109, 45], "eta": 9.91},
+      {"weapon": "drone", "from": [-11, 1310], "via": [[48, 793]], "to": [20, 102, -46], "eta": 14.59}
+     ],
+     "ready": [{"do": "sam.config", "kill": 0.8, "engage": 170, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 1}, {"do": "sam", "at": "c1_sam", "load": 2}, {"do": "sam", "at": "c1_sam_e", "load": 1}],
+     "cues": [{"at": 0.0, "do": "gunners.fire", "group": "mg", "weapon": "drone", "range": 200}],
+     "expect": {"kills": [3, 4], "interceptors": 4},
+     "end": [{"do": "gunners.stop", "group": "mg"}, {"do": "sam.config"}],
+     "cover": {"n02": {"subject": "scene", "swarm": {"weapon": "drone", "min": 10, "hold": 2.0, "width": 0.55, "height": 0.3}}}}
    ],
    "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 100}]
   },
@@ -184,15 +211,15 @@
    "shots": [
     {"plans": ["n17"], "seconds": 5,
      "strikes": [
-      {"weapon": "drone", "route": "herd_w", "eta": 5.6},
-      {"weapon": "drone", "route": "herd_e", "eta": 7.25},
-      {"weapon": "drone", "route": "herd_c", "eta": 6.3},
-      {"weapon": "drone", "route": "herd_w", "eta": 6.3},
-      {"weapon": "drone", "route": "herd_e", "eta": 7.95},
-      {"weapon": "drone", "route": "herd_c", "eta": 7.0},
-      {"weapon": "drone", "route": "herd_w", "eta": 7.0},
-      {"weapon": "drone", "route": "herd_e", "eta": 8.65},
-      {"weapon": "drone", "route": "herd_c", "eta": 7.7}
+      {"weapon": "drone", "from": [-49, 1193], "via": [[-125, 679]], "to": [-222, 111, -76], "eta": 7.31},
+      {"weapon": "drone", "from": [22, 1161], "via": [[-122, 662]], "to": [-200, 113, -14], "eta": 7.25},
+      {"weapon": "drone", "from": [-212, 1147], "via": [[-166, 629]], "to": [-267, 114, -18], "eta": 6.68},
+      {"weapon": "drone", "from": [-264, 1178], "via": [[-252, 658]], "to": [-265, 130, -69], "eta": 8.85},
+      {"weapon": "drone", "from": [-200, 1163], "via": [[-228, 644]], "to": [-163, 84, 27], "eta": 6.97},
+      {"weapon": "drone", "from": [-182, 1194], "via": [[-182, 674]], "to": [-146, 81, -23], "eta": 9.09},
+      {"weapon": "drone", "from": [-469, 1113], "via": [[-361, 604]], "to": [-310, 79, -42], "eta": 8.46},
+      {"weapon": "drone", "from": [-307, 1147], "via": [[-218, 635]], "to": [-212, 135, 6], "eta": 8.38},
+      {"weapon": "drone", "from": [-337, 1170], "via": [[-237, 660]], "to": [-192, 106, -6], "eta": 11.51}
      ],
      "ready": [
       {"do": "sam.config", "kill": 0.2, "engage": 120, "reload": 0},
@@ -201,10 +228,9 @@
       {"do": "sam", "at": "c1_sam_e", "load": 2},
       {"do": "sam", "at": "c1_sam_e2", "load": 2}
      ],
-     "when": {"kind": "interceptor", "at": "c1_sam", "r": 100},
-     "expect": {"kills": [1, 2], "interceptors": 6},
+     "expect": {"kills": [1, 2], "interceptors": 4},
      "end": [{"do": "sam.config"}],
-     "cover": {"n17": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"]}}},
+     "cover": {"n17": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"], "swarm": {"weapon": "drone", "min": 8, "hold": 2.0, "width": 0.5, "height": 0.25}}}},
     {"plans": ["n46"], "seconds": 7,
      "strikes": [{"weapon": "drone", "route": "bridge", "to": "c1_tower_w", "pass": {"at": [-361, 104], "above": 51}, "eta": 3}],
      "ready": [{"do": "sam.clear", "at": "c1_sam", "r": 100}],
@@ -507,7 +533,7 @@
    ],
    "shots": [
     {"plans": ["n33"], "seconds": 4, "camera": "player", "hud": true, "stage_player": {"at": "camera:n33", "look": "c1_core"}, "when": {"kind": "warning", "below": 30}},
-    {"plans": ["n60", "n61", "n62", "n63", "n64", "n65"], "offsets": {"n61": 2.0, "n62": 3.2, "n63": 4.6, "n64": 2.6, "n65": 3.6}, "seconds": 12, "when": {"kind": "warning", "below": 2.0}, "ready": [{"do": "fight.start"}], "cues": [{"at": 2.0, "do": "fight.adopt", "side": "west", "group": "south"}, {"at": 2.0, "do": "fight.adopt", "side": "east", "group": "north"}, {"at": 2.05, "do": "crowd.cower", "group": "south", "from": "gz"}, {"at": 2.05, "do": "crowd.cower", "group": "north", "from": "gz"}, {"at": 2.05, "do": "crowd.cower", "group": "civil", "from": "gz"}, {"at": 2.6, "do": "crowd.flee", "group": "civil", "to": "c2_flee", "stagger": [0, 0.8]}, {"at": {"at": [-167, -4], "above": 300}, "do": "crowd.watch", "group": "south", "jitter": 20}, {"at": {"at": [-167, -4], "above": 300}, "do": "crowd.watch", "group": "north", "jitter": 20}, {"at": {"at": [-780, 704], "above": 2}, "do": "crowd.watch", "group": "south", "jitter": 2}, {"at": {"at": [-780, 742], "above": 2}, "do": "crowd.watch", "group": "north", "jitter": 2}, {"at": 5.6, "do": "crowd.flee", "group": "north", "to": "c2_flee", "stagger": [0, 1.6]}, {"at": 6.0, "do": "crowd.flee", "group": "south", "to": "c2_flee", "stagger": [0.4, 2.0]}, {"at": 2.05, "do": "crowd.cower", "group": "roof", "from": "gz"}, {"at": {"at": [-167, -4], "above": 300}, "do": "crowd.watch", "group": "roof", "jitter": 15}], "cover": {"n60": {"subject": "scene"}, "n61": {"subject": "scene"}, "n62": {"subject": "nuke", "need": "NUKE"}, "n63": {"subject": "scene"}, "n64": {"subject": "scene"}, "n65": {"subject": "nuke", "need": "NUKE"}}}
+    {"plans": ["n60", "n61", "n62", "n63", "n64", "n65"], "offsets": {"n61": 2.0, "n62": 3.2, "n63": 4.6, "n64": 2.6, "n65": 3.6}, "seconds": 12, "when": {"kind": "warning", "below": 2.0}, "ready": [{"do": "fight.start"}], "cues": [{"at": 2.0, "do": "fight.adopt", "side": "west", "group": "south"}, {"at": 2.0, "do": "fight.adopt", "side": "east", "group": "north"}, {"at": 2.05, "do": "crowd.cower", "group": "south", "from": "gz"}, {"at": 2.05, "do": "crowd.cower", "group": "north", "from": "gz"}, {"at": 2.05, "do": "crowd.cower", "group": "civil", "from": "gz"}, {"at": 2.6, "do": "crowd.flee", "group": "civil", "to": "c2_flee", "stagger": [0, 0.8]}, {"at": 2.7, "do": "crowd.watch", "group": "south", "look": {"at": [-167, -4], "above": 300}, "jitter": 20}, {"at": 2.7, "do": "crowd.watch", "group": "north", "look": {"at": [-167, -4], "above": 300}, "jitter": 20}, {"at": 4.3, "do": "crowd.watch", "group": "south", "look": {"at": [-780, 704], "above": 2}, "jitter": 2}, {"at": 4.3, "do": "crowd.watch", "group": "north", "look": {"at": [-780, 742], "above": 2}, "jitter": 2}, {"at": 5.6, "do": "crowd.flee", "group": "north", "to": "c2_flee", "stagger": [0, 1.6]}, {"at": 6.0, "do": "crowd.flee", "group": "south", "to": "c2_flee", "stagger": [0.4, 2.0]}, {"at": 2.05, "do": "crowd.cower", "group": "roof", "from": "gz"}, {"at": 2.7, "do": "crowd.watch", "group": "roof", "look": {"at": [-167, -4], "above": 300}, "jitter": 15}], "cover": {"n60": {"subject": "scene"}, "n61": {"subject": "scene"}, "n62": {"subject": "nuke", "need": "NUKE"}, "n63": {"subject": "scene"}, "n64": {"subject": "scene"}, "n65": {"subject": "nuke", "need": "NUKE"}}}
    ],
    "after": [{"do": "fight.remove"}, {"do": "crowd.remove", "group": "civil"}, {"do": "crowd.remove", "group": "south"}, {"do": "crowd.remove", "group": "north"}, {"do": "crowd.remove", "group": "roof"}]
   },
@@ -524,7 +550,7 @@
     {"do": "wait", "s": 2}
    ],
    "shots": [
-    {"plans": ["n66"], "seconds": 8, "when": {"kind": "front", "at": "c2_hill", "lead": 5.0}, "cues": [{"at": {"at": [-167, -4], "above": 250}, "do": "crowd.watch", "group": "hill", "jitter": 12}], "cover": {"n66": {"subject": "nuke", "need": "NUKE"}}}
+    {"plans": ["n66"], "seconds": 8, "when": {"kind": "front", "at": "c2_hill", "lead": 5.0}, "cues": [{"at": 1.0, "do": "crowd.watch", "group": "hill", "look": {"at": [-167, -4], "above": 250}, "jitter": 12}], "cover": {"n66": {"subject": "nuke", "need": "NUKE"}}}
    ],
    "after": [{"do": "crowd.remove", "group": "hill"}]
   }

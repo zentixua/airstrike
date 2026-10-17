@@ -400,6 +400,13 @@ final class NewisleData {
             if (to == null) to = r.get("to");
         } else {
             from = point(s.get("from"), 0, FLAT);
+            // свои точки пути у каждого удара (стая вразброс, n17 и n02 17.10): как у пути сценария, только x и z
+            if (s.has("via")) {
+                for (JsonElement v : s.getAsJsonArray("via")) {
+                    JsonArray a = v.getAsJsonArray();
+                    via.add(new Vec3(a.get(0).getAsDouble(), 0, a.get(1).getAsDouble()));
+                }
+            }
         }
         if (to == null) to = planTarget;
         if (to == null) throw new IllegalArgumentException("у удара нет цели: " + s);

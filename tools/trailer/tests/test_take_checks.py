@@ -497,3 +497,49 @@ class HitsInFrameTest(unittest.TestCase):
 
     def test_no_density_in_cover_means_no_check(self):
         self.assertEqual([], T.sparse_hits(tempfile.mkdtemp(), "n41", None))
+
+
+class SwarmTest(unittest.TestCase):
+    """Стая вразброс: сколько шахедов в кадре разом и нет ли троек в ровный ряд (n17, n02 17.10)."""
+
+    SWARM = {"min": 4, "hold": 1.0, "width": 0.25, "height": 0.2}
+
+    def cand(self, paths, ticks=range(100, 160), cam=(0, 100, 0, 0, 0), fov=60):
+        """Пути {номер: функция тик -> место}: журнал вывода (new и строки f) и камера qa.jsonl."""
+        root = tempfile.mkdtemp()
+        with open(os.path.join(root, "n17.events.jsonl"), "w") as f:
+            for i in paths:
+                f.write(json.dumps({"t": ticks[0], "new": i, "weapon": "drone"}) + "\n")
+            for t in ticks:
+                f.write(json.dumps({"t": t, "f": [[i, *p(t), 4, 0] for i, p in paths.items()]}) + "\n")
+        with open(os.path.join(root, "qa.jsonl"), "w") as f:
+            for t in ticks:
+                f.write(json.dumps({"t": t, "cam": list(cam), "fov": fov}) + "\n")
+        return root
+
+    @staticmethod
+    def still(x, y, z):
+        return lambda t: (x, y, z)
+
+    def test_scattered_swarm_passes(self):
+        spots = [(-60, 180, 200), (40, 110, 160), (-20, 150, 260), (70, 140, 230), (-90, 105, 180), (10, 125, 300)]
+        cand = self.cand({i: self.still(*p) for i, p in enumerate(spots)})
+        self.assertEqual([], T.swarm_problems(cand, "n17", self.SWARM))
+
+    def test_column_of_three_is_a_row(self):
+        spots = [(-60, 180, 200), (40, 110, 160), (-20, 150, 300)]
+        row = [(-80 + 40 * k, 130, 250) for k in range(3)]        # ровный ряд поперёк кадра
+        cand = self.cand({i: self.still(*p) for i, p in enumerate(spots + row)})
+        problems = T.swarm_problems(cand, "n17", self.SWARM)
+        self.assertEqual(1, len(problems))
+        self.assertIn("ряд", problems[0])
+
+    def test_too_few_in_frame_together(self):
+        spots = [(-60, 180, 200), (40, 110, 160), (0, 120, -200), (400, 120, 100)]   # двое сзади и сбоку
+        cand = self.cand({i: self.still(*p) for i, p in enumerate(spots)})
+        problems = T.swarm_problems(cand, "n17", self.SWARM)
+        self.assertEqual(1, len(problems))
+        self.assertIn("в кадре", problems[0])
+
+    def test_no_swarm_in_cover_means_no_check(self):
+        self.assertEqual([], T.swarm_problems(tempfile.mkdtemp(), "n17", None))

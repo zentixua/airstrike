@@ -50,6 +50,10 @@
 - застывшие кадры: в frames/<план>/ три и больше одинаковых подряд (хеш файла) — вывод встал;
 - тёмный кадр (планам с `brightness` в cover, T07 n11): средняя яркость кадров вывода ниже предела — рассвет, на
   котором ущелье и ракеты не читаются (23200 мерилось 19 при прошедшем взгляде QA; PIL нет — не провал: замер нечем).
+- стая вразброс (планам со `swarm` в cover, n17 и n02 17.10 — Артём: «колонны по три шахеда — искусственно»): места
+  снарядов оружия `weapon` из журнала вывода в кадре камеры qa.jsonl — не меньше `min` в кадре разом, размахом
+  не меньше `width` ширины и `height` высоты кадра, `hold` секунд подряд; и нет трёх в ровный ряд: средний ближе
+  4 % размаха крайних к их середине в половине кадров, где все трое видны (0,5 с и дольше), — строй, а не случай.
 
     python3 tools/trailer/take_checks.py record <папка дубля> [--scenes ПАПКА] [--take T04]
     python3 tools/trailer/take_checks.py render <папка кандидата> --plan <план> [--fpv] [--icbm] [--no-shake]
@@ -722,6 +726,34 @@ def dim_frames(cand, plan, floor):
     return []
 
 
+def _frame(cam, fov, pos):
+    """Точка мира в кадре камеры строки qa.jsonl (место, курс, тангаж; угол кадра по вертикали, кадр 16:9):
+    (x, y) от −1 до 1 по ширине (вправо) и высоте (вверх) или None — вне кадра."""
+    x, y, z, yaw, pitch = cam[:5]
+    dx, dy, dz = pos[0] - x, pos[1] - y, pos[2] - z
+    ry, rp = math.radians(yaw), math.radians(pitch)
+    # в осях камеры: вперёд, вправо, вверх (курс Minecraft: 0 — на +z, тангаж плюс — вниз)
+    fx, fy, fz = -math.sin(ry) * math.cos(rp), -math.sin(rp), math.cos(ry) * math.cos(rp)
+    rx, rz = -math.cos(ry), -math.sin(ry)
+    ux, uy, uz = -math.sin(ry) * math.sin(rp), math.cos(rp), math.cos(ry) * math.sin(rp)
+    ahead = dx * fx + dy * fy + dz * fz
+    if ahead <= 0:
+        return None
+    half = math.tan(math.radians(fov) / 2)
+    sx = (dx * rx + dz * rz) / ahead / (half * DENSITY_ASPECT)
+    sy = (dx * ux + dy * uy + dz * uz) / ahead / half
+    return (sx, sy) if abs(sx) <= 1 and abs(sy) <= 1 else None
+
+
+def _cams(cand):
+    """Камера вывода по тикам: {тик: (cam, fov)} из qa.jsonl (первая строка тика)."""
+    cams = {}
+    for r in _jsonl(os.path.join(cand, "qa.jsonl")):
+        if r.get("cam") and "t" in r:
+            cams.setdefault(int(round(r["t"])), (r["cam"], r.get("fov", 70.0)))
+    return cams
+
+
 def hits_in_frame(cand, plan, span):
     """Удары в кадре вывода за первые `span` секунд окна плана: место удара из журнала вывода в поле зрения камеры
     кадра (qa.jsonl: место, курс, тангаж, угол кадра по вертикали; кадр 16:9). Без лучей по блокам: ковёр меряется
@@ -733,10 +765,7 @@ def hits_in_frame(cand, plan, span):
         elif "impact" in r and r.get("pos"):
             impacts.append((r.get("at", r["t"]), r["pos"]))
     start = marks.get("start")
-    cams = {}
-    for r in _jsonl(os.path.join(cand, "qa.jsonl")):
-        if r.get("cam") and "t" in r:
-            cams.setdefault(int(round(r["t"])), (r["cam"], r.get("fov", 70.0)))
+    cams = _cams(cand)
     if start is None or not cams:
         return None
     count = 0
@@ -744,18 +773,7 @@ def hits_in_frame(cand, plan, span):
         if not start <= t <= start + span * 20:
             continue
         cam, fov = cams.get(t) or cams[min(cams, key=lambda k: abs(k - t))]
-        x, y, z, yaw, pitch = cam[:5]
-        dx, dy, dz = pos[0] - x, pos[1] - y, pos[2] - z
-        ry, rp = math.radians(yaw), math.radians(pitch)
-        # в осях камеры: вперёд, вправо, вверх (курс Minecraft: 0 — на +z, тангаж плюс — вниз)
-        fx, fy, fz = -math.sin(ry) * math.cos(rp), -math.sin(rp), math.cos(ry) * math.cos(rp)
-        rx, rz = -math.cos(ry), -math.sin(ry)
-        ux, uy, uz = -math.sin(ry) * math.sin(rp), math.cos(rp), math.cos(ry) * math.sin(rp)
-        ahead = dx * fx + dy * fy + dz * fz
-        if ahead <= 0:
-            continue
-        half = math.tan(math.radians(fov) / 2)
-        if abs(dx * rx + dz * rz) / ahead <= half * DENSITY_ASPECT and abs(dx * ux + dy * uy + dz * uz) / ahead <= half:
+        if _frame(cam, fov, pos):
             count += 1
     return count / span
 
@@ -771,7 +789,82 @@ def sparse_hits(cand, plan, density):
     return []
 
 
-def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=None, density=None):
+SWARM_ROW = 0.04          # средний из трёх ближе этой доли размаха крайних к их середине — в ряд
+SWARM_ROW_SHARE = 0.5     # в ряд в такой доле кадров, где все трое видны, — строй
+SWARM_ROW_TICKS = 10      # трое вместе в кадре меньше стольких тиков — не строй, мелькнули
+SWARM_ROW_SPAN = 0.1      # крайние ближе (доля высоты кадра) — кучка, а не ряд
+
+
+def swarm_frames(cand, plan, weapon):
+    """Снаряды оружия в кадре вывода по тикам окна: [(тик, {путь: (x, y)})] — места из журнала вывода, камера из qa.jsonl."""
+    flights, _ = read_events(os.path.join(cand, f"{plan}.events.jsonl"))
+    cams = _cams(cand)
+    out = []
+    for t in sorted(cams):
+        cam, fov = cams[t]
+        pts = {}
+        for f in flights:
+            if f.weapon == weapon and t in f.pos:
+                p = _frame(cam, fov, f.pos[t])
+                if p:
+                    pts[f.i] = p
+        out.append((t, pts))
+    return out
+
+
+def swarm_verdict(frames, swarm):
+    """Провалы стаи по кадрам [(тик, {путь: (x, y)})] (тики подряд — кадры подряд): мало разом и вразброс, тройки в ряд.
+    Отдельно от журнала — тем же меряется постановка до записи (расчёт путей)."""
+    need, hold = int(swarm["min"]), float(swarm.get("hold", 1.0))
+    width, height = float(swarm.get("width", 0.5)), float(swarm.get("height", 0.25))
+    best = run = 0
+    prev = None
+    for t, pts in frames:
+        xs, ys = [p[0] for p in pts.values()], [p[1] for p in pts.values()]
+        ok = len(pts) >= need and max(xs) - min(xs) >= 2 * width and max(ys) - min(ys) >= 2 * height
+        run = run + 1 if ok and prev is not None and t == prev + 1 else (1 if ok else 0)
+        best = max(best, run)
+        prev = t
+    out = []
+    if best / 20 < hold:
+        out.append(f"стая: {need}+ в кадре вразброс {best / 20:.1f} с подряд, нужно {hold:.1f}")
+    together, rows = {}, {}
+    for _, pts in frames:
+        ids = sorted(pts)
+        sp = {i: (pts[i][0] * DENSITY_ASPECT, pts[i][1]) for i in ids}
+        for a in range(len(ids)):
+            for b in range(a + 1, len(ids)):
+                for c in range(b + 1, len(ids)):
+                    key = (ids[a], ids[b], ids[c])
+                    together[key] = together.get(key, 0) + 1
+                    pa, pb, pc = sp[ids[a]], sp[ids[b]], sp[ids[c]]
+                    for p, q, m in ((pa, pc, pb), (pa, pb, pc), (pb, pc, pa)):
+                        span = math.hypot(p[0] - q[0], p[1] - q[1])
+                        if span >= 2 * SWARM_ROW_SPAN and math.hypot(m[0] - (p[0] + q[0]) / 2,
+                                                                     m[1] - (p[1] + q[1]) / 2) <= SWARM_ROW * span:
+                            rows[key] = rows.get(key, 0) + 1
+                            break
+    lines = sorted((k for k, n in rows.items()
+                    if together[k] >= SWARM_ROW_TICKS and n >= SWARM_ROW_SHARE * together[k]),
+                   key=lambda k: -rows[k] / together[k])
+    if lines:
+        k = lines[0]
+        out.append(f"стая: {len(lines)} троек в ровный ряд (пути {k[0]}, {k[1]}, {k[2]} — "
+                   f"{100 * rows[k] / together[k]:.0f}% кадров)")
+    return out
+
+
+def swarm_problems(cand, plan, swarm):
+    """Стая вразброс по кадрам вывода (`swarm` в cover плана); нет журнала или камеры — не провал."""
+    if not swarm:
+        return []
+    frames = swarm_frames(cand, plan, swarm.get("weapon", "drone"))
+    if not frames:
+        return []
+    return swarm_verdict(frames, swarm)
+
+
+def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=None, density=None, swarm=None):
     """Все проверки вывода папки кандидата: PASS плана с любой из них — FAIL (дубль переснимается)."""
     out = camera_turn(cand) + axis_fail(cand) + frozen_frames(cand, plan)
     if shake:
@@ -784,6 +877,8 @@ def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=No
         out += dim_frames(cand, plan, float(brightness))
     if density:
         out += sparse_hits(cand, plan, density)
+    if swarm:
+        out += swarm_problems(cand, plan, swarm)
     return out
 
 

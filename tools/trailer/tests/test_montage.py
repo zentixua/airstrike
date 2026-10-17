@@ -358,6 +358,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
+@unittest.skipIf(M is None, "нет пакетов edit.py (numpy, scipy, soundfile, pillow)")
 class ShotNameTest(unittest.TestCase):
     """Второй кусок того же плана из другого вывода: дубль «n31@wide» читает кадры плана n31."""
 
