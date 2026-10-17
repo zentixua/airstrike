@@ -31,6 +31,11 @@ public record Outage(int id, double x, double z, double radius, long start, doub
 
     /** Квартал внутри района отключения. */
     public boolean covers(long district) {
+        return covers(x, z, radius, district);
+    }
+
+    /** Квартал внутри района с центром {@code (x, z)} и радиусом {@code radius} (клиент — для дуг ЭМИ у ламп). */
+    public static boolean covers(double x, double z, double radius, long district) {
         double dx = Districts.seedX(district) - x, dz = Districts.seedZ(district) - z;
         return dx * dx + dz * dz <= radius * radius;
     }

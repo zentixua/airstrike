@@ -33,6 +33,8 @@ public interface ClientHooks {
 
     default void nukeDebris(S2C.NukeDebris p) {}
 
+    default void nukeFlashMarks(S2C.NukeFlashMarks p) {}
+
     default void nukeSync(S2C.NukeSync p) {}
 
     default void radiation(S2C.Radiation p) {}

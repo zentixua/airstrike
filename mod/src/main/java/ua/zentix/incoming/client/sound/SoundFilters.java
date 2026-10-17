@@ -89,6 +89,32 @@ public final class SoundFilters {
         return mc.level.clip(new ThroughLeaves(from, to, player)).getType() == HitResult.Type.MISS ? 1 : 0;
     }
 
+    /**
+     * Лучи {@link #openToward}: длина (короче ближних отражений эха, {@code TerrainEcho.NEAR}: склон, который отвечает,
+     * — не преграда) и наклоны (вдоль, выше, круто вверх), рад.
+     */
+    private static final double TOWARD_REACH = 12;
+    private static final double[] TOWARD_PITCH = {0, 0.35, 0.9};
+
+    /**
+     * Открыто ли ухо в сторону {@code azimuth} для далёкого источника там (эхо от склонов): доля трёх лучей на
+     * {@link #TOWARD_REACH} блоков — вдоль, выше и круто вверх, — что не упёрлись в твёрдое (в доме — стены и крыша,
+     * в окно — открыто). Для своих источников ({@link OwnSources}): их Sound Physics не трогает, поэтому — и при нём;
+     * выключено настройкой — 1.
+     */
+    static float openToward(Vec3 ear, double azimuth) {
+        Minecraft mc = Minecraft.getInstance();
+        Player player = mc.player;
+        if (!IncomingConfig.CLIENT.soundMuffling.get() || mc.level == null || player == null) return 1;
+        int open = 0;
+        for (double pitch : TOWARD_PITCH) {
+            double c = Math.cos(pitch) * TOWARD_REACH;
+            Vec3 to = ear.add(Math.cos(azimuth) * c, Math.sin(pitch) * TOWARD_REACH, Math.sin(azimuth) * c);
+            if (mc.level.clip(new ThroughLeaves(ear, to, player)).getType() == HitResult.Type.MISS) open++;
+        }
+        return open / (float) TOWARD_PITCH.length;
+    }
+
     /** Луч по твёрдым блокам, сквозь листву. */
     private static final class ThroughLeaves extends ClipContext {
         ThroughLeaves(Vec3 from, Vec3 to, Player player) {
@@ -114,6 +140,7 @@ public final class SoundFilters {
 
     public static void onEngineLoad(SoundEngineLoadEvent e) {
         filter = 0;
+        OwnSources.engineLoaded();
     }
 
     public static void onSound(PlaySoundSourceEvent e) {

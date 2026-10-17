@@ -61,6 +61,8 @@ public final class ClientScenario {
     private boolean started;
     private int tick = -1;
     private Vec3 target = Vec3.ZERO;
+    /** Сценарий {@code nuke}: место зрителя на смотровой площадке (волна потом сносит его с неё). */
+    private BlockPos deck = BlockPos.ZERO;
     private boolean nuke;
     /** Сценарий {@code pall}: пелена после волны; эпицентр. */
     private boolean pall;
@@ -121,6 +123,16 @@ public final class ClientScenario {
     private boolean hover;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
+    /** Ядерный подрыв у воды ({@code nuke-water}, {@code nuke-lake}): кадры от подрыва ({@link #waterEvents}). */
+    private boolean water, lake;
+    /** Место подрыва и зрителя ({@link #planNukeWater}): выбирает сервер, шаги клиента ждут. */
+    private volatile Vec3 waterBurst, waterEye;
+    private volatile int waterGround;
+    /** Тик клиента, когда зритель перенесён к найденному сервером месту съёмки (-1 — сервер ещё ищет). */
+    private int waterFoundTick = -1;
+    /** Подробный город у клиента для замера огня ({@code incoming.scenario.city}), null — нет. */
+    @org.jetbrains.annotations.Nullable
+    private final FireCity city = FireCity.of(System.getProperty("incoming.scenario.city"));
 
     public ClientScenario(IEventBus modBus) {
         String scenario = System.getProperty("incoming.scenario");
@@ -155,6 +167,10 @@ public final class ClientScenario {
             new CeilingDustShots(); // пыль с потолка комнаты под землёй от ударов над ней
             return;
         }
+        if ("flash".equals(scenario)) {
+            new FlashScenario(); // вспышка вблизи: гарь, силуэты, ЭМИ, дымки (FlashScenario)
+            return;
+        }
         if (scenario.startsWith("flyby-")) {
             new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
             return;
@@ -163,6 +179,7 @@ public final class ClientScenario {
         NeoForge.EVENT_BUS.addListener(this::onRenderLevel);
         String mode = scenario;
         if ("nuke".equals(mode)) planNuke();
+        else if ("nuke-water".equals(mode) || "nuke-lake".equals(mode)) planNukeWater("nuke-lake".equals(mode));
         else if ("pall".equals(mode)) planPall();
         else if ("wall".equals(mode)) planWall();
         else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
@@ -235,8 +252,10 @@ public final class ClientScenario {
             if (s.at == tick) s.action.run();
         }
         if (nuke) nukeEvents();
+        if (water) waterEvents();
         if (pall) pallEvents();
         if (wall) wallEvents();
+        if (city != null) city.tick(tick);
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
@@ -256,6 +275,8 @@ public final class ClientScenario {
         if (tick % 20 == 0) {
             String far = FarRenderer.describe();
             if (!far.isEmpty()) Incoming.LOG.info("SCENARIO far {}", far);
+            String nuke = ua.zentix.incoming.client.nuclear.NukeSounds.describe();
+            if (!nuke.isEmpty()) Incoming.LOG.info("SCENARIO nuke-sound {}", nuke);
         }
     }
 
@@ -320,6 +341,7 @@ public final class ClientScenario {
             int y = Math.max(ground, 170);
             cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y + 29, z - 1, x + 1, y + 29, z + 1));
             cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 180 -8", x, y + 30, z));
+            deck = new BlockPos(x, y + 30, z);
             cmd("give @s incoming:geiger_counter");
             target = new Vec3(x + 0.5, 320, z - 2000 + 0.5); // высота 320 — сервер опустит на землю
         });
@@ -329,6 +351,181 @@ public final class ClientScenario {
         for (int t : new int[]{270, 300, 340, 400, 500}) shot(t, "launch");
         at(520, () -> cmd("tp @s ~ ~ ~ 180 -8"));
         // дальше — от настоящих событий: сервер может отставать от счётчика кадров клиента
+    }
+
+    /**
+     * Ядерный подрыв у воды (DESIGN-nuke §6, «Вода»), 15 кт на земле, без полёта ({@code nuke now}), днём.
+     * {@code nuke-water}: зритель (наблюдатель — волна не сбрасывает его) в 20 блоках над морем в 40 блоках
+     * от берега ближайшего тёплого моря, подрыв — на море в 1,5 км: столб, кольцо
+     * тумана, тёмное кольцо фронта и стена брызг на воде у берега, потом базисная волна. {@code nuke-lake}: равнина,
+     * перед зрителем — пруд 120×140 блоков (от 30 до 170 блоков), подрыв — на суше в 1,5 км за ним: фронт идёт через пруд
+     * тёмным кольцом со стеной брызг, а пыль стены над водой не встаёт.
+     */
+    private void planNukeWater(boolean lake) {
+        water = true;
+        this.lake = lake;
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            // наблюдатель: волна в 1,5 км сбросила бы зрителя с площадки посреди съёмки
+            cmd("gamemode spectator");
+            Minecraft.getInstance().options.hideGui = true;
+            var server = Minecraft.getInstance().getSingleplayerServer();
+            server.execute(() -> {
+                var level = server.overworld();
+                BlockPos origin = BlockPos.ZERO.atY(64);
+                if (lake) {
+                    var found = level.findClosestBiome3d(b -> b.is(net.minecraft.world.level.biome.Biomes.PLAINS), origin, 6400, 32, 64);
+                    var gen = level.getChunkSource().getGenerator();
+                    var random = level.getChunkSource().randomState();
+                    BlockPos plains = found == null ? origin : found.getFirst(), at = plains;
+                    // место, от которого на +Z до подрыва — суша (у равнины бывает море), и без снега (в холодном лесу пруд
+                    // замёрз бы): по сетке вокруг найденной равнины; две точки суши стоят тепла
+                    int best = -1, bestLand = 0;
+                    boolean bestWarm = false;
+                    for (int k = 0; k < 81 && best < 39; k++) {
+                        int cx = plains.getX() + ((k % 9) - 4) * 256, cz = plains.getZ() + ((k / 9) - 4) * 256, land = 0;
+                        for (int r = 0; r <= 1600; r += 100)
+                            if (gen.getBaseHeight(cx, cz + r, Heightmap.Types.OCEAN_FLOOR_WG, level, random) >= 65) land++;
+                        BlockPos pos = new BlockPos(cx, 64, cz);
+                        boolean warm = !level.getBiome(pos).value().coldEnoughToSnow(pos);
+                        int score = 2 * land + (warm ? 5 : 0);
+                        if (score > best) {
+                            best = score;
+                            bestLand = land;
+                            bestWarm = warm;
+                            at = pos;
+                        }
+                    }
+                    waterGround = gen.getBaseHeight(at.getX(), at.getZ(), Heightmap.Types.WORLD_SURFACE_WG, level, random);
+                    Incoming.LOG.info("SCENARIO lake at {} ground {} ({} of 17 points on land, warm {})", at.toShortString(), waterGround, bestLand,
+                            bestWarm);
+                    // чанки пруда — сразу: наблюдатель грузит их в фоне, и к заливке пруда (тик 300) их могло ещё не быть
+                    for (int cx = (at.getX() - 64) >> 4; cx <= (at.getX() + 64) >> 4; cx++)
+                        for (int cz = (at.getZ() - 8) >> 4; cz <= (at.getZ() + 176) >> 4; cz++) level.getChunk(cx, cz);
+                    waterEye = new Vec3(at.getX() + 0.5, 0, at.getZ() + 0.5);
+                    waterBurst = new Vec3(at.getX() + 0.5, 320, at.getZ() + 1500.5);
+                } else {
+                    // тёплое море (у замёрзшего — лёд и айсберги), от него к началу мира — до берега
+                    var found = level.findClosestBiome3d(b -> b.is(net.minecraft.world.level.biome.Biomes.OCEAN) || b.is(net.minecraft.world.level.biome.Biomes.LUKEWARM_OCEAN)
+                            || b.is(net.minecraft.world.level.biome.Biomes.WARM_OCEAN) || b.is(net.minecraft.world.level.biome.Biomes.DEEP_LUKEWARM_OCEAN), origin, 6400, 32, 64);
+                    var gen = level.getChunkSource().getGenerator();
+                    var random = level.getChunkSource().randomState();
+                    BlockPos sea = found == null ? origin : found.getFirst(), at = sea;
+                    double len = Math.max(1, Math.hypot(sea.getX(), sea.getZ()));
+                    for (int r = 0; r < len; r += 8) {
+                        int x = sea.getX() - (int) Math.round(sea.getX() / len * r), z = sea.getZ() - (int) Math.round(sea.getZ() / len * r);
+                        if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) >= 62) {
+                            at = new BlockPos(x, 64, z);
+                            break;
+                        }
+                    }
+                    // море — в ту сторону от берега, где дно генератора ниже уровня моря на всём пути к подрыву и по бокам
+                    // от зрителя (мыс сбоку — пыль суши летит над водой у камеры)
+                    double best = -1, bestAngle = 0;
+                    for (int k = 0; k < 24; k++) {
+                        double a = k * Math.PI * 2 / 24;
+                        double score = 0;
+                        for (int r = 100; r <= 1700; r += 100) {
+                            int x = at.getX() + (int) Math.round(Math.cos(a) * r), z = at.getZ() + (int) Math.round(Math.sin(a) * r);
+                            if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) < 58) score += 1;
+                        }
+                        for (int r = 100; r <= 400; r += 100) {
+                            for (int side = -1; side <= 1; side += 2) {
+                                int x = at.getX() + (int) Math.round(Math.cos(a) * r - Math.sin(a) * 150 * side);
+                                int z = at.getZ() + (int) Math.round(Math.sin(a) * r + Math.cos(a) * 150 * side);
+                                if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) < 58) score += 1;
+                            }
+                        }
+                        if (score > best) {
+                            best = score;
+                            bestAngle = a;
+                        }
+                    }
+                    Incoming.LOG.info("SCENARIO water shore {} sea direction {}° ({} of 25 points over water)", at.toShortString(),
+                            Math.round(Math.toDegrees(bestAngle)), (int) best);
+                    // зритель — над водой в 40 блоках от берега
+                    waterEye = new Vec3(at.getX() + 0.5 + Math.cos(bestAngle) * 40, 0, at.getZ() + 0.5 + Math.sin(bestAngle) * 40);
+                    waterBurst = new Vec3(at.getX() + 0.5 + Math.cos(bestAngle) * 1540, ua.zentix.incoming.client.fx.layer.WaterDecal.SEA_LEVEL, at.getZ() + 0.5 + Math.sin(bestAngle) * 1540);
+                }
+                Minecraft.getInstance().execute(() -> {
+                    cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 140 %.1f", waterEye.x, waterEye.z));
+                    waterFoundTick = tick;
+                });
+            });
+        });
+        // площадка и вид — когда чанки вокруг пришли
+        at(300, this::placeWaterViewer);
+        at(6000, () -> {
+            Incoming.LOG.info("SCENARIO water: no detonation");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Площадка зрителя, пруд и вид; подрыв — через 120 тиков. Сервер ещё ищет место (генерация чанков пруда на загруженной
+     * машине идёт десятки секунд) — снова через секунду; чанкам вокруг перенесённого зрителя — 260 тиков.
+     */
+    private void placeWaterViewer() {
+        if (waterFoundTick < 0) {
+            at(tick + 20, this::placeWaterViewer);
+            return;
+        }
+        if (tick < waterFoundTick + 260) {
+            at(waterFoundTick + 260, this::placeWaterViewer);
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        int x = (int) Math.floor(waterEye.x), z = (int) Math.floor(waterEye.z);
+        // у пруда — высота генератора (без деревьев; чанк клиента мог ещё не прийти)
+        int ground = lake ? waterGround : mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+        int y = lake ? ground + 8 : Math.max(ground, ua.zentix.incoming.client.fx.layer.WaterDecal.SEA_LEVEL) + 20;
+        if (lake) {
+            // пруд: вода в два блока под уровнем земли у зрителя; над ним и до зрителя — воздух на 40 блоков (холмы
+            // и деревья иначе закрывают пруд); fill — полосами, не больше 32768 блоков
+            for (int z0 = 0; z0 <= 170; z0 += 6) {
+                int z1 = Math.min(170, z0 + 5);
+                cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 60, ground, z + z0, x + 60, ground + 40, z + z1));
+            }
+            for (int z0 = 30; z0 <= 170; z0 += 35) {
+                int z1 = Math.min(170, z0 + 34);
+                cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:water", x - 60, ground - 2, z + z0, x + 60, ground - 1, z + z1));
+            }
+        }
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y - 1, z - 1, x + 1, y - 1, z + 1));
+        waterEye = new Vec3(x + 0.5, y, z + 0.5);
+        look(waterBurst.x, 63 + (lake ? 120 : 210), waterBurst.z);
+        at(tick + 120, () -> cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %.1f %.1f %.1f 15 ground", waterBurst.x, waterBurst.y,
+                waterBurst.z)));
+    }
+
+    /** Зритель {@link #waterEye} смотрит на точку. */
+    private void look(double x, double y, double z) {
+        cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", waterEye.x, waterEye.y, waterEye.z, x, y, z));
+    }
+
+    /** Подрыв у воды: кадры по времени от подрыва, строка воды в лог; конец — после последнего кадра. */
+    private void waterEvents() {
+        if (tick % 10 == 0) Incoming.LOG.info("SCENARIO water {}", ua.zentix.incoming.client.nuclear.NukeWater.describe());
+        if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
+        detTick = tick;
+        steps.removeIf(s -> s.at >= 5999);
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        Incoming.LOG.info("SCENARIO detonation at tick {}: ground {} at {}, eye {} blocks away", tick, String.format(java.util.Locale.ROOT, "%.1f", d.groundY()),
+                xyz(d.burst()), Math.round(Math.hypot(d.burst().x - waterEye.x, d.burst().z - waterEye.z)));
+        int[] frames = {2, 8, 16, 24, 32, 44, 60, 76, 92, 104, 112, 120, 128, 136, 144, 152, 160, 176, 200, 240, 300, 400, 600, 900, 1400, 2000};
+        String name = lake ? "lake" : "water";
+        for (int dt : frames) shot(tick + dt, name);
+        // сбоку от подрыва: кольцо на воде и стена брызг вдоль берега
+        at(tick + 2040, () -> {
+            double ax = waterBurst.x - waterEye.x, az = waterBurst.z - waterEye.z, l = Math.hypot(ax, az);
+            look(waterEye.x - az / l * 200, waterEye.y - 20, waterEye.z + ax / l * 200);
+        });
+        shot(tick + 2060, name + "_side");
+        at(tick + 2080, () -> {
+            Incoming.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
     }
 
     /**
@@ -492,6 +689,11 @@ public final class ClientScenario {
         detTick = tick;
         Incoming.LOG.info("SCENARIO detonation at tick {}", tick);
         for (int dt : new int[]{1, 2, 4, 10, 20, 40, 70, 90, 100, 112, 118, 125, 140, 160, 200, 400}) shot(tick + dt, "nuke");
+        // фронт прошёл смотровую площадку и сбросил с неё зрителя: под ней — стена, пруд и листва (wallFrames). Бросок —
+        // тик сервера, а сервер может отставать от счётчика кадров клиента: шаг ждёт часов сервера
+        var nd = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        long thrown = nd.gameTime() + (long) Math.ceil(nd.arrivalTicks(Math.sqrt(deck.distToCenterSqr(nd.burst())))) + 4;
+        at(tick + 1, () -> wallFrames(thrown));
         // гриб целиком виден издалека: 9 км к югу от эпицентра, взгляд на 30° вверх
         at(tick + 560, () -> {
             var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
@@ -507,6 +709,52 @@ public final class ClientScenario {
         double fm = Math.min(3000, fd.windSpeed() * 150) * fd.scale();
         falloutSpot = new Vec3(fd.burst().x + Math.cos(fd.windDir()) * fm, 200, fd.burst().z + Math.sin(fd.windDir()) * fm);
         falloutGo = fd.gameTime() + Math.max(3000, (long) Math.ceil(fd.falloutArrivalTicks(falloutSpot.x, falloutSpot.z))) + 900;
+    }
+
+    /**
+     * Сценарий {@code nuke}, когда сервер дошёл до тика {@code thrown} (фронт прошёл смотровую площадку и сбросил с неё
+     * зрителя): под ней в воздухе — стена, бревна, трава и пруд 3×3, листва на стене, по бокам от неё крона в 30 блоках
+     * и конёк крыши в 50 — перед небом, почти по горизонту от глаза. В полосе ряби за фронтом тёмное кольцо наклейки на
+     * воду — на пруду, а не полосами по рядам блоков на боковых гранях и не точками по краю листвы и крыши перед небом
+     * (вода — только гладь, и соседние пиксели на той же высоте). Строится после фронта — руины волны её не трогают;
+     * кадры {@code nuke_wall_*} — без HUD (чат закрывал пруд) и через 2 с: на llvmpipe секции новых блоков строятся за
+     * несколько кадров. Потом зритель — снова на смотровой площадке, взгляд на гриб (кадр {@code nuke} через 20 с после
+     * подрыва).
+     */
+    private void wallFrames(long thrown) {
+        if (Minecraft.getInstance().getSingleplayerServer().overworld().getGameTime() < thrown) {
+            at(tick + 1, () -> wallFrames(thrown));
+            return;
+        }
+        int x = deck.getX(), y = deck.getY() - 16, z = deck.getZ(), b = y - 6;
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 7, b, z - 13, x + 7, b, z - 5));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:short_grass", x - 7, b + 1, z - 13, x + 7, b + 1, z - 5));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 1, b + 1, z - 10, x + 1, b + 1, z - 8));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone", x - 1, b - 1, z - 10, x + 1, b - 1, z - 8));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:water", x - 1, b, z - 10, x + 1, b, z - 8));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 7, b, z - 14, x + 7, b + 8, z - 14));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:oak_log", x - 4, b + 1, z - 12, x - 4, b + 8, z - 12));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:birch_log", x + 3, b + 1, z - 11, x + 3, b + 8, z - 11));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:oak_leaves[persistent=true]", x - 7, b + 9, z - 14, x + 7, b + 9, z - 14));
+        // справа от стены — крона в 30 блоках, слева — конёк в 50: перед небом, от горизонта глаза до 10° над ним
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:oak_leaves[persistent=true]", x + 15, y + 1, z - 32, x + 21, y + 5, z - 28));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 40, y + 2, z - 50, x - 28, y + 2, z - 50));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_brick_stairs[facing=north]", x - 40, y + 3, z - 50, x - 28, y + 3, z - 50));
+        cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y - 1, z - 1, x + 1, y - 1, z + 1));
+        cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 180 20", x, y, z));
+        at(tick + 21, () -> Minecraft.getInstance().options.hideGui = true);
+        at(tick + 41, () -> Incoming.LOG.info("SCENARIO water {}", ua.zentix.incoming.client.nuclear.NukeWater.describe()));
+        shot(tick + 41, "nuke_wall");
+        shot(tick + 71, "nuke_wall");
+        // снова на смотровую площадку (её могли снести руины; целая — без строки ошибки «No blocks were filled» в кадре
+        // гриба) — гриб, как в кадрах до броска
+        at(tick + 72, () -> {
+            Minecraft.getInstance().options.hideGui = false;
+            int d = deck.getY() - 1;
+            cmd(String.format(java.util.Locale.ROOT, "execute unless block %d %d %d minecraft:stone_bricks run fill %d %d %d %d %d %d minecraft:stone_bricks",
+                    x, d, z, x - 1, d, z - 1, x + 1, d, z + 1));
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 180 -8", x, deck.getY(), z));
+        });
     }
 
     /** В следе осадков, пока там идёт чёрный дождь (2.5 игровых часа = 2 мин после прихода осадков), счётчик в руке. */

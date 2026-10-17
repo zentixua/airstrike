@@ -365,11 +365,15 @@ public final class S2C {
         }
     }
 
-    /** Ядерный подрыв: всё остальное (вспышку, шар, гриб, волну, звук, дождь) клиент считает сам по модели. */
-    public record NukeDetonation(Detonation detonation) implements CustomPacketPayload {
+    /**
+     * Ядерный подрыв: всё остальное (вспышку, шар, гриб, волну, звук, дождь) клиент считает сам по модели. Кроме
+     * настроек сервера: {@code blackout} — радиус, в котором удар гасит сеть ({@code Blackouts.nukeRadius}; 0 — не
+     * гасит), там лампы коротят дугой ЭМИ.
+     */
+    public record NukeDetonation(Detonation detonation, float blackout) implements CustomPacketPayload {
         public static final Type<NukeDetonation> TYPE = new Type<>(Incoming.id("nuke_detonation"));
-        public static final StreamCodec<ByteBuf, NukeDetonation> CODEC = Detonation.STREAM_CODEC
-                .map(NukeDetonation::new, NukeDetonation::detonation);
+        public static final StreamCodec<ByteBuf, NukeDetonation> CODEC = StreamCodec.composite(Detonation.STREAM_CODEC, NukeDetonation::detonation,
+                ByteBufCodecs.FLOAT, NukeDetonation::blackout, NukeDetonation::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -392,6 +396,21 @@ public final class S2C {
 
         public static final StreamCodec<ByteBuf, NukeDebris> CODEC = StreamCodec.composite(ByteBufCodecs.VAR_INT, NukeDebris::detonation,
                 Piece.CODEC.apply(ByteBufCodecs.list(64)), NukeDebris::pieces, NukeDebris::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Следы вспышки на гранях чанка ({@link ua.zentix.incoming.nuclear.flash.FlashMarks}): все, что есть у чанка, — когда
+     * чанк уходит игроку и когда они меняются (руины, силуэты). Пустые — у чанка их больше нет.
+     */
+    public record NukeFlashMarks(long chunk, ua.zentix.incoming.nuclear.flash.FlashMarks marks) implements CustomPacketPayload {
+        public static final Type<NukeFlashMarks> TYPE = new Type<>(Incoming.id("nuke_flash_marks"));
+        public static final StreamCodec<ByteBuf, NukeFlashMarks> CODEC = StreamCodec.composite(ByteBufCodecs.VAR_LONG, NukeFlashMarks::chunk,
+                ua.zentix.incoming.nuclear.flash.FlashMarks.STREAM_CODEC, NukeFlashMarks::marks, NukeFlashMarks::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

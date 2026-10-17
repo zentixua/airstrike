@@ -262,6 +262,11 @@ final class RuinContext {
         return ThermalShadow.visible(d.burst(), p, (x, z) -> height(x, z, minY)) ? d.fluence(p) : 0;
     }
 
+    /** Видна ли точка шару, как её видел мир до волны (любой поток): тень по тем же картам высот, что у {@link #lit}. */
+    boolean sees(Vec3 p, int minY) {
+        return ThermalShadow.visible(d.burst(), p, (x, z) -> height(x, z, minY));
+    }
+
     /** Сколько байт держат снимки (память подрыва). */
     /** Сколько байт держат снимки и карты высот подрыва (память подрыва, к пределу планов). */
     long shotBytes() {
@@ -307,6 +312,11 @@ final class RuinContext {
         /** Световой импульс на месте, каким его видел мир до волны. */
         double lit(net.minecraft.core.BlockPos pos) {
             return ctx.lit(pos, minY);
+        }
+
+        /** Видна ли точка шару, как её видел мир до волны. */
+        boolean sees(Vec3 p) {
+            return ctx.sees(p, minY);
         }
 
         /** Разлом чанка со сдвигом уже в кэше по тем же снимкам. */

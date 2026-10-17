@@ -147,7 +147,7 @@ public final class DhGameTests {
                 RuinPlan plan = RuinPlanner.planFresh(level, d, chunk, false);
                 ProtoChunk copy = FarLods.testCopy(level, chunk, plan, false);
                 h.assertTrue(copy != null, "план не подошёл к копии чанка " + c);
-                h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план чанка " + c + " устарел");
+                h.assertTrue(plan.apply(level, chunk, d, new ColumnScar.Budget(false)), "план чанка " + c + " устарел");
                 for (int y = level.getMinBuildHeight(); y < level.getMaxBuildHeight(); y++) {
                     for (int x = 0; x < 16; x++) {
                         for (int z = 0; z < 16; z++) {

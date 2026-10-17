@@ -74,7 +74,7 @@ public final class NuclearWarhead {
                 g.visibility(), random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get(),
                 IncomingConfig.SERVER.nukeWaveSpeed.get().floatValue());
         events.add(d);
-        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
+        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d, (float) Blackouts.nukeRadius(d)));
 
         NuclearWorld.get(level).onDetonation(level, d, owner);
         Blackouts.nuke(level, d);
@@ -129,7 +129,11 @@ public final class NuclearWarhead {
         // творческий режим и наблюдатели: ни ожогов, ни дозы (как и у урона)
         if (living instanceof Player p && (p.isCreative() || p.isSpectator())) return false;
         Vec3 eye = living.getEyePosition();
-        if (sees(level, d, living)) burn(level, d, living, d.fluence(eye), owner);
+        if (sees(level, d, living)) {
+            burn(level, d, living, d.fluence(eye), owner);
+            // видел вспышку — бежит прочь
+            MobPanic.flash(d, living, level.getGameTime());
+        }
         double rem = PromptRadiationModel.doseRem(Math.max(1, d.metres(eye.distanceTo(d.burst()))), d.yieldKt()) * shielding(level, eye, d.burst());
         if (rem < 1) return true;
         float gy = (float) (rem / PromptRadiationModel.REM_PER_GY);

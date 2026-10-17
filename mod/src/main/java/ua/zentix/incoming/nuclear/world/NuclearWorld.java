@@ -7,6 +7,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.flash.FlashShadows;
 import ua.zentix.incoming.nuclear.NuclearEvents;
 import ua.zentix.incoming.nuclear.radiation.MobFallout;
 import ua.zentix.incoming.nuclear.model.CraterModel;
@@ -39,6 +40,8 @@ public final class NuclearWorld {
     private static final int RUINS_SWEEP = 100, RUINS_IDLE = 600;
     private final NuclearPrep prep = new NuclearPrep();
     private final List<PulseJob> pulses = new ArrayList<>();
+    /** Силуэты вспышки по подрывам ({@link FlashShadows}): тела сняты в тике подрыва. */
+    private final List<FlashShadows> shadows = new ArrayList<>();
     private final List<CraterJob> craters = new ArrayList<>();
     private final MobFallout mobFallout = new MobFallout();
     private final BlastFront blast = new BlastFront();
@@ -100,7 +103,7 @@ public final class NuclearWorld {
      * берут не весь общий бюджет).
      */
     public boolean busy() {
-        return !pulses.isEmpty() || !craters.isEmpty() || scars.size() > 0 || !prep.idle() || blast.busy();
+        return !pulses.isEmpty() || !shadows.isEmpty() || !craters.isEmpty() || scars.size() > 0 || !prep.idle() || blast.busy();
     }
 
     /** Работ очереди руин, осмотренных в последнем тике (проверки бюджета). */
@@ -189,6 +192,9 @@ public final class NuclearWorld {
      */
     public void onDetonation(ServerLevel level, Detonation d, @Nullable UUID owner) {
         pulses.add(new PulseJob(level, d, owner));
+        // тела перед стенами — снимком сейчас: импульс (PulseJob) их убьёт и уронит
+        FlashShadows flash = FlashShadows.of(level, d);
+        if (flash != null) shadows.add(flash);
         blast.onDetonation(d, owner);
         NuclearPrep.Handoff ready = prep.handOff(level, d, level.getGameTime());
         if (ready != null) {
@@ -265,6 +271,7 @@ public final class NuclearWorld {
         ruins.values().forEach(RuinContext::cancelTasks);
         ruins.clear();
         pulses.clear();
+        shadows.clear();
         craters.forEach(c -> c.release(level));
         craters.clear();
         blast.clear();
@@ -293,6 +300,16 @@ public final class NuclearWorld {
                 Incoming.LOG.error("Thermal pulse of detonation #{} failed with an exception; dropped", job.detonation().id(), e);
             }
             pulses.removeFirst();
+        }
+        // силуэты вспышки — после импульса (урон важнее картинки), до волны: руины на месте тела не ждут их
+        while (!shadows.isEmpty()) {
+            FlashShadows job = shadows.getFirst();
+            try {
+                if (!job.work(level, clock)) break;
+            } catch (RuntimeException e) {
+                Incoming.LOG.error("Flash shadows of detonation #{} failed with an exception; dropped", job.detonation().id(), e);
+            }
+            shadows.removeFirst();
         }
         long frontStart = System.nanoTime();
         lastPulseNanos = frontStart - pulseStart;
