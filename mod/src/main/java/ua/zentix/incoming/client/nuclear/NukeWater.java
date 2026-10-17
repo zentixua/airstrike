@@ -184,7 +184,7 @@ public final class NukeWater {
         // брызги встают позади тёмного кольца: на путь фронта за время подъёма брызг (WaterModel.SPRAY_LAG)
         double lag = Math.max(0, slant - d.frontRadius(Math.max(0, ticks - WaterModel.SPRAY_LAG * 20 * d.scale())));
         int n = Math.min(MAX_SPOTS, (int) Math.round(2 * half * r / STEP * spray * Fx.density(eye)));
-        boolean puffs = !NukePall.drawsHead();
+        boolean puffs = !NukePall.drawsHead(a, eye);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (int i = 0; i < n; i++) {
             double ang = toward + (RANDOM.nextDouble() * 2 - 1) * half;
