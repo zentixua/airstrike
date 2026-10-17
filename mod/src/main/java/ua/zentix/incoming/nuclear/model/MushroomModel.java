@@ -141,9 +141,11 @@ public final class MushroomModel {
         // толща поперёк сечения постоянна, пока шапка поднимается (вещество растёт с подхваченным воздухом); растекаясь
         // наковальней, она редеет как площадь
         double capTau = TAU_CAP * show * life / (spread * spread);
-        // ножка догоняет шапку за десятую часть подъёма и входит в выемку под куполом (воздух поднимается сквозь
-        // кольцо); у высокого воздушного подрыва — тоньше и бледнее
-        double stemTop = (capBot + 0.3 * capH) * clamp(t / (stab * 0.1), 0, 1);
+        // ножка входит в выемку под куполом (воздух поднимается сквозь кольцо). У наземного шар касается земли, и пыль
+        // уходит вверх за ним сразу: ножка — его след, без разрыва под шапкой. У воздушного пыль поднимают с земли ветры
+        // за фронтом, и столб догоняет шапку за десятую часть подъёма; у высокого — тоньше и бледнее
+        double catchUp = 0.1 * stab * smooth(rf, 2 * rf, hob);
+        double stemTop = (capBot + 0.3 * capH) * (catchUp <= 0 ? 1 : clamp(t / catchUp, 0, 1));
         double stemShare = hob <= rf ? 1 : clamp(1.5 - hob / (rf * 4.8), 0.44, 1);
         double stemTau = TAU_STEM * stemShare * smooth(4, 20, tau) * life;
         double lowDust = Math.exp(-Math.max(0, t - stab * 0.1) / (hob <= rf ? DUST_SETTLE_SURFACE : DUST_SETTLE_AIR));

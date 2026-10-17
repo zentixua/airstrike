@@ -67,7 +67,8 @@ class MushroomModelTest {
 
     /**
      * Гриб: до подрыва и после рассеяния его нет; кольцо растёт из шара; шапка проступает, когда шар гаснет; ножка
-     * входит в выемку под куполом, но не выше середины кольца; юбка не дальше фронта по земле.
+     * входит в выемку под куполом, но не выше середины кольца (у наземного — с самого начала: она след шара, у воздушного
+     * столб пыли догоняет шапку позже); юбка не дальше фронта по земле.
      */
     @Test
     void shapeFollowsTheCloud() {
@@ -81,10 +82,15 @@ class MushroomModelTest {
             MushroomModel.Shape s = MushroomModel.shape(t, 15, 0, true, 2_000);
             assertNotNull(s, t + " с");
             assertTrue(s.stemTop() <= s.capY() + 1e-9, t + " с: ножка выше середины кольца");
+            assertTrue(s.stemTop() >= s.capBottom() - 1e-9, t + " с: у наземного ножка не дошла до шапки");
             assertTrue(s.skirtR() + s.skirtW() <= 2_000 + 1e-9, t + " с: юбка дальше фронта");
             assertTrue(s.ringR() + s.ringA() <= s.capR() + 1e-9, t + " с: кольцо шире шапки");
             assertTrue(s.top() >= s.capY(), t + " с");
         }
+        // у воздушного столб пыли поднимается с земли и догоняет шапку позже
+        double high = 4 * FireballModel.maxRadius(15, false);
+        MushroomModel.Shape air = MushroomModel.shape(5, 15, high, false, 2_000);
+        assertTrue(air.stemTop() < air.capBottom(), "воздушный: ножка у шапки уже через 5 с");
         MushroomModel.Shape late = MushroomModel.shape(60, 15, 0, true, 5_000);
         assertEquals(MushroomModel.RING * late.capR(), late.ringR(), 1e-9);
         assertTrue(late.capTau() > 10, "шапка через минуту густая: " + late.capTau());
