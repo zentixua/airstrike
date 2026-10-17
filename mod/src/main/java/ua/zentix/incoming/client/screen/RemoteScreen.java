@@ -192,16 +192,36 @@ public class RemoteScreen extends Screen {
         // огонь, отбой, настройки
         int by = y0 + h - 26;
         // пульт с привязанными пусковыми ставит им задачу, а не пускает сам (launcher.LauncherLinks)
-        int linked = hand != null && minecraft.player != null ? LauncherLinks.of(minecraft.player.getItemInHand(hand)).size() : 0;
+        int linked = linked();
         Component fireLabel = linked > 0 ? Component.translatable("incoming.remote.assign", linked) : Component.translatable("incoming.remote.fire");
+        // маршрут и место пуска с карты — у цели «На карте», как у огня с самой карты
+        boolean map = loadout.mode() == TargetMode.MAP;
         addRenderableWidget(Button.builder(fireLabel.copy().withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
-                b -> fire(loadout.mode() == TargetMode.MAP ? MapTarget.waypoints(minecraft.level) : Waypoints.NONE)).bounds(x0 + 4, by, 128, 22).build());
+                b -> fire(map ? MapTarget.waypoints(minecraft.level) : Waypoints.NONE, map ? launchFrom() : Optional.empty()))
+                .bounds(x0 + 4, by, 128, 22).build());
         addRenderableWidget(Button.builder(Component.translatable("incoming.remote.clear"), b -> {
             PacketDistributor.sendToServer(new C2S.Clear());
             onClose();
         }).bounds(x0 + 136, by, 70, 22).tooltip(Tooltip.create(Component.translatable("incoming.remote.clear.tooltip"))).build());
         addRenderableWidget(Button.builder(Component.translatable("incoming.remote.settings"), b -> openConfig())
                 .bounds(x0 + 210, by, 106, 22).build());
+    }
+
+    /** Сколько стационарных пусковых привязано к пульту в руке ({@link LauncherLinks}): им пульт ставит задачу. */
+    int linked() {
+        LocalPlayer p = Minecraft.getInstance().player;
+        return hand != null && p != null ? LauncherLinks.of(p.getItemInHand(hand)).size() : 0;
+    }
+
+    /**
+     * Место пуска с карты, с которого уйдёт удар этого пульта: выбранное оператором или хостом
+     * ({@link MapScreen#mayPickLaunchSite}), если пульт не ставит задачу привязанным пусковым (они пускают со своего
+     * места) и оружие с него стартует или заходит (МБР — со своей площадки: старое место вдали её пуск не остановит).
+     * Пусто — пуск у игрока; от того же места карта рисует путь и считает его длину.
+     */
+    Optional<Vec3> launchFrom() {
+        if (linked() > 0 || !MapScreen.mayPickLaunchSite() || loadout.weapon().spec().launch() == WeaponSpec.Launch.ICBM) return Optional.empty();
+        return MapTarget.launchPoint(Minecraft.getInstance().level);
     }
 
     /** Чужие игроки, которых видит или недавно видела своя сторона ({@link MapPlayers#targets}): по другим пульт не бьёт. */
@@ -336,10 +356,11 @@ public class RemoteScreen extends Screen {
 
     /**
      * Огонь по цели пульта; с карты наведения — по выбранному там месту или игроку ({@link #aimAtPlace},
-     * {@link #aimAtPlayer}) и по точкам маршрута {@code via}, если оружие по ним летает. Карта открывается и клавишей,
-     * без показа пульта, поэтому здесь — {@code Minecraft.getInstance()}, а не поле экрана.
+     * {@link #aimAtPlayer}), по точкам маршрута {@code via}, если оружие по ним летает, и с места пуска {@code from}
+     * ({@link #launchFrom}). Карта открывается и клавишей, без показа пульта, поэтому здесь —
+     * {@code Minecraft.getInstance()}, а не поле экрана.
      */
-    void fire(Waypoints via) {
+    void fire(Waypoints via, Optional<Vec3> from) {
         if (loadout.mode() == TargetMode.AIRCRAFT && aircraft == null) return;
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
         if (!loadout.weapon().spec().route().waypoints()) via = Waypoints.NONE;
@@ -347,8 +368,9 @@ public class RemoteScreen extends Screen {
         if (loadout.mode() == TargetMode.MAP) {
             Optional<MapTarget.Place> place = MapTarget.get(Minecraft.getInstance().level);
             LocalPlayer p = Minecraft.getInstance().player;
-            // маршрут длиннее дальности оружия: пуска нет — карта покажет, что не так
-            if (place.isEmpty() || p == null || !via.isEmpty() && !via.within(loadout.weapon(), p.position(), new Vec3(place.get().x(), 0, place.get().z()))) {
+            // маршрут длиннее дальности оружия (от места пуска, без него — от игрока): пуска нет — карта покажет, что не так
+            if (place.isEmpty() || p == null
+                    || !via.isEmpty() && !via.within(loadout.weapon(), from.orElse(p.position()), new Vec3(place.get().x(), 0, place.get().z()))) {
                 openMap();
                 return;
             }
@@ -357,7 +379,7 @@ public class RemoteScreen extends Screen {
         } else {
             aim = nukePoint();
         }
-        C2S.Fire packet = new C2S.Fire(loadout, aim, Optional.ofNullable(aircraft), via);
+        C2S.Fire packet = new C2S.Fire(loadout, aim, Optional.ofNullable(aircraft), via, from);
         Minecraft.getInstance().setScreen(null);
         if (loadout.nuclear()) {
             NukeArming.toggle(() -> PacketDistributor.sendToServer(packet));
@@ -400,10 +422,13 @@ public class RemoteScreen extends Screen {
             case AIRCRAFT -> choices.isEmpty() ? Component.translatable("incoming.remote.hint.no_aircraft") : movingHint("aircraft");
             case MAP -> {
                 int points = loadout.weapon().spec().route().waypoints() ? MapTarget.route(minecraft.level).size() : 0;
-                yield MapTarget.get(minecraft.level)
+                Component place = MapTarget.get(minecraft.level)
                         .<Component>map(p -> points > 0 ? Component.translatable("incoming.remote.hint.map_route", Mth.floor(p.x()), Mth.floor(p.z()), points)
                                 : Component.translatable("incoming.remote.hint.map", Mth.floor(p.x()), Mth.floor(p.z())))
                         .orElse(Component.translatable("incoming.remote.hint.no_map"));
+                // место пуска с карты (его пуск и возьмёт)
+                yield launchFrom().<Component>map(f -> place.copy().append(Component.translatable("incoming.remote.hint.launch", Mth.floor(f.x), Mth.floor(f.z))))
+                        .orElse(place);
             }
         };
         // подсказка — над кнопками пуска: последняя строка внизу, лишние растут вверх

@@ -24,6 +24,7 @@ import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -41,6 +42,7 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.entity.flight.ProximityFuse;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.compat.SplitGuard;
 import ua.zentix.incoming.entity.BomberEntity;
 import ua.zentix.incoming.entity.BunkerBusterEntity;
@@ -61,6 +63,7 @@ import ua.zentix.incoming.net.C2S;
 import ua.zentix.incoming.nuclear.model.BlastModel;
 import ua.zentix.incoming.nuclear.world.BlockResponse;
 import ua.zentix.incoming.registry.ModEntities;
+import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.strike.AreaLoader;
 import ua.zentix.incoming.strike.ChunkTickets;
 import ua.zentix.incoming.strike.FarFlights;
@@ -1089,6 +1092,72 @@ public final class StrikeGameTests {
                         && mine.stream().filter(l -> !l.ordered()).count() == LaunchSite.MAX_PER_OWNER,
                 "пусковых на местах пуска " + mine.stream().filter(LauncherEntity::ordered).count() + ", за владельцем " + mine.stream().filter(l -> !l.ordered()).count());
         h.succeed();
+    }
+
+    /**
+     * Место пуска с карты пульта ({@code C2S.Fire#from}, {@link ServerActions#launchSiteProblem}): его выбирает только
+     * оператор (или хост), не дальше {@code map_range} от себя, в границах мира. Приказ оператора с пульта идёт по правилам
+     * (боеприпас снят), пусковая встаёт на месте пуска — его, и его «Отбой» её убирает.
+     */
+    @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_from_map", skyAccess = true)
+    public static void designatorLaunchSite(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        Vec3 from = h.absoluteVec(new Vec3(16.5, 0, 60.5));
+        StrikeGameTests.afterTest(h, () -> {
+            level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(64)).forEach(Entity::discard);
+            level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64)).forEach(Entity::discard);
+        });
+        Vec3 stand = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 130)));
+        FakePlayer player = new Ranked(level, "site_player", 0);
+        player.moveTo(stand);
+        Ranked op = new Ranked(level, "site_operator", 2);
+        op.moveTo(stand);
+
+        h.assertTrue(key(ServerActions.launchSiteProblem(player, from)).equals("incoming.map.launch.ops_only"), "место пуска принято не у оператора");
+        h.assertTrue(ServerActions.launchSiteProblem(op, from) == null, "место пуска оператора рядом не принято");
+        double range = IncomingConfig.SERVER.mapRange.get();
+        h.assertTrue(key(ServerActions.launchSiteProblem(op, stand.add(range + 10, 0, 0))).equals("incoming.map.launch.out_of_range"),
+                "место пуска дальше map_range принято");
+        h.assertTrue(outsideWorld(ServerActions.launchSiteProblem(op, new Vec3(Double.NaN, 0, from.z))), "место пуска NaN не названо вне мира");
+
+        Item shahed = ModItems.SHAHED.get();
+        MunitionGameTests.give(op, shahed, 1);
+        ServerActions.Aim aim = new ServerActions.Aim(new Target.Point(point), point, null);
+        h.assertTrue(ServerActions.strike(op, WeaponType.DRONE, 1, 0, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, new LaunchOrigin.Place(from), true),
+                "приказ оператора с места пуска не принят");
+        h.assertTrue(MunitionGameTests.held(op, shahed) == 0, "приказ с пульта не снял боеприпас: осталось " + MunitionGameTests.held(op, shahed));
+        List<LauncherEntity> launchers = level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), LauncherEntity::isAlive);
+        h.assertTrue(launchers.size() == 1 && flat(launchers.getFirst().position(), from) < PLACE_SLACK, "пусковая не на месте пуска " + from + ": "
+                + launchers.stream().map(Entity::position).toList());
+        LauncherEntity launcher = launchers.getFirst();
+        h.assertTrue(launcher.ordered() && op.getUUID().equals(launcher.ownerId()), "пусковая места пуска: на месте " + launcher.ordered() + ", владелец " + launcher.ownerId());
+        List<StrikeProjectile> onRail = level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(64), launcher::serves);
+        h.assertTrue(onRail.size() == 1 && op.getUUID().equals(onRail.getFirst().ownerId()), "на пусковой не шахед оператора: " + onRail.size());
+
+        ServerActions.recall(level.getServer(), op.getUUID(), op.getGameProfile().getName());
+        h.assertTrue(level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), LauncherEntity::isAlive).isEmpty(), "«Отбой» не убрал пусковую места пуска");
+        h.succeed();
+    }
+
+    /** Игрок GameTest с правами {@code level} (оператор — 2): пакетов не шлёт, в списке игроков его нет. */
+    private static final class Ranked extends FakePlayer {
+        private final int level;
+
+        Ranked(ServerLevel world, String name, int level) {
+            super(world, new GameProfile(UUID.randomUUID(), name));
+            this.level = level;
+        }
+
+        @Override
+        protected int getPermissionLevel() {
+            return level;
+        }
+    }
+
+    /** Ключ перевода строки отказа; пусто — отказа нет. */
+    private static String key(@Nullable Component problem) {
+        return problem != null && problem.getContents() instanceof TranslatableContents t ? t.getKey() : "";
     }
 
     /**

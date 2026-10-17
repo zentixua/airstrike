@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland (tools/nested_kwin.sh — своя шина D-Bus и настройки), звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|nuke|nuke-water|nuke-lake|pall|pall-front|pall-low|firestorm|wall|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|launch-map|nuke|nuke-water|nuke-lake|pall|pall-front|pall-low|firestorm|wall|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   guide — кадры руководства игрока (GuideShots): рецепты, бинокль, пульт, GIF карты, снаряды на экране, камера,
 #     «Ланцет», ЗРК, стационарная пусковая; INCOMING_GUIDE=recipes,map — только эти разделы; карта — по прорисовке 20 чанков, без dh;
@@ -12,6 +12,7 @@
 #   target-map — карта наведения пульта: масштаб, выбор места кликом, огонь по Enter, снаряд на карте;
 #   salvo-map — залп шахедов с разбросом на карте наведения: кадры путей и района, время открытия карты в логе;
 #   route-map — маршрут на карте наведения: точки, правка мышью, длиннее дальности — без огня, полёт по точкам и попадание;
+#   launch-map — то же с местом пуска с карты: кнопка и клик, значок перетащен, старт с него (пусковая или из места вне мира);
 #   loiter — рой барражирующих: катапульта, камера на круге (оператор смотрит на цель), со стороны — круги и пике;
 #   nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь;
 #   nuke-water — 15 кт на море в 1,5 км от берега (зритель над водой у берега): столб, кольцо тумана, тёмное кольцо и брызги, базисная волна;

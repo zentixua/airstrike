@@ -74,7 +74,9 @@ paths:
   камера вне снаряда — клиентский `Marker`, не добавленный в мир; ЛКМ — перенацелить; снаряда нет на клиенте —
   `cam/TacticalMap`, карта оператора по телеметрии `FlightStatus`), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт),
   `screen/MapScreen` (карта наведения: клик — место удара, `C2S.AimHint.GROUND`, дальность — `map_range`, или игрок — цель
-  пульта «игрок»; Shift+клик — точка маршрута, тянуть — сдвиг, ПКМ — убрать; место и маршрут помнит `map/MapTarget`;
+  пульта «игрок»; Shift+клик — точка маршрута, тянуть — сдвиг, ПКМ — убрать; Ctrl+клик или кнопка — место пуска, только у
+  оператора и хоста (`MapScreen.mayPickLaunchSite`), тянуть и ПКМ — так же; берёт ли его удар (не у привязанных пусковых,
+  не у МБР) — одно `RemoteScreen.launchFrom`: по нему и огонь, и путь на карте; место, маршрут и место пуска помнит `map/MapTarget`;
   время, за которое рельеф вида построился, — строка «Targeting map: view terrain ready in …» в лог),
   `map/` (общая проекция карт `MapProjection`; `MapPlayers` — другие игроки по запросу `C2S.MapPlayers`, пока карта открыта (сервер:
   `ServerActions.mapPlayers` — измерение, `map_range`, без невидимых и наблюдателей, `map_players`; GameTest `mapPlayersShowsOnlyWhomItShould`);
