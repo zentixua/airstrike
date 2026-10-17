@@ -323,6 +323,12 @@ public final class PallPass {
          */
         public final Vector4f water0 = new Vector4f(), water1 = new Vector4f();
         /**
+         * Стена пыли слотов ({@code client/nuclear/BlastWall#slot}, {@code pall.glsl}): голова-вал (нули — головы нет)
+         * и облако Вильсона (z = 0 — облака нет).
+         */
+        public final Matrix4f wall0 = new Matrix4f().zero(), wall1 = new Matrix4f().zero();
+        public final Vector4f wilson0 = new Vector4f(), wilson1 = new Vector4f();
+        /**
          * Мир кадра кончается не ближе стольких блоков по земле от глаза (дальность прорисовки): луч в пустоту прошёл его,
          * ничего не задев, — рельеф под пеленой ({@link Ground}) режет его только дальше.
          */
@@ -521,6 +527,10 @@ public final class PallPass {
         m.safeGetUniform("PallGround1").set(groundSlot1.x, groundSlot1.y, groundSlot1.z, groundSlot1.w);
         m.safeGetUniform("PallWater0").set(f.water0.x, f.water0.y, f.water0.z, f.water0.w);
         m.safeGetUniform("PallWater1").set(f.water1.x, f.water1.y, f.water1.z, f.water1.w);
+        m.safeGetUniform("PallWall0").set(f.wall0);
+        m.safeGetUniform("PallWall1").set(f.wall1);
+        m.safeGetUniform("PallWilson0").set(f.wilson0.x, f.wilson0.y, f.wilson0.z, f.wilson0.w);
+        m.safeGetUniform("PallWilson1").set(f.wilson1.x, f.wilson1.y, f.wilson1.z, f.wilson1.w);
         m.safeGetUniform("PallFloorFrom").set(f.floorFrom);
         quad(m, true);
 

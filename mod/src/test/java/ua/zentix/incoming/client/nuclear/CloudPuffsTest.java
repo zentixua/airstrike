@@ -81,17 +81,16 @@ class CloudPuffsTest {
     }
 
     /**
-     * Пыль у земли стоит на рельефе под собой: на плато в 136 блоках над эпицентром стена, шлейф и юбка поднимаются ровно
-     * на него, гриб остаётся над эпицентром; передний край стены — на голове ({@link CloudPuffs#wall}), не дальше.
+     * Юбка стоит на рельефе под собой: на плато в 136 блоках над эпицентром она поднимается ровно на него, гриб остаётся
+     * над эпицентром и на месте.
      */
     @Test
     void groundDustStandsOnTerrain() {
         for (double t : new double[]{2, 6, 20}) {
-            CloudPuffs onPlateau = new CloudPuffs(GROUND, 750, false), flat = new CloudPuffs(GROUND, 750, false);
+            CloudPuffs onPlateau = new CloudPuffs(GROUND, 750), flat = new CloudPuffs(GROUND, 750);
             onPlateau.track(t, (x, z) -> 200, 0, 0, 1e6);
             List<Seen> raised = frame(onPlateau, t), level = frame(flat, t);
             assertEquals(level.size(), raised.size(), t + " с");
-            double head = onPlateau.wall(t).head(), edge = 0;
             int lifted = 0;
             for (int i = 0; i < raised.size(); i++) {
                 Seen a = raised.get(i), b = level.get(i);
@@ -99,63 +98,9 @@ class CloudPuffsTest {
                 assertEquals(b.z, a.z, 1e-9);
                 double dy = a.y - b.y;
                 assertTrue(Math.abs(dy) < 1e-6 || Math.abs(dy - 136) < 1e-6, t + " с: клуб сдвинут на " + dy);
-                if (dy > 1) {
-                    lifted++;
-                    // клуб на текстуре — ~60% квадрата
-                    edge = Math.max(edge, Math.hypot(a.x, a.z) + 0.3 * a.size);
-                }
+                if (dy > 1) lifted++;
             }
-            assertTrue(lifted > 300, t + " с: на рельеф встало " + lifted + " клубов");
-            assertTrue(edge <= head * 1.02 + 1, t + " с: пыль впереди головы стены: " + edge + " > " + head);
-            assertTrue(edge >= head * 0.9, t + " с: стена не дошла до головы: " + edge + " < " + head);
+            assertTrue(lifted > 50, t + " с: на рельеф встало " + lifted + " клубов");
         }
-    }
-
-    /**
-     * Пыль у камеры берёт свет стены ({@link CloudPuffs#wallColor}): у головы стены в 1,5 км её цвет на любой высоте —
-     * в пределах цветов клубов стены там же (дым со свечением поверх), днём и ночью; ночью он не тёмный — стена там
-     * в отсвете пожаров, а по ночной карте освещения пыль вышла бы почти чёрной.
-     */
-    @Test
-    void nearDustTakesWallLight() {
-        CloudPuffs puffs = new CloudPuffs(GROUND, 750, false);
-        double t = 0.5;
-        while (GROUND.metres(puffs.wall(t).head()) < 1500) t += 0.05;
-        double head = puffs.wall(t).head(), height = puffs.wall(t).height();
-        for (float ambient : new float[]{NIGHT, 1f}) {
-            double[] range = {Double.MAX_VALUE, -Double.MAX_VALUE};
-            puffs.sprites(t, 1, ambient, (x, y, z, size, rot, r, g, b, a, gr, gg, gb, ga, tex) -> {
-                // клубы головы стены: у фронта и не выше стены (эпицентр — 0, 64, 0)
-                if (Math.abs(Math.hypot(x, z) - head) > 0.5 * height || y - 64 > height || a < 0.05) return;
-                double k = ga / a;
-                double l = luminance(new float[]{(float) (r + gr * k), (float) (g + gg * k), (float) (b + gb * k)});
-                range[0] = Math.min(range[0], l);
-                range[1] = Math.max(range[1], l);
-            });
-            assertTrue(range[1] > range[0], "у головы стены нет клубов");
-            for (double up = 0.3; up <= 1; up += 0.1) {
-                float[] c = new float[3];
-                assertTrue(puffs.wallColor(t, head - 5, up, 1, ambient, c));
-                double l = luminance(c);
-                assertTrue(l >= range[0] * 0.95 && l <= range[1] * 1.05,
-                        "свет " + ambient + ", высота " + up + ": яркость " + l + " вне клубов стены " + range[0] + ".." + range[1]);
-                if (ambient == NIGHT) assertTrue(l > 0.2, "ночью у пожаров пыль тёмная: " + l);
-            }
-        }
-    }
-
-    /** Вал головы стены крутится в одну сторону и не быстрее {@link CloudPuffs#ROLL_MAX}. */
-    @Test
-    void wallHeadRollsSteadily() {
-        CloudPuffs puffs = new CloudPuffs(GROUND, 750, false);
-        assertEquals(0, puffs.rollPhase(0));
-        double prev = 0;
-        for (double t = 0.05; t <= 600; t += 0.05) {
-            double phase = puffs.rollPhase(t);
-            assertTrue(phase >= prev - 1e-9, t + " с: вал крутится назад");
-            assertTrue(phase - prev <= CloudPuffs.ROLL_MAX * 0.05 + 1e-6, t + " с: быстрее предела " + (phase - prev) / 0.05);
-            prev = phase;
-        }
-        assertTrue(puffs.rollPhase(10) > Math.PI, "за 10 с вал не обернулся и наполовину: " + puffs.rollPhase(10));
     }
 }

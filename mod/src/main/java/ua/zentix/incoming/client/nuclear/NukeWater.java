@@ -251,7 +251,7 @@ public final class NukeWater {
         StringBuilder sb = new StringBuilder();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             int[] n = a.water.visible(a.seconds(0));
-            CloudPuffs.Wall w = a.puffs.wall(a.seconds(0));
+            BlastWall.Wall w = a.wall.wall(a.seconds(0));
             sb.append(String.format(Locale.ROOT, " [#%d t=%.1fs wet=%.2f (%s) column=%d mist=%d surge=%d wall=%.0f spray-ground=%d]", a.d.id(),
                     a.seconds(0), a.water.wet(), a.water.source(), n[0], n[1], n[2], w.head(), a.puffs.wetGround()));
         }

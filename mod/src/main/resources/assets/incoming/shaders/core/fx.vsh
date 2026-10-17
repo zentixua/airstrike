@@ -47,6 +47,11 @@ uniform vec4 PallGround0;
 uniform vec4 PallGround1;
 uniform vec4 PallWater0;
 uniform vec4 PallWater1;
+// стена пыли слотов (pall.glsl, client/nuclear/BlastWall): голова-вал и облако Вильсона
+uniform mat4 PallWall0;
+uniform mat4 PallWall1;
+uniform vec4 PallWilson0;
+uniform vec4 PallWilson1;
 
 out vec2 texCoord0;
 out vec4 vertexColor;
@@ -109,6 +114,11 @@ float pall(vec3 p) {
             tau += (f.sigma.x + f.sigma.y + f.sigma.z) * ds;
         }
     }
+    // голова стены пыли (средняя, по своим отрезкам луча) и облако Вильсона перед квадратом
+    tau += pallWallTau(Sampler9, PallSlot0, PallWall0, PallGround0, PallWater0, dir, t0, t1, 4)
+            + pallWallTau(Sampler10, PallSlot1, PallWall1, PallGround1, PallWater1, dir, t0, t1, 4);
+    vec4 w0 = pallWilson(PallSlot0, PallWilson0, dir, t1), w1 = pallWilson(PallSlot1, PallWilson1, dir, t1);
+    tau += w0.y + w0.w + w1.y + w1.w;
     return exp(-tau);
 }
 

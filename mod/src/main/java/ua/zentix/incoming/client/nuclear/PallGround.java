@@ -384,6 +384,15 @@ public final class PallGround {
         return sum / (SIDE * SIDE);
     }
 
+    /** Низ и верх карты над землёй под эпицентром, блоки (как в шейдере). */
+    float low() {
+        return lo;
+    }
+
+    float high() {
+        return hi;
+    }
+
     /** Для слоя эффектов: карта и её числа ({@code pall.glsl}: полсторона, низ, верх, клетка). */
     void frame(PallPass.Ground out) {
         out.params.set((float) half, lo, hi, (float) cell);

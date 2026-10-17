@@ -27,15 +27,19 @@ with a nuclear warhead takes off 90 seconds after the alarm starts.
 ![Mushroom cloud over a town, the dust wall moving out below](img/nuke.jpg)
 
 Everyone within 20 km of the target hears a siren in advance. Then come the flash, the fireball and the mushroom cloud.
-The blast wave rolls out over the land as a wall of dust and smoke and breaks buildings as it reaches them: their pieces
-fly with the dust. The ground shakes harder and harder as the wall comes closer. When the wall reaches you, it throws
+The blast wave itself is invisible. The wind right behind it lifts what lies on the ground (dust and earth, smoke over a
+burning town, spray over water) and rolls it forward as a churning wall, like a dust storm. At 15 kt the wall is about
+150 m tall 1 km from the burst and about 50 m tall 4 km out; farther away it thins out and fades at about 9 km, where
+the wind is too weak to lift dust. The wave breaks buildings as it reaches them: their pieces fly with the dust. The
+ground shakes harder and harder as the wall comes closer. When the wall reaches you, it throws
 your view away from the burst, and the wind behind it keeps rocking you. After a ground burst a short jolt comes through
 the ground first, seconds before the wave.
 
 Behind the wave a pall of dust climbs over the town for a minute or two, up to about 200 m high at 15 kt and lower
 toward the edge. From a rooftop near the blast you first see the wave cross the town, then the dust swallows you. At
-night the fireball, the glowing cloud and the fires light it orange, as they light the wall of dust; its clumps are
-lighter on the side facing the light and darker in their folds. In the thick of it you see only some 40 m and sounds are
+night the fireball, the glowing cloud and the fires light it orange, as they light the top of the dust wall (the side of
+the wall away from the fireball stays dark); its clumps are lighter on the side facing the light and darker in their
+folds. In the thick of it you see only some 40 m and sounds are
 muffled. The dust also fills the valleys around the town. It settles over a few minutes and drifts downwind. Where the
 light of the fireball set the town on fire, a firestorm builds up over a few minutes. Columns of smoke rise over the
 burning blocks, lean downwind and merge higher up into a ceiling of smoke over the town. At night the fires light it

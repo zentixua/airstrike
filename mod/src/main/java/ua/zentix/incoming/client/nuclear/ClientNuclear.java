@@ -34,6 +34,8 @@ public final class ClientNuclear {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
+        /** Стена пыли ударной волны: голова-вал и облако Вильсона ({@link BlastWall}; рисует пелена, {@link NukePall}). */
+        public final BlastWall wall;
         /** Подрыв на воде: столб, кольцо тумана, базисная волна ({@link NukeWater}). */
         final WaterPuffs water;
         /**
@@ -51,21 +53,22 @@ public final class ClientNuclear {
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d), new WaterPuffs(d, WaterPuffs.count(d)), null, null, null);
+            this(d, live, clientNow, new CloudPuffs(d), new BlastWall(d), new WaterPuffs(d, WaterPuffs.count(d)), null, null, null);
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
         Active(Active a, long clientNow) {
-            this(a.d, false, clientNow, a.puffs, a.water, a.pall, a.storm, a.ground);
+            this(a.d, false, clientNow, a.puffs, a.wall, a.water, a.pall, a.storm, a.ground);
             puffs.untrack();
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water, @Nullable PallField pall,
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, BlastWall wall, WaterPuffs water, @Nullable PallField pall,
                 @Nullable FireStorm storm, @Nullable PallGround ground) {
             this.d = d;
             this.live = live;
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
             this.puffs = puffs;
+            this.wall = wall;
             this.water = water;
             ClientLevel level = Minecraft.getInstance().level;
             if (pall != null) {
