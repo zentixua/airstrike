@@ -6,11 +6,9 @@ import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.far.FarTerrain;
 import ua.zentix.incoming.client.far.Sightline;
 import ua.zentix.incoming.nuclear.Detonation;
-import ua.zentix.incoming.nuclear.model.BlackBody;
 import ua.zentix.incoming.nuclear.model.BlastModel;
 import ua.zentix.incoming.nuclear.model.CloudModel;
 import ua.zentix.incoming.nuclear.model.FireballModel;
-import ua.zentix.incoming.nuclear.model.MushroomModel;
 import ua.zentix.incoming.nuclear.model.ThermalModel;
 import ua.zentix.incoming.nuclear.model.WaterModel;
 
@@ -19,8 +17,8 @@ import java.util.List;
 
 /**
  * Клубы подрыва (DESIGN-nuke §6): пылевая стена — сам фронт ударной волны — со шлейфом оседающей пыли за ней и облако
- * Вильсона. Сам гриб — объём ({@link MushroomField}, {@code mushroom.glsl}), не клубы; его свет на пыли (шар, накал
- * гриба) — отсюда же ({@link #pallLight}). Стена светится изнутри (пожары, отсвет шара) — свет клуба поверх его дыма
+ * Вильсона. Сам гриб — объём ({@link MushroomField}, {@code mushroom.glsl}), не клубы; его свет на пыли (шар) — отсюда
+ * же ({@link #pallLight}). Стена светится изнутри (пожары, отсвет шара) — свет клуба поверх его дыма
  * ({@link Sink}). Каждый клуб — случайные, но постоянные параметры (сид подрыва, у всех клиентов одинаковые), а
  * положение, размер и цвет в каждый момент выводятся из {@link CloudModel} и {@link FireballModel}. Метры модели →
  * блоки мира через {@link Detonation#blocks}.
@@ -204,27 +202,6 @@ public final class CloudPuffs {
     }
 
     /**
-     * Накал шапки сверху 0..1 — свет её видимого края ({@link MushroomModel#edgeTemperature}, как у объёма гриба) против
-     * света края, когда шар свернулся в кольцо: край смешан с воздухом и гаснет за секунды, дальше пыль у земли освещают
-     * пожары и небо.
-     */
-    static double capGlow(double t, double yieldKt, boolean surface) {
-        double tr = MushroomModel.rollUpSeconds(yieldKt, surface);
-        double rolled = BlackBody.luminance(MushroomModel.edgeTemperature(tr, yieldKt, surface));
-        return Math.min(1, BlackBody.luminance(MushroomModel.edgeTemperature(t, yieldKt, surface)) / Math.max(rolled, 1e-30));
-    }
-
-    /** Цвет накала края шапки (RGB, ярчайший канал — 255): чёрное тело его температуры ({@link #capGlow}). */
-    static int capRgb(double t, double yieldKt, boolean surface) {
-        double[] c = new double[4];
-        BlackBody.light(MushroomModel.edgeTemperature(t, yieldKt, surface), c);
-        double max = Math.max(c[0], Math.max(c[1], Math.max(c[2], 1e-30)));
-        int rgb = 0;
-        for (int i = 0; i < 3; i++) rgb |= (int) Math.round(255 * c[i] / max) << (16 - 8 * i);
-        return rgb;
-    }
-
-    /**
      * Цвет клуба дыма: свет неба на нём плюс отсвет накала изнутри ({@code heat} 0..1, цвет {@code hot}). Днём
      * глаз привыкает к свету — отсвет виден слабее; ночью он и есть весь цвет гриба. Пишет r, g, b в 0..1 в {@code into}.
      */
@@ -296,7 +273,7 @@ public final class CloudPuffs {
     private static final class Moment {
         double t, life, rf, endTop, yc, glow, fireball, overhead, front, groundFront, settle, head, headWall, thick, headK, roll,
                 rollPhase, ringSize, curtainSpacing, windX, windZ;
-        int glowRgb, fireballRgb;
+        int fireballRgb;
     }
 
     /** Клуб в момент: место от эпицентра (высота — над землёй под ним или эпицентром) и размер, м; свет и цвет. */
@@ -326,10 +303,9 @@ public final class CloudPuffs {
         // шар освещает всё вокруг себя: облако Вильсона, пыль под ним
         m.fireball = fireballGlow(t, y);
         m.fireballRgb = FireballModel.colorArgb(t, y) & 0xFFFFFF;
-        // свет сверху на пыль у земли: от шара, потом от раскалённого края шапки — его цвета
-        double cap = 0.5 * capGlow(t, y, d.surface());
-        m.overhead = Math.max(m.fireball, cap);
-        m.glowRgb = m.fireball >= cap ? m.fireballRgb : capRgb(t, y, d.surface());
+        // свет сверху на пыль у земли — только шар: край шапки, смешанный с воздухом, к началу его угасания в миллион
+        // раз тусклее (MushroomModel.edgeTemperature) и светит лишь первые секунды, ночью — в объёме гриба
+        m.overhead = m.fireball;
         // волна у земли: наклонная дальность фронта → радиус по земле
         m.front = d.metres(d.frontRadius(t * 20 * d.scale()));
         m.groundFront = Math.sqrt(Math.max(0, m.front * m.front - hob * hob));
@@ -359,7 +335,7 @@ public final class CloudPuffs {
      */
     private boolean place(Puff p, Moment m, Spot s) {
         double y = d.yieldKt(), rf = m.rf, t = m.t;
-        s.hot = m.glowRgb;
+        s.hot = m.fireballRgb;
         s.shade = p.shade;
         s.heat = 0; // отсвет накала или огня на дыме 0..1
         s.emit = -1; // своё свечение клуба 0..1; -1 — столько же, сколько отсвет
@@ -496,7 +472,7 @@ public final class CloudPuffs {
         into[1] = (float) m.glow;
         into[2] = (float) d.blocks(6 * m.rf);
         into[3] = (float) d.blocks(fireGround);
-        for (int i = 0; i < 3; i++) into[4 + i] = ((m.glowRgb >> (16 - 8 * i)) & 0xFF) / 255f;
+        for (int i = 0; i < 3; i++) into[4 + i] = ((m.fireballRgb >> (16 - 8 * i)) & 0xFF) / 255f;
         into[7] = (float) d.blocks(Math.max(m.yc, m.rf));
         return true;
     }
@@ -518,7 +494,7 @@ public final class CloudPuffs {
         if (m == null) return false;
         Spot s = new Spot();
         s.shade = shade;
-        s.hot = m.glowRgb;
+        s.hot = m.fireballRgb;
         ringLight(m, d.metres(Math.max(0, groundBlocks)), Mth.clamp(up, 0, 1), s);
         smoke(s.rgb, s.shade, ambient, s.hot, s.heat, into);
         double glow = s.heat * EMISSIVE;

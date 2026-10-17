@@ -3,6 +3,9 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.model.BlackBody;
+import ua.zentix.incoming.nuclear.model.FireballModel;
+import ua.zentix.incoming.nuclear.model.MushroomModel;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,22 +32,19 @@ class CloudPuffsTest {
     }
 
     /**
-     * Накал шапки сверху — свет края объёма гриба: полный, пока шар не свернулся в кольцо, дальше только гаснет и через
-     * 30 с меньше процента; цвет — чёрное тело края, красный канал ярче всех.
+     * Свет сверху на пыль — только шар: когда он начинает гаснуть (70 t_max), видимый край шапки, смешанный с воздухом, в
+     * сотни тысяч раз тусклее его (чёрное тело), у любой мощности; погасший шар пыль сверху не освещает.
      */
     @Test
-    void capGlowFollowsTheVolumeEdge() {
-        assertEquals(1, CloudPuffs.capGlow(0.5, 15, true), 1e-9);
-        double was = 1;
-        for (double t = 0.5; t < 120; t += 0.5) {
-            double g = CloudPuffs.capGlow(t, 15, true);
-            assertTrue(g <= was + 1e-12, t + " с: накал растёт");
-            was = g;
+    void onlyTheFireballLightsTheDustFromAbove() {
+        for (double y : new double[]{0.1, 15, 1000}) {
+            double t = 70 * FireballModel.secondMaximumSeconds(y);
+            double edge = BlackBody.luminance(MushroomModel.edgeTemperature(t, y, true));
+            assertTrue(edge < 1e-5 * BlackBody.luminance(MushroomModel.fireballTemperature(t, y)), y + " кт: край " + edge);
         }
-        assertTrue(CloudPuffs.capGlow(30, 15, true) < 0.01, "30 с: " + CloudPuffs.capGlow(30, 15, true));
-        int c = CloudPuffs.capRgb(10, 15, true);
-        int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-        assertTrue(r == 0xFF && r >= g && g >= b, Integer.toHexString(c));
+        float[] light = new float[8];
+        assertTrue(new CloudPuffs(GROUND, 750, false).pallLight(20, light));
+        assertEquals(0, light[0], 0, "15 кт через 20 с: свет сверху");
     }
 
     /** 15 кт у земли на высоте 64, без ветра, в масштабе 1 блок = 4 м. */
