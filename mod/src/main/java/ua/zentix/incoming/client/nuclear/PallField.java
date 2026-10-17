@@ -84,6 +84,8 @@ public final class PallField {
     private final double fireReach;
     /** По узлам: приход фронта (тики), покрытие 0..1, высота пелены (блоки), доля зоны пожаров 0..1. */
     private final double[] arrival = new double[BINS], cover = new double[BINS], top = new double[BINS], fire = new double[BINS];
+    /** Когда пыль осела и у края таблицы (туда фронт пришёл позже всего) — тики после подрыва ({@link #dustEnvelope}). */
+    private final double dustEnd;
     /** Пыль за фронтом сразу стоит на этой высоте (блоки) и растёт со скоростью вначале столько блоков в секунду. */
     private final double riseFrom, riseSpeed;
     /** Когда мгла гаснет по прошедшим тикам — тики после подрыва (утро, если часы мира идут ровно). */
@@ -128,6 +130,7 @@ public final class PallField {
             top[i] = Math.max(MIN_TOP_BLOCKS, d.blocks(topMetres(rm, ys)));
             fire[i] = ignite <= 0 ? 0 : 1 - smooth(ignite * 0.85, ignite * 1.05, rm);
         }
+        this.dustEnd = arrival[BINS - 1] + 20 * DENSE_S * Math.log(1 / GONE);
     }
 
     /** Ниже стольких блоков пелена не бывает (малый масштаб удара): иначе её не видно. */
@@ -257,8 +260,8 @@ public final class PallField {
      * Профиль по высоте: доля густоты у земли на высоте {@code x} пелены над землёй под эпицентром (0 — земля, 1 — верх):
      * гуще у земли, к верху мягко тает. Ниже (долина) — как у земли, глубже 0,4 высоты пелены тает к нулю (на всей
      * высоте ниже земли её нет): пыль стекает в долины, но в пещерах под эпицентром её нет. Где за пикселем нет мира
-     * (пустота за дальностью прорисовки без Distant Horizons), луч пелены кончается у земли под эпицентром
-     * ({@code fx_pall.fsh}).
+     * (пустота за дальностью прорисовки и за краем LOD Distant Horizons), луч пелены кончается на рельефе под ней
+     * ({@link PallGround}, {@code pallFloor} в {@code pall.glsl}).
      */
     static double profile(double x) {
         if (x <= 0) return smooth(-1, -0.4, x);
@@ -360,6 +363,15 @@ public final class PallField {
         double s = d.blocks(d.windSpeed()) * DRIFT * ticks / 20.0;
         out[0] = Math.cos(d.windDir()) * s;
         out[1] = Math.sin(d.windDir()) * s;
+    }
+
+    /**
+     * Докуда по земле от эпицентра может быть пелена в момент {@code ticks}, блоки: таблица, снос пыли (пока она не
+     * осела — дальше сносить нечего) и шлейф мглы, в любую сторону. Рамка слота ({@link NukePall}) и карта рельефа под
+     * пеленой ({@link PallGround}).
+     */
+    public double extent(double ticks) {
+        return reach + d.blocks(d.windSpeed()) * DRIFT * Math.min(ticks, dustEnd) / 20.0 + plume(ticks);
     }
 
     /** Длина шлейфа мглы по ветру к моменту {@code ticks}, блоки: растёт с ветром, не длиннее {@link #PLUME_MAX} зон пожаров. */

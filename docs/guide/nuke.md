@@ -33,15 +33,16 @@ comes through the ground first, seconds before the wave.
 
 Behind the wave a pall of dust climbs over the town for a minute or two, up to about 200 m high at 15 kt and lower
 toward the edge. From a rooftop near the blast you first see the wave cross the town, then the dust swallows you. At
-night the fireball, the glowing cloud and the fires light it orange, as they light the wall of dust. In the thick of it
-you see only some 40 m and sounds are muffled. The dust settles over a few minutes and drifts downwind. Where the light
-of the fireball set the town on fire, a firestorm builds up over a few minutes. Columns of smoke rise over the burning
-blocks, lean downwind and merge higher up into a ceiling of smoke over the town. At night the fires light it orange-red
-from below, and the glow flickers; from a couple of kilometres away the town glows under its smoke, and the dust around
-it catches the glow. A few times in the first ten minutes a fire whirl rises over the hottest fires for a minute or so
-and wanders across them. From about the sixth minute the fires die down to smouldering, and by morning they are out,
-together with the smoke. A server with nuclear fires turned off (`nuclear.fires`) has no firestorm and no smoke haze
-over the town. Ash and scraps of burnt paper fall around you.
+night the fireball, the glowing cloud and the fires light it orange, as they light the wall of dust; its clumps are
+lighter on the side facing the light and darker in their folds. In the thick of it you see only some 40 m and sounds are
+muffled. The dust also fills the valleys around the town. It settles over a few minutes and drifts downwind. Where the
+light of the fireball set the town on fire, a firestorm builds up over a few minutes. Columns of smoke rise over the
+burning blocks, lean downwind and merge higher up into a ceiling of smoke over the town. At night the fires light it
+orange-red from below, and the glow flickers; from a couple of kilometres away the town glows under its smoke, and the
+dust around it catches the glow. A few times in the first ten minutes a fire whirl rises over the hottest fires for a
+minute or so and wanders across them. From about the sixth minute the fires die down to smouldering, and by morning they
+are out, together with the smoke. A server with nuclear fires turned off (`nuclear.fires`) has no firestorm and no smoke
+haze over the town. Ash and scraps of burnt paper fall around you.
 
 ![Fireball and blast wave over a town](img/nuke-wave.jpg)
 

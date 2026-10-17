@@ -30,6 +30,12 @@ uniform sampler2D Sampler4;
 uniform mat4 PallFire0;
 uniform mat4 PallFire1;
 uniform sampler3D PallNoise;
+// рельеф под пеленой слотов (pall.glsl: pallFloor), как в fx_pall
+uniform sampler2D Sampler5;
+uniform sampler2D Sampler6;
+uniform vec4 PallGround0;
+uniform vec4 PallGround1;
+uniform float PallFloorFrom;
 
 out vec4 fragColor;
 
@@ -100,12 +106,11 @@ void main() {
         vec3 dir = normalize(farPoint.xyz / farPoint.w);
         float dist = depth / max(dot(dir, PallForward), 1e-3);
         if (depth >= 1e8) {
-            // мира за пикселем нет (дальше прорисовки без Distant Horizons): луч вниз кончается у земли под эпицентром,
-            // как в fx_pall, — горящий город за краем прорисовки виден огнями на ней
-            float ground = 1e9;
-            if (PallSlot0[1].w > 0.5) ground = PallSlot0[0].z;
-            if (PallSlot1[1].w > 0.5) ground = min(ground, PallSlot1[0].z);
-            dist = dir.y < -1e-3 && ground < 0.0 ? ground / dir.y : -1.0;
+            // мира за пикселем нет (дальше прорисовки без Distant Horizons, за краем его LOD): луч кончается на рельефе
+            // под пеленой, как в fx_pall, — горящий город за краем прорисовки виден огнями на нём
+            dist = min(pallFloor(Sampler5, PallSlot0, PallGround0, dir, PallFloorFrom, 1e6, 16, 0.5),
+                    pallFloor(Sampler6, PallSlot1, PallGround1, dir, PallFloorFrom, 1e6, 16, 0.5));
+            if (dist >= 1e8) dist = -1.0;
         }
         if (dist > 0.0) {
             float pixel = dist * length(normalize(nextPoint.xyz / nextPoint.w) - dir);

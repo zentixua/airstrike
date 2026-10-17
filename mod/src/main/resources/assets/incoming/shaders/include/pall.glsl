@@ -50,10 +50,9 @@ vec4 pallField(sampler2D table, mat4 S, vec3 p, out vec2 column, out vec2 height
 }
 
 // Форма клубов по шуму (VolumeNoise.shape): n — каналы плитки (клубы, мелкие края), fill — насколько пелена сплошная;
-// среднее по плитке — 1.
+// среднее по плитке — 1, густота — плавно от просветов до вдвое (у края — втрое) гуще средней.
 float pallShape(vec2 n, float fill) {
-    float c = 0.55 - 0.45 * fill;
-    return smoothstep(c - 0.15, c + 0.25, n.x - 0.3 * (1.0 - n.y)) / (0.25 + 0.45 * fill);
+    return smoothstep(0.4 - 0.45 * fill, 0.7, n.x - 0.3 * (1.0 - n.y)) / (0.3 + 0.225 * fill);
 }
 
 // Отрезок луча (из глаза, dir — единичный) в рамке [lo, hi]: (вход, выход); вход > выхода — мимо.
@@ -62,6 +61,49 @@ vec2 pallBox(vec3 dir, vec3 lo, vec3 hi) {
     vec3 a = lo * inv, b = hi * inv;
     vec3 t0 = min(a, b), t1 = max(a, b);
     return vec2(max(max(t0.x, t0.y), max(t0.z, 0.0)), min(min(t1.x, t1.y), t1.z));
+}
+
+// ---------------------------------------------------------------- рельеф под пеленой (client/nuclear/PallGround)
+// Карта слота: высоты верха рельефа над землёй под эпицентром, середина карты — эпицентр, края — как у края;
+// G = (полсторона карты; низ и верх карты; клетка — блоки), G.x = 0 — карты нет.
+
+// верх рельефа под точкой xz (от глаза) — от глаза по y (PallGround.at)
+float pallGroundAt(sampler2D ground, mat4 S, vec4 G, vec2 xz) {
+    return S[0].z + textureLod(ground, (xz - S[0].xy) / (2.0 * G.x) + 0.5, 0.0).r;
+}
+
+// Где луч dir из глаза (единичный) уходит под рельеф слота, до end; 1e9 — не уходит. Мира за пикселем нет: луч прошёл
+// всё, что нарисовано (дальше from по земле от глаза — дальность прорисовки), ничего не задев, — ищем только дальше.
+// Шаги растут как расстояние (вдали клетка карты на экране мельче), начало сдвинуто на jitter шага, последний — на end;
+// между шагом над рельефом и шагом под ним — по секущей. Карта грубее мира: если у начала она выше луча (он прошёл над
+// настоящим рельефом), там она опускается под луч и к четырём клеткам дальше — снова как есть.
+float pallFloor(sampler2D ground, mat4 S, vec4 G, vec3 dir, float from, float end, int steps, float jitter) {
+    if (G.x <= 0.0 || S[1].w < 0.5) return 1e9;
+    // рамка карты: по земле — карта, сверху — верх рельефа, снизу — без края (луч вниз кончится под рельефом)
+    vec2 span = pallBox(dir, vec3(S[0].x - G.x, -1e6, S[0].y - G.x), vec3(S[0].x + G.x, S[0].z + G.z, S[0].y + G.x));
+    float fade = 4.0 * G.w, near = from / max(length(dir.xz), 1e-3);
+    float ta = max(max(span.x, near), 1.0);
+    float tb = min(span.y, end);
+    // ниже самого низкого места карты луч точно под рельефом (и там, где карта у начала опущена, — уже нет)
+    if (dir.y < 0.0) tb = min(tb, max((S[0].z + G.y) / dir.y, ta) + fade);
+    if (tb <= ta) return 1e9;
+    float g0 = pallGroundAt(ground, S, G, dir.xz * ta);
+    // опускать — только там, где луч прошёл нарисованный мир; вошёл в карту дальше — до неё он шёл над неизвестным
+    float lift = max(g0 + 1.0 - dir.y * ta, 0.0) * step(ta, near + 1.0);
+    float ratio = pow(tb / ta, 1.0 / float(steps));
+    float prevT = ta, prevD = dir.y * ta - g0 + lift;
+    float t = ta * pow(ratio, jitter);
+    for (int i = 0; i <= steps; i++) {
+        float tt = min(t, tb);
+        vec3 q = dir * tt;
+        float d = q.y - pallGroundAt(ground, S, G, q.xz) + lift * max(1.0 - (tt - ta) / fade, 0.0);
+        // начало уже под картой (верх рамки — по высотам до R16F, текстура бывает чуть выше) — луч кончается в начале
+        if (d <= 0.0) return prevT + (tt - prevT) * max(prevD, 0.0) / max(prevD - d, 1e-6);
+        prevT = tt;
+        prevD = d;
+        t *= ratio;
+    }
+    return 1e9;
 }
 
 // Расстояние до мира за пикселем (SceneDepth), годное для пелены: неба, а ещё NaN, бесконечность и «за глазом» (чужая

@@ -15,6 +15,8 @@ uniform sampler2D Sampler3;
 uniform sampler2D Sampler6;
 // средний свет пелены (rgb); w — 1, если пелена на кадре есть
 uniform vec4 PallAmbient;
+// место ореола far/glow на листе (u0, v0, u1, v1; FxAtlas.glow)
+uniform vec4 FxGlow;
 
 uniform vec4 ColorModulator;
 uniform vec2 ScreenSize;
@@ -47,15 +49,36 @@ vec4 particle(vec2 uv, vec2 dx, vec2 dy, out float lod) {
     return mix(a, b, lod);
 }
 
+// Ореол far/glow (tools/gen_particles.py, far_glow) на расстоянии r от середины в долях полуразмера: exp(−(r/0,42)²),
+// к краю — ноль без ступеньки; пик картинки — у четырёх средних пикселей (r = √2/63), он — 1
+float glowAlpha(float r) {
+    return exp(-(r / 0.42) * (r / 0.42)) * smoothstep(0.0, 0.25, 1.0 - r) / 0.997147;
+}
+
 void main() {
     // производные — до ветвления (вне его они определены у всех пикселей)
     vec2 dx = dFdx(texCoord0), dy = dFdy(texCoord0);
     float lod = 0.0;
-    vec4 tex = nearest > 0.5 ? particle(texCoord0, dx, dy, lod)
-            : nearest < -0.5 ? textureGrad(Sampler3, texCoord0, dx, dy) : textureGrad(Sampler0, texCoord0, dx, dy);
+    vec4 tex;
+    if (nearest > 0.75) {
+        tex = particle(texCoord0, dx, dy, lod);
+    } else if (nearest < -0.5) {
+        tex = textureGrad(Sampler3, texCoord0, dx, dy);
+    } else {
+        tex = textureGrad(Sampler0, texCoord0, dx, dy);
+        if (nearest > 0.25) {
+            // ореол (FxQuads.glowShape) крупнее четверти картинки на экране — по формуле: из картинки 64×64 он вышел бы
+            // ступенями квадратами по её пикселю. Середины крайних пикселей картинки — r = 1 (63 шага на 64 пикселя)
+            vec2 size = vec2(textureSize(Sampler0, 0)), px = dx * size, py = dy * size;
+            if (max(dot(px, px), dot(py, py)) < 16.0) {
+                vec2 local = ((texCoord0 - FxGlow.xy) / (FxGlow.zw - FxGlow.xy) * 2.0 - 1.0) * (64.0 / 63.0);
+                tex = vec4(glowAlpha(length(local)));
+            }
+        }
+    }
     // частица вблизи бледнее 0,1 не рисуется, как у ванильного шейдера частиц: иначе бледные ореолы клубов складываются
     // в мутную дымку вокруг облака. Вдали (клуб мельче 16 пикселей) — без среза: дальний дым и так бледный
-    if (nearest > 0.5 && tex.a * opacity < 0.1 * clamp(2.0 - lod, 0.0, 1.0)) discard;
+    if (nearest > 0.75 && tex.a * opacity < 0.1 * clamp(2.0 - lod, 0.0, 1.0)) discard;
     vec4 color = vec4(vertexColor.rgb * tex.rgb, vertexColor.a * tex.a);
     if (PallAmbient.w > 0.5) {
         // пелена перед квадратом: его свет ослаблен, а закрытое им — уже её свет до него (пелена на кадре — до мира).
