@@ -181,8 +181,10 @@ public final class NukeWater {
         double half = l < 1 ? Math.PI : Math.acos(Mth.clamp((l * l + r * r - NukeDust.NEAR * NukeDust.NEAR) / (2 * l * r), -1, 1));
         double toward = Math.atan2(ez, ex);
         double speed = Math.min(SPRAY_SPEED, d.frontRadius(ticks + 1) - slant);
-        // брызги встают позади тёмного кольца: на путь фронта за время подъёма брызг (WaterModel.SPRAY_LAG)
-        double lag = Math.max(0, slant - d.frontRadius(Math.max(0, ticks - WaterModel.SPRAY_LAG * 20 * d.scale())));
+        // брызги встают позади тёмного кольца там же, где их рисует голова стены (BlastWall.slot): позади края пыли (фронт
+        // BlastWall.LIFT_S назад) на путь головы за время подъёма брызг (WaterModel.SPRAY_LAG)
+        double back = (BlastWall.LIFT_S + WaterModel.SPRAY_LAG) * 20 * d.scale();
+        double lag = Math.max(0, slant - d.frontRadius(Math.max(0, ticks - back)));
         int n = Math.min(MAX_SPOTS, (int) Math.round(2 * half * r / STEP * spray * Fx.density(eye)));
         boolean puffs = !NukePall.drawsHead(a, eye);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
