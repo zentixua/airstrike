@@ -121,6 +121,9 @@ public final class ClientScenario {
     private boolean hover;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
+    /** Подробный город у клиента для замера огня ({@code incoming.scenario.city}), null — нет. */
+    @org.jetbrains.annotations.Nullable
+    private final FireCity city = FireCity.of(System.getProperty("incoming.scenario.city"));
 
     public ClientScenario(IEventBus modBus) {
         String scenario = System.getProperty("incoming.scenario");
@@ -229,6 +232,7 @@ public final class ClientScenario {
         if (nuke) nukeEvents();
         if (pall) pallEvents();
         if (wall) wallEvents();
+        if (city != null) city.tick(tick);
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
@@ -248,6 +252,8 @@ public final class ClientScenario {
         if (tick % 20 == 0) {
             String far = FarRenderer.describe();
             if (!far.isEmpty()) Incoming.LOG.info("SCENARIO far {}", far);
+            String nuke = ua.zentix.incoming.client.nuclear.NukeSounds.describe();
+            if (!nuke.isEmpty()) Incoming.LOG.info("SCENARIO nuke-sound {}", nuke);
         }
     }
 

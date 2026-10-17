@@ -440,3 +440,81 @@ def geiger_click():
         + rng.standard_normal(n) * np.exp(-t / 0.0008) + 0.1 * rng.standard_normal(n) * np.exp(-t / 0.006)
     x[:2] += (1, -0.6)
     return norm(x * np.clip((0.025 - t) / 0.003, 0, 1), -18, 0.85)
+
+
+# ---------------------------------------------------------------- после удара: хлопок вдали, город горит
+
+def nuke_crack_far(dur=4.0, n_wave=0.32, bounce=0.022):
+    """Хлопок ядерного фронта за несколько километров: N-волна (скачок вверх, спад, скачок обратно через n_wave с),
+    её копия от земли через bounce с — двойной хлопок; воздух скруглил скачки (верха выше ~1,5 кГц съедены). Дальше —
+    короткий глухой отзвук; долгий раскат — у nuke.boom_far, с которым он звучит."""
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    t0 = 0.004
+    s = t - t0
+    nw = np.where((s >= 0) & (s <= n_wave), 1 - 2 * s / n_wave, 0.0)
+    x = nw + 0.6 * np.interp(t - bounce, t, nw, left=0)
+    x = F(x, lo=12, hi=1500)
+    x[:int(t0 * SR)] = 0
+    thump = F(rng.standard_normal(n), lo=25, hi=160) * np.exp(-np.maximum(s, 0) / 0.35) * (s > 0)
+    rattle = F(rng.standard_normal(n), lo=300, hi=1800) * np.exp(-np.maximum(s - n_wave, 0) / 0.05) * (s > n_wave)
+    x = x / np.max(np.abs(x)) + 0.25 * thump / np.max(np.abs(thump)) + 0.08 * rattle / np.max(np.abs(rattle))
+    x *= np.clip((dur - t) / 1.0, 0, 1)
+    x = reverb(x, t60=1.6, mix=0.18, pre=0.04, hi=900)
+    return 0.89 * x / np.max(np.abs(x))
+
+
+def nuke_fire(dur=14.0):
+    """Гул горящего города издали: низкий рокот конвекции (30–120 Гц) с медленными наплывами, тело пламени
+    (120–500 Гц), которое «хлопает» по нескольку раз в секунду, шипение (0,5–3 кГц), треск и щелчки горящего дерева
+    (пуассоновские), изредка — громко лопается балка."""
+    n = int(dur * SR)
+    low = F(rng.standard_normal(n), lo=28, hi=120, bells=[(55, 4, 0.8)])
+    low = low / np.std(low) * env_noise(n, 0.35, 0.45) * env_noise(n, 1.2, 0.2)
+    body = F(rng.standard_normal(n), lo=120, hi=500, bells=[(220, 3, 0.8)])
+    body = body / np.std(body) * env_noise(n, 3.5, 0.5) * env_noise(n, 0.5, 0.3)
+    hiss = F(rng.standard_normal(n), lo=500, hi=3000)
+    hiss = hiss / np.std(hiss) * env_noise(n, 6, 0.6)
+    # треск: короткие щелчки, громкость — логнормальная
+    imp = (rng.random(n) < 28 / SR) * rng.lognormal(0, 0.9, n) * np.sign(rng.standard_normal(n))
+    crackle = F(imp, lo=900, hi=6000)
+    snaps = np.zeros(n)
+    L = int(0.25 * SR)
+    tt = np.arange(L) / SR
+    for k in np.nonzero(rng.random(n) < 0.7 / SR)[0]:
+        if k + L >= n:
+            continue
+        burst = F(rng.standard_normal(L), lo=700, hi=5000) * np.exp(-tt / 0.012) + 0.5 * F(rng.standard_normal(L), lo=80, hi=400) * np.exp(-tt / 0.06)
+        snaps[k:k + L] += burst * rng.uniform(0.4, 1.0)
+    x = 1.0 * low + 0.55 * body + 0.18 * hiss + 0.35 * crackle / np.std(crackle) + 0.5 * snaps / max(np.std(snaps), 1e-9)
+    return reverb(x, t60=1.5, mix=0.25, hi=2500)
+
+
+def nuke_collapse(dur=4.5):
+    """Обрушение в руинах: треск ломающейся опоры, каскад тяжёлых ударов кладки и балок, осыпь мелочи, которая
+    затихает."""
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    x = np.zeros(n)
+    # треск опоры
+    a = 0.02 + rng.uniform(0, 0.03)
+    s = t - a
+    snap = F(rng.standard_normal(n), lo=600, hi=6000) * np.exp(-np.maximum(s, 0) / 0.02) * (s > 0)
+    creak = F(rng.standard_normal(n), lo=150, hi=900, bells=[(320, 8, 0.3)]) * np.exp(-np.maximum(s, 0) / 0.15) * (s > 0)
+    x += 0.8 * snap / np.max(np.abs(snap)) + 0.3 * creak / np.max(np.abs(creak))
+    # каскад ударов: всё реже и тише
+    t1 = a + rng.uniform(0.15, 0.35)
+    for k in range(rng.integers(4, 8)):
+        s = t - t1
+        dec = rng.uniform(0.25, 0.8)
+        hit = F(rng.standard_normal(n), lo=35, hi=rng.uniform(180, 420)) * np.exp(-np.maximum(s, 0) / dec) * (s > 0)
+        hit *= np.minimum(1, np.maximum(s, 0) / 0.004)
+        x += rng.uniform(0.5, 1.0) * np.exp(-k / 3) * hit / np.max(np.abs(hit))
+        t1 += rng.exponential(0.18) + 0.04
+    # осыпь: мелкие камешки, всё реже
+    rate = 60 * np.exp(-np.maximum(t - a - 0.3, 0) / 1.0) * (t > a + 0.2)
+    pebbles = F((rng.random(n) < rate / SR) * rng.lognormal(-1, 0.6, n), lo=1500, hi=7000)
+    x += 0.4 * pebbles / max(np.max(np.abs(pebbles)), 1e-9)
+    x *= np.clip((dur - t) / 0.8, 0, 1)
+    x = reverb(x, t60=1.1, mix=0.22, hi=3000)
+    return 0.89 * x / np.max(np.abs(x))
