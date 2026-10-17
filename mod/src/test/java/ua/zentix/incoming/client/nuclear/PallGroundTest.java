@@ -65,11 +65,27 @@ class PallGroundTest {
         Sightline.Heights hills = (x, z) -> 80 + 30 * Math.sin(x / 700.0) * Math.cos(z / 900.0);
         surveyAll(g, hills);
         double a = g.at(500, -300), b = g.at(-1500, 2000);
-        int version = g.version();
         surveyAll(g, UNKNOWN);
         assertEquals(a, g.at(500, -300), 1e-6);
         assertEquals(b, g.at(-1500, 2000), 1e-6);
-        assertTrue(g.version() > version, "заполнение по запросу — новая версия");
+    }
+
+    /** Карта заполняется заново, только когда узнали новое, и не чаще раза в {@link PallGround#FILL_TICKS} тиков. */
+    @Test
+    void refillsOnlyOnNewsAtMostOnceASecond() {
+        PallGround g = ground();
+        Sightline.Heights hills = (x, z) -> 80 + 30 * Math.sin(x / 700.0) * Math.cos(z / 900.0);
+        surveyAll(g, hills);
+        int version = g.version();
+        for (int i = 0; i < 3 * PallGround.FILL_TICKS; i++) g.survey(0, hills);
+        assertEquals(version, g.version(), "то же самое — без заполнения");
+        g.fill();
+        version = g.version();
+        Sightline.Heights raised = (x, z) -> hills.at(x, z) + 10;
+        for (int i = 1; i < PallGround.FILL_TICKS; i++) g.survey(0, raised);
+        assertEquals(version, g.version(), "новое раньше срока — ждёт");
+        g.survey(0, raised);
+        assertEquals(version + 1, g.version(), "в срок — заполнена");
     }
 
     /** Рамка пелены выросла (снос, шлейф) — карта крупнее, известное в ней остаётся. */

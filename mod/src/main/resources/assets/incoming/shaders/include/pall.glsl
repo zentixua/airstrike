@@ -97,7 +97,8 @@ float pallFloor(sampler2D ground, mat4 S, vec4 G, vec3 dir, float from, float en
         float tt = min(t, tb);
         vec3 q = dir * tt;
         float d = q.y - pallGroundAt(ground, S, G, q.xz) + lift * max(1.0 - (tt - ta) / fade, 0.0);
-        if (d <= 0.0) return prevT + (tt - prevT) * prevD / max(prevD - d, 1e-6);
+        // начало уже под картой (верх рамки — по высотам до R16F, текстура бывает чуть выше) — луч кончается в начале
+        if (d <= 0.0) return prevT + (tt - prevT) * max(prevD, 0.0) / max(prevD - d, 1e-6);
         prevT = tt;
         prevD = d;
         t *= ratio;
