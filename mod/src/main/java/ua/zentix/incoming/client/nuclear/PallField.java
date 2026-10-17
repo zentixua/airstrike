@@ -14,8 +14,8 @@ import ua.zentix.incoming.nuclear.model.ThermalModel;
  * <p>
  * <b>Пыль.</b> Где прошёл фронт, земля и обломки поднимают пыль: покрытие {@link #cover} растёт с давлением на земле
  * от {@link #COVER_FROM_PSI} (сдувает пыль и сухую землю) до {@link #COVER_FULL_PSI} (рушатся дома). Пелена встаёт за
- * фронтом за секунды ({@link #RISE_S}) до высоты {@link #topMetres} (у центра 150 м у 15 кт, к краю — десятки метров;
- * за минуты клубится ещё на треть выше, {@link #rise}) и густа несколько минут ({@link #DENSE_S}, e-кратно; в самой густой видно на {@link #DENSE_VISIBILITY_M} м), её
+ * фронтом сразу на {@link #RISE_FROM_M} м и растёт к высоте {@link #topMetres} (у центра 150 м у 15 кт, к краю — десятки метров)
+ * со скоростью вначале {@link #RISE_SPEED} м/с, за минуты клубится ещё на треть выше ({@link #rise}), и густа несколько минут ({@link #DENSE_S}, e-кратно; в самой густой видно на {@link #DENSE_VISIBILITY_M} м), её
  * сносит ветер подрыва ({@link #DRIFT}).
  * <p>
  * <b>Мгла.</b> Над зоной поджига (световой импульс от {@link ThermalModel#IGNITE}) горит город: дымная мгла
@@ -37,8 +37,18 @@ public final class PallField {
     static final double DENSE_VISIBILITY_M = 40;
     /** Видимость в дымной мгле над горящим городом, м. */
     static final double HAZE_VISIBILITY_M = 900;
-    /** За сколько секунд (e-кратно) пыль встаёт за фронтом. */
-    static final double RISE_S = 6;
+    /**
+     * Пыль за фронтом сразу стоит на столько метров (у 15 кт): её поднял сам напор — пыль у фронта выше 30 м
+     * (Glasstone &amp; Dolan, §3.81: «precursor» пыли выше 100 футов).
+     */
+    static final double RISE_FROM_M = 25;
+    /**
+     * …и растёт к своей высоте ({@link #topMetres}) со скоростью вначале столько м/с, потом всё медленнее — оценка по
+     * базисной волне, которая клубится вверх десятки секунд и минуты (G&amp;D §2.73: у «Бейкера» быстро 270 м и 550 м
+     * к 4-й минуте; §2.84: у «Уаху» её ход за 10 с падает со 120 до 30 км/ч): камера в сотне метров над городом в первые
+     * секунды видит волну и город и только потом тонет в пыли.
+     */
+    static final double RISE_SPEED = 4;
     /** Густая пыль оседает e-кратно за столько секунд (реальных). */
     static final double DENSE_S = 150;
     /** Пыль тоньше этой доли густоты не рисуется (≈ 6,5 {@link #DENSE_S}: 16 минут). */
@@ -50,14 +60,12 @@ public final class PallField {
     /** Тиков в игровых сутках; утро (6:00) — время суток, кратное им, день — их первая половина. */
     static final long DAY = 24000;
     /**
-     * Часы мира у клиента ушли за тик вперёд его тиков больше чем на столько (сон, {@code /time add}) — это прыжок;
-     * поправки сервера раз в секунду меньше.
+     * Время суток ушло вперёд игрового времени больше чем на столько (сон, {@code /time add}) — это прыжок. Поправки
+     * сервера ({@code ClientNuclear.ClockLead}: отставая, он отводит часы клиента назад и на сотни тиков) двигают оба
+     * вместе и прыжком не выходят.
      */
     static final long SKIP_TICKS = 100;
-    /**
-     * Назад — больше чем на столько ({@code /time set day}): сервер, догоняя отставание, отводит часы клиента назад
-     * и на сотни тиков ({@code ClientNuclear.ClockLead}).
-     */
+    /** Назад — больше чем на столько ({@code /time set day}). */
     static final long SET_TICKS = 1200;
     /** Пыль сносит долей ветра подрыва: у земли ветер слабее, тяжёлое оседает. */
     static final double DRIFT = 0.5;
@@ -76,6 +84,10 @@ public final class PallField {
     private final double fireReach;
     /** По узлам: приход фронта (тики), покрытие 0..1, высота пелены (блоки), доля зоны пожаров 0..1. */
     private final double[] arrival = new double[BINS], cover = new double[BINS], top = new double[BINS], fire = new double[BINS];
+    /** Когда пыль осела и у края таблицы (туда фронт пришёл позже всего) — тики после подрыва ({@link #dustEnvelope}). */
+    private final double dustEnd;
+    /** Пыль за фронтом сразу стоит на этой высоте (блоки) и растёт со скоростью вначале столько блоков в секунду. */
+    private final double riseFrom, riseSpeed;
     /** Когда мгла гаснет по прошедшим тикам — тики после подрыва (утро, если часы мира идут ровно). */
     private final long hazeEnd;
     /**
@@ -83,9 +95,12 @@ public final class PallField {
      * ({@link #daylight}). Пишет тик клиента, читает и кадр — один поток.
      */
     private double end;
-    /** Прошлый замер часов мира ({@link #daylight}): время суток и тики после подрыва; NaN — замера не было. */
-    private long lastDay;
-    private double lastTicks = Double.NaN;
+    /** Часы мира в миг подрыва: игровое время и время суток. */
+    private final long burstGame, burstDay;
+    /** Прошлый замер часов мира ({@link #daylight}): игровое время и время суток; до первого — миг подрыва. */
+    private long lastGame, lastDay;
+    /** Прошлый замер — тиком раньше на глазах у клиента, а не миг подрыва (вход в мир, перемотка повтора). */
+    private boolean watched;
 
     /**
      * @param dayTime время суток мира в миг подрыва (тики, как {@code Level.getDayTime}): мгла держится до утра
@@ -94,11 +109,19 @@ public final class PallField {
         this.d = d;
         this.hazeEnd = hazeEndTicks(dayTime);
         this.end = hazeEnd;
+        this.burstGame = d.gameTime();
+        this.burstDay = dayTime;
+        this.lastGame = burstGame;
+        this.lastDay = burstDay;
         double hob = Math.max(0, d.hobMetres()), ys = Math.cbrt(d.yieldKt() / 15);
         double coverM = groundRange(BlastModel.rangeForOverpressure(BlastModel.kpa(COVER_FROM_PSI), d.yieldKt()), hob);
-        double ignite = groundRange(ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility()), hob);
+        // сервер не поджигает (Detonation.fires) — зоны пожаров нет: ни мглы над ними, ни их зарева, ни шторма
+        double ignite = !d.fires() ? 0
+                : groundRange(ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility()), hob);
         this.fireReach = d.blocks(ignite);
         this.reach = Math.max(1, d.blocks(Math.max(coverM, ignite)) * 1.02);
+        this.riseFrom = Math.max(MIN_TOP_BLOCKS, d.blocks(RISE_FROM_M * ys));
+        this.riseSpeed = d.blocks(RISE_SPEED);
         for (int i = 0; i < BINS; i++) {
             double rb = radius(i), rm = d.metres(rb);
             double slant = Math.hypot(rm, hob);
@@ -107,6 +130,7 @@ public final class PallField {
             top[i] = Math.max(MIN_TOP_BLOCKS, d.blocks(topMetres(rm, ys)));
             fire[i] = ignite <= 0 ? 0 : 1 - smooth(ignite * 0.85, ignite * 1.05, rm);
         }
+        this.dustEnd = arrival[BINS - 1] + 20 * DENSE_S * Math.log(1 / GONE);
     }
 
     /** Ниже стольких блоков пелена не бывает (малый масштаб удара): иначе её не видно. */
@@ -126,33 +150,55 @@ public final class PallField {
         return reach;
     }
 
+    /** Радиус зоны поджига по земле, блоки (0 — пожаров нет): над ней мгла, в ней огненный шторм ({@link FireStorm}). */
+    double fireReach() {
+        return fireReach;
+    }
+
+    /** Когда мгла гаснет (утро) — тики после подрыва; к нему гаснет и огненный шторм. */
+    double end() {
+        return end;
+    }
+
+    /** Верх мглы над пожарами, блоки (у 15 кт — 260 м): до него встают столбы дыма шторма. */
+    double hazeTop() {
+        return d.blocks(HAZE_TOP_M * Math.cbrt(d.yieldKt() / 15));
+    }
+
     /** Радиус узла i, блоки (середины узлов от 0 до {@link #reach}). */
     double radius(int i) {
         return (i + 0.5) / BINS * reach;
     }
 
     /**
-     * Тик клиента: часы мира ({@code dayTime} — время суток, {@code ticks} — тики после подрыва). Пока часы идут ровно,
-     * мгла ждёт утра, выбранного в миг подрыва ({@link #hazeEndTicks}: подрыв на рассвете — до следующего). Прыгнули
-     * (сон, {@code /time add}, {@code /time set}) — утро заново по времени суток после прыжка: уже день, а был ночью или
-     * часы прошли через восход, — мгла гаснет за минуту; иначе — к ближайшему восходу, но не раньше 5 минут после подрыва
-     * ({@link #HAZE_MIN_TICKS}). Позже, чем ждала до прыжка, мгла не гаснет. Часы стоят ({@code doDaylightCycle false}) —
-     * гаснет по прошедшим тикам.
+     * Тик клиента: часы мира — игровое время {@code gameTime} и время суток {@code dayTime}; {@code ticks} — тики после
+     * подрыва. Пока часы идут ровно, мгла ждёт утра, выбранного в миг подрыва ({@link #hazeEndTicks}: подрыв на рассвете —
+     * до следующего). Прыгнули (сон, {@code /time add}, {@code /time set}) — утро заново по времени суток после прыжка:
+     * уже день, а был ночью или часы прошли через восход, — мгла гаснет; иначе — к ближайшему восходу, но не раньше
+     * 5 минут после подрыва ({@link #HAZE_MIN_TICKS}). Позже, чем ждала до прыжка, мгла не гаснет. Часы стоят
+     * ({@code doDaylightCycle false}) — гаснет по прошедшим тикам.
+     * <p>
+     * Прыжок — сдвиг времени суток против игрового времени: оба приходят одним пакетом времени и вместе идут тиками
+     * клиента. Первый замер после входа в мир и перемотки повтора сравнивается с мигом подрыва (время суток подрыва —
+     * с сервера, {@link Detonation#dayTime}): прыжок, которого клиент не видел, — тот же, что видели все, только уже без
+     * минуты угасания (он был раньше). Кроме {@code /time set} назад на время суток позже подрыва: для вошедшего оно
+     * отстало от игрового, как у стоявших часов, и отличить их нельзя — мгла у него ждёт утра от подрыва, дольше, чем
+     * у видевших прыжок.
      */
-    public void daylight(double ticks, long dayTime) {
-        if (!Double.isNaN(lastTicks)) {
-            double jump = (dayTime - lastDay) - (ticks - lastTicks);
-            if (jump > SKIP_TICKS || jump < -SET_TICKS) {
-                // по времени суток, а не по числу часов: /time set ставит их как есть, и в мире после первых суток
-                // «назад» бывает и на ночь позже прежней (85000 → 18000 — с вечера на полночь)
-                boolean dawn = day(dayTime) && (!day(lastDay) || Math.floorDiv(dayTime, DAY) > Math.floorDiv(lastDay, DAY));
-                double by = dawn ? ticks : Math.max(ticks + Math.floorMod(-dayTime, DAY), HAZE_MIN_TICKS);
-                // раньше — не скачком: гаснет не быстрее чем за минуту (уже гаснет — как гасла)
-                if (by < end) end = Math.min(end, Math.max(by, ticks + HAZE_FADE_TICKS));
-            }
+    public void daylight(double ticks, long gameTime, long dayTime) {
+        long shift = (dayTime - gameTime) - (lastDay - lastGame);
+        // назад — только если ушло назад и время суток: у стоящих часов оно отстаёт от игрового, но не прыгает
+        if (shift > SKIP_TICKS || shift < -SET_TICKS && dayTime - lastDay < -SET_TICKS) {
+            // по времени суток, а не по числу часов: /time set ставит их как есть, и в мире после первых суток
+            // «назад» бывает и на ночь позже прежней (85000 → 18000 — с вечера на полночь)
+            boolean dawn = day(dayTime) && (!day(lastDay) || Math.floorDiv(dayTime, DAY) > Math.floorDiv(lastDay, DAY));
+            double by = dawn ? ticks : Math.max(ticks + Math.floorMod(-dayTime, DAY), HAZE_MIN_TICKS);
+            // на глазах — раньше не скачком: гаснет не быстрее чем за минуту (уже гаснет — как гасла)
+            if (by < end) end = Math.min(end, watched ? Math.max(by, ticks + HAZE_FADE_TICKS) : by);
         }
+        lastGame = gameTime;
         lastDay = dayTime;
-        lastTicks = ticks;
+        watched = true;
     }
 
     /** День — первая половина суток (с 6:00 до 18:00). */
@@ -160,10 +206,15 @@ public final class PallField {
         return Math.floorMod(dayTime, DAY) < DAY / 2;
     }
 
-    /** Перемотка повтора: часы мира — с другого места записи, утро — снова по времени суток в миг подрыва. */
+    /**
+     * Перемотка повтора: часы мира — с другого места записи; утро — снова от мига подрыва, и первый замер сравнивается
+     * с ним (прыжок часов до этого места записи — как у вошедшего в мир).
+     */
     public void rewound() {
         end = hazeEnd;
-        lastTicks = Double.NaN;
+        lastGame = burstGame;
+        lastDay = burstDay;
+        watched = false;
     }
 
     // ---------------------------------------------------------------- законы (общие с шейдером fx_pall)
@@ -193,18 +244,24 @@ public final class PallField {
         return e < GONE ? 0 : e;
     }
 
-    /** Доля высоты пелены по возрасту: за {@link #RISE_S} встаёт, за минуты ещё немного растёт (клубится вверх). */
-    static double rise(double ageS) {
+    /**
+     * Высота пелены по возрасту (секунды после фронта), в единицах {@code top} и {@code from}: сразу {@code from}, дальше
+     * растёт к {@code top} со скоростью вначале {@code speed} (те же единицы в секунду), всё медленнее (e-кратно), и за
+     * минуты клубится ещё на треть выше; 0 — до фронта.
+     */
+    static double rise(double top, double from, double speed, double ageS) {
         if (ageS <= 0) return 0;
-        return (0.2 + 0.8 * (1 - Math.exp(-ageS / RISE_S))) * (1 + 0.35 * (1 - Math.exp(-ageS / 80)));
+        double base = Math.min(from, top), span = top - base;
+        double h = span <= 0 ? top : base + span * (1 - Math.exp(-speed * ageS / span));
+        return h * (1 + 0.35 * (1 - Math.exp(-ageS / 80)));
     }
 
     /**
      * Профиль по высоте: доля густоты у земли на высоте {@code x} пелены над землёй под эпицентром (0 — земля, 1 — верх):
      * гуще у земли, к верху мягко тает. Ниже (долина) — как у земли, глубже 0,4 высоты пелены тает к нулю (на всей
      * высоте ниже земли её нет): пыль стекает в долины, но в пещерах под эпицентром её нет. Где за пикселем нет мира
-     * (пустота за дальностью прорисовки без Distant Horizons), луч пелены кончается у земли под эпицентром
-     * ({@code fx_pall.fsh}).
+     * (пустота за дальностью прорисовки и за краем LOD Distant Horizons), луч пелены кончается на рельефе под ней
+     * ({@link PallGround}, {@code pallFloor} в {@code pall.glsl}).
      */
     static double profile(double x) {
         if (x <= 0) return smooth(-1, -0.4, x);
@@ -273,7 +330,7 @@ public final class PallField {
     void dust(int i, double ticks, double[] out) {
         double age = age(i, ticks);
         out[0] = cover[i] <= 0 ? 0 : perBlock(SIGMA_DENSE) * Math.pow(cover[i], 1.3) * dustEnvelope(age);
-        out[1] = top[i] * Math.max(rise(age), 0.05);
+        out[1] = Math.max(rise(top[i], riseFrom, riseSpeed, age), 0.05 * top[i]);
         out[2] = fire[i] * smooth(30, 300, age);
         out[3] = 0;
     }
@@ -306,6 +363,15 @@ public final class PallField {
         double s = d.blocks(d.windSpeed()) * DRIFT * ticks / 20.0;
         out[0] = Math.cos(d.windDir()) * s;
         out[1] = Math.sin(d.windDir()) * s;
+    }
+
+    /**
+     * Докуда по земле от эпицентра может быть пелена в момент {@code ticks}, блоки: таблица, снос пыли (пока она не
+     * осела — дальше сносить нечего) и шлейф мглы, в любую сторону. Рамка слота ({@link NukePall}) и карта рельефа под
+     * пеленой ({@link PallGround}).
+     */
+    public double extent(double ticks) {
+        return reach + d.blocks(d.windSpeed()) * DRIFT * Math.min(ticks, dustEnd) / 20.0 + plume(ticks);
     }
 
     /** Длина шлейфа мглы по ветру к моменту {@code ticks}, блоки: растёт с ветром, не длиннее {@link #PLUME_MAX} зон пожаров. */

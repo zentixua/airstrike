@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.FrustumIntersection;
 import org.joml.Vector3f;
 import ua.zentix.incoming.IncomingConfig;
+import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.fx.layer.PallPass;
 import ua.zentix.incoming.nuclear.Detonation;
 
@@ -32,6 +33,10 @@ public final class NukePall {
     private static final float[] ROW = new float[2 * PallPass.WIDTH * 4];
     private static final double[] DRIFT = new double[2];
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f(), CULL = new Vector3f();
+    private static final float[] GLOW = new float[8];
+    private static final Vector3f SKY = new Vector3f();
+    /** Подрывы слотов кадра — для огненного шторма после света кадра. */
+    private static final ClientNuclear.Active[] SLOTTED = new ClientNuclear.Active[2];
     /**
      * Плоскости пирамиды видимости, по которым пелена отсекается, — все, кроме дальней: дальняя плоскость — 4 прорисовки,
      * а пелена видна и дальше (над LOD Distant Horizons, на горизонте).
@@ -65,6 +70,7 @@ public final class NukePall {
     /** Тик клиента: пелена у камеры — звук и пепел; шум для объёма — в фоне с первого подрыва. */
     static void tick(ClientLevel level, Vec3 cam) {
         List<ClientNuclear.Active> all = ClientNuclear.detonations();
+        FireStorms.tick(all);
         if (all.isEmpty()) {
             sigma = muffle = 0;
             NukeAsh.tick(level, cam, 0, 0, null);
@@ -137,13 +143,23 @@ public final class NukePall {
         f.quality = q;
         f.slot0.zero();
         f.slot1.zero();
+        f.glow0.zero();
+        f.glow1.zero();
+        f.hot0.zero();
+        f.hot1.zero();
+        f.ground0.clear();
+        f.ground1.clear();
+        // мир кадра — чанки в дальности прорисовки (с запасом на край по чанкам): луч в пустоту прошёл их, ничего не задев
+        f.floorFrom = Math.max(16, Minecraft.getInstance().options.getEffectiveRenderDistance() * 16 - 24);
         f.min.set(Float.MAX_VALUE);
         f.max.set(-Float.MAX_VALUE);
         int k = 0;
         float bottom = (float) (level.getMinBuildHeight() - eye.y);
-        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, f)) k++;
+        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, f)) SLOTTED[k++] = visible.get(i);
         if (k == 0) return null;
         light(level, eye, partial, f);
+        float clouds = level.effects().getCloudHeight();
+        FireStorms.frame(SLOTTED, k, eye, partial, frustum, Float.isNaN(clouds) ? 1e6f : (float) (clouds - eye.y), f);
         float s = sigma;
         f.clip = s > 1e-4f ? 12 / s : 1e6f;
         return f;
@@ -151,9 +167,7 @@ public final class NukePall {
 
     /** Насколько камера вне пелены подрыва (по земле), блоки; 0 — внутри. */
     private static double outside(ClientNuclear.Active a, Vec3 eye, float partial) {
-        double ticks = a.ticks(partial);
-        a.pall.drift(ticks, DRIFT);
-        double r = a.pall.reach() + Math.hypot(DRIFT[0], DRIFT[1]) + a.pall.plume(ticks);
+        double r = a.pall.extent(a.ticks(partial));
         return Math.max(0, Math.hypot(eye.x - a.d.burst().x, eye.z - a.d.burst().z) - r);
     }
 
@@ -179,7 +193,7 @@ public final class NukePall {
         double plume = p.plume(ticks);
         float cx = (float) (d.burst().x - eye.x), cz = (float) (d.burst().z - eye.z), ground = (float) (d.groundY() - eye.y);
         // рамка: снос пыли и шлейф мглы — в любую сторону от эпицентра, ниже земли под ним — долины на всю высоту
-        float r = (float) (p.reach() + Math.hypot(DRIFT[0], DRIFT[1]) + plume);
+        float r = (float) p.extent(ticks);
         LO.set(cx - r, (float) (ground - top), cz - r);
         HI.set(cx + r, (float) (ground + top * 1.05), cz + r);
         CULL.set(LO.x, Math.min(LO.y, bottom), LO.z);
@@ -191,6 +205,11 @@ public final class NukePall {
         m.m10((float) DRIFT[0]).m11((float) DRIFT[1]).m12((float) plume).m13(1);
         m.m20((float) Math.cos(d.windDir())).m21((float) Math.sin(d.windDir())).m22((2 * k + 0.5f) / PallPass.ROWS).m23((2 * k + 1.5f) / PallPass.ROWS);
         m.m30((float) (PallField.SIGMA_DENSE / d.scale())).m31((float) Math.max(48, d.blocks(TILE_M * ys))).m32((float) (ticks / 20.0)).m33(0);
+        // свет стены пыли: отсвет шара, шапки и пожаров — тот же, что у её клубов
+        a.puffs.pallLight(a.seconds(partial), GLOW);
+        (k == 0 ? f.glow0 : f.glow1).set(GLOW[0], GLOW[1], GLOW[2], GLOW[3]);
+        (k == 0 ? f.hot0 : f.hot1).set(GLOW[4], GLOW[5], GLOW[6], GLOW[7]);
+        a.ground.frame(k == 0 ? f.ground0 : f.ground1);
         f.min.min(LO);
         f.max.max(HI);
         return true;
@@ -209,6 +228,11 @@ public final class NukePall {
         Vec3 skyColor = level.getSkyColor(eye, partial);
         float night = 1 - day;
         f.skyLight.set((float) skyColor.x * 0.7f + 0.03f * night, (float) skyColor.y * 0.7f + 0.035f * night, (float) skyColor.z * 0.7f + 0.05f * night);
+        // ночью — не темнее света неба на клубах стены пыли и гриба (FarView.ambient, 0,17): цвет неба ночью почти чёрный,
+        // и пелена за фронтом была бы чёрным занавесом над городом, где стена пыли и мир ещё видны
+        float ambient = FarView.ambient(level, partial);
+        f.skyLight.max(SKY.set(nightSky(ambient, night)));
+        f.glowOnSmoke = (float) CloudPuffs.glowOnSmoke(ambient);
         // зарево пожаров снизу на белой пелене (пыль и мгла берут его по своей белизне, fx_pall): днём его почти не видно,
         // ночью ярче ночного неба в десяток раз, но не как огонь (ярче — и вся мгла над горящим городом выходила
         // ровно-оранжевой)
@@ -218,9 +242,19 @@ public final class NukePall {
                 0.45f * (0.45f * f.sunLight.z + 0.8f * f.skyLight.z), 1);
     }
 
+    /** Свет неба на пелене ночью — не меньше этого ({@code night} — доля ночи 0..1): как свет неба на клубах стены. */
+    static float nightSky(float ambient, float night) {
+        return ambient * night;
+    }
+
     private static float smooth(float e0, float e1, float x) {
         float t = Mth.clamp((x - e0) / (e1 - e0), 0, 1);
         return t * t * (3 - 2 * t);
+    }
+
+    /** Огненный шторм в кадре — да или нет: сценарий клиента меряет пелену с ним и без (в игре он есть всегда). */
+    public static void firestorm(boolean on) {
+        FireStorms.enabled = on;
     }
 
     /** Ослабление пелены у камеры, 1/блок (для строки сценария). */
@@ -231,7 +265,11 @@ public final class NukePall {
     /** Строка сценария: пелена у камеры и в кадре. */
     public static String describe() {
         Minecraft mc = Minecraft.getInstance();
-        return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks), muffle %.2f, ash %d, quality %s, frames: %s",
-                sigma, sigma > 1e-5f ? 3.912 / sigma : Double.POSITIVE_INFINITY, muffle, NukeAsh.alive(), quality(), mc.level == null ? "-" : PallPass.describe());
+        PallPass.Frame f = FRAME;
+        return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks), muffle %.2f, ash %d, quality %s, "
+                        + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), frames: %s; firestorm: %s",
+                sigma, sigma > 1e-5f ? 3.912 / sigma : Double.POSITIVE_INFINITY, muffle, NukeAsh.alive(), quality(),
+                f.skyLight.y, f.glowOnSmoke, f.glow0.x, f.glow0.y, f.hot0.x, f.hot0.y, f.hot0.z, mc.level == null ? "-" : PallPass.describe(),
+                FireStorms.describe());
     }
 }

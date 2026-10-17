@@ -141,6 +141,8 @@ final class NukeAfter {
         });
         double all = f.burning(t);
         double rest = all <= 0 ? 0 : Math.max(0, 1 - seen[0] / all);
+        // модель вдали — только если сервер жжёт (Detonation.fires), без доли, что горит в своих чанках
+        double model = d.fires() ? trust * rest : 0;
         for (int i = 0; i < f.fires.length; i++) {
             double burning = f.burning(i, t);
             if (burning <= 0) continue;
@@ -155,14 +157,18 @@ final class NukeAfter {
                     modelHere += each;
                     continue;
                 }
-                add(power, dist, wind, ear, x, d.groundY() + 1, z, each * trust * rest);
+                add(power, dist, wind, ear, x, d.groundY() + 1, z, each * model);
             }
         }
         modelLoaded = modelHere;
         modelRest = rest;
         seenLoaded = seen[0];
         // сверка: модель против огня в своих чанках, плавно (огонь встаёт с волной и гаснет не сразу)
-        if (modelHere >= TRUST_MIN) trust += 0.2 * (Math.min(4, seen[0] / modelHere) - trust);
+        if (modelHere >= TRUST_MIN) {
+            trust += 0.2 * (Math.min(4, seen[0] / modelHere) - trust);
+            // шторму — только пока огонь молод: ванильный потом прогорает по-своему, а шторм горит до утра
+            if (t < f.lastArrival() + FireField.RISE + 0.7 * FireField.TAU) a.storm.seen(trust);
+        }
         for (int q = 0; q < QUADRANTS; q++) {
             roarVolume[q] = power[q] <= 0 ? 0 : (float) Math.min(ROAR_MAX, V_REF * Math.pow(power[q] / I_REF, 0.25));
             if (roarVolume[q] < 0.02f) roarVolume[q] = 0;
@@ -237,7 +243,7 @@ final class NukeAfter {
         while (nextSecondary < secondaries.size() && secondaries.get(nextSecondary).ticks() <= t) {
             FireField.Secondary s = secondaries.get(nextSecondary++);
             // пожары погашены или выключены у сервера — и взрываться нечему
-            if (trust < 0.2) continue;
+            if (!d.fires() || trust < 0.2) continue;
             double y = FarTerrain.of(level).at((int) Math.floor(s.x()), (int) Math.floor(s.z()));
             if (Double.isNaN(y) || y <= level.getMinBuildHeight() + 1) y = d.groundY() + 1;
             BlastEffects.blast(new S2C.Blast(s.big() ? S2C.Blast.MISSILE : S2C.Blast.DRONE, new Vec3(s.x(), y + 0.5, s.z()),

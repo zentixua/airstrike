@@ -2879,6 +2879,7 @@ public final class StrikeGameTests {
             // падает вперёд по курсу (+z), не рулит: вбок не уходит, вперёд — не дальше двух высот падения
             h.assertTrue(entry[0].z > from.z && entry[0].z - from.z < 2 * (from.y - ground[0]) && Math.abs(entry[0].x - from.x) < 8,
                     "бомба вошла в грунт не на своём пути: " + entry[0].subtract(from));
+            assertFlightReleased(h, id);
         });
     }
 
@@ -2942,6 +2943,8 @@ public final class StrikeGameTests {
             // вход на 1 блок выше точки попадания (дым из скважины); попадание — верх плиты
             h.assertTrue(Math.abs(entry[0].y - 1 - (roof + 1)) < 2, "бомба вошла не в плиту над собой: y=" + (int) entry[0].y + ", плита " + roof);
             h.assertTrue(Math.abs(entry[0].z - risenZ[0]) < 4, "бомба вошла в плиту не там, где плита встала над ней: " + (entry[0].z - risenZ[0]));
+            // под плитой — воздух до земли: бомба проходит его в грунте и уходит в соседние чанки
+            assertFlightReleased(h, id);
         });
     }
 
@@ -3034,6 +3037,7 @@ public final class StrikeGameTests {
             h.assertTrue(raised[0], "цель не поднялась");
             h.assertFalse(flight(level, id) != null, "ракета ещё летит, до цели " + (int) last[0].distanceTo(high));
             h.assertTrue(last[0].distanceTo(high) < 24, "ракета взорвалась не у цели: " + last[0].subtract(high));
+            assertFlightReleased(h, id);
         });
     }
 
@@ -3042,6 +3046,24 @@ public final class StrikeGameTests {
     private static StrikeProjectile flight(ServerLevel level, UUID id) {
         return VirtualFlights.get(level).flights().stream().filter(v -> v.getUUID().equals(id)).findFirst()
                 .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+    }
+
+    /**
+     * Полёт кончился — снаряда нет ни в мире, ни вне его — и удары отработали, а у мода не осталось ни одного тикета
+     * с ключом снаряда: ни своих чанков ({@code incoming_projectile}), ни района цели и полосы ({@code incoming_flight}),
+     * ни их тикетов загрузки. Снаряд, который застрял в мире там, где не тикает, держал бы их до остановки сервера.
+     */
+    private static void assertFlightReleased(GameTestHelper h, UUID id) {
+        ServerLevel level = h.getLevel();
+        StrikeProjectile p = flight(level, id);
+        if (p != null) {
+            BlockPos at = p.blockPosition();
+            throw new GameTestAssertException("снаряд не кончился: " + (p.isVirtual() ? "вне мира" : level.isPositionEntityTicking(at) ? "в мире" : "в мире без тика")
+                    + " на " + at.toShortString() + ", фаза " + p.flightPhase() + "; его тикеты " + TicketProbe.types(level, id));
+        }
+        h.assertTrue(StrikeWorld.get(level).impacts().size() == 0, "удары ещё в очереди");
+        List<String> left = TicketProbe.types(level, id);
+        h.assertTrue(left.isEmpty(), "после полёта остались его тикеты: " + left + "; районы " + StrikeWorld.get(level).areas().describe());
     }
 
     /** Снаряд под «рельефом» на 60 блоков выше цели над местом пуска долетает до цели и взрывается у неё. */
@@ -3059,6 +3081,7 @@ public final class StrikeGameTests {
             h.assertFalse(flight(level, id) != null, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
             h.assertTrue(last[0].distanceTo(aim) < 24, "снаряд взорвался не у цели: " + last[0].subtract(aim));
             assertCrater(h, RUNWAY_TARGET, "у цели");
+            assertFlightReleased(h, id);
         });
     }
 

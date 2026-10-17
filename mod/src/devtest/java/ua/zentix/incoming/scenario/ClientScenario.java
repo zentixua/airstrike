@@ -67,9 +67,20 @@ public final class ClientScenario {
     /** Сценарий {@code pall}: пелена после волны; эпицентр. */
     private boolean pall;
     private Vec3 pallAt = Vec3.ZERO;
+    /** Сценарий firestorm ({@link #planFirestorm}): ночь или день, высоты точек съёмки, точка внутри у смерча. */
+    private boolean firestorm, fsNight;
+    private int fsFarY, fsRoofY;
+    private Vec3 fsInside = Vec3.ZERO, fsLook = Vec3.ZERO;
+    private double fsWhirlAge = 300;
     /** Сценарий {@code wall}: стена пыли проходит мимо камеры; сколько кадров её прохода уже снято. */
     private boolean wall;
     private int wallStage;
+    /**
+     * Сценарий pall-front: место камеры (в воздухе, в 400 блоках к западу от эпицентра); pall-low — камера у земли ниже
+     * земли под эпицентром ({@link #planPallFront}).
+     */
+    private boolean front, frontLow;
+    private Vec3 frontAt = Vec3.ZERO;
     private int detTick = -1;
     /** Ядерный сценарий: точка в следе осадков и игровой тик, когда туда идти (−1 — не ждём). */
     private Vec3 falloutSpot = Vec3.ZERO;
@@ -181,7 +192,9 @@ public final class ClientScenario {
         if ("nuke".equals(mode)) planNuke();
         else if ("nuke-water".equals(mode) || "nuke-lake".equals(mode)) planNukeWater("nuke-lake".equals(mode));
         else if ("pall".equals(mode)) planPall();
+        else if ("firestorm".equals(mode)) planFirestorm();
         else if ("wall".equals(mode)) planWall();
+        else if ("pall-front".equals(mode) || "pall-low".equals(mode)) planPallFront("pall-low".equals(mode));
         else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("replay".equals(mode)) {
@@ -254,7 +267,9 @@ public final class ClientScenario {
         if (nuke) nukeEvents();
         if (water) waterEvents();
         if (pall) pallEvents();
+        if (firestorm) firestormEvents();
         if (wall) wallEvents();
+        if (front) frontEvents();
         if (city != null) city.tick(tick);
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
@@ -610,6 +625,301 @@ public final class ClientScenario {
         });
     }
 
+    /**
+     * Эпицентр сценария firestorm: где в 1,6 км вокруг больше всего горючей суши по биомам ({@link #pickEpicentre}); в мире
+     * сценария у точки появления — лёд, снег и море, а они не горят. Деревню не ищем: ближе 1,6 км её нет, а поиск стоил
+     * минут потока сервера.
+     */
+    private volatile int fsX = 0, fsZ = -1000;
+    /** Точки съёмки — в 2 км и 800 м к югу от эпицентра. */
+    private static final int FS_FAR = 2000, FS_ROOF = 800;
+    /** Сколько ждать готовых чанков после переноса (программный OpenGL строит секции медленно). */
+    private static final int FS_LOAD = 350;
+    /** Окон замера пелены на видеокарте со штормом и без него (по очереди). */
+    private static final int FS_GPU_WINDOWS = 16;
+
+    /**
+     * Огненный шторм (план «ядерка уровня кино», шаг 4): воздушные 15 кт над лесом и равнинами (у точки появления — лёд
+     * и море), кадры через ~1, 5 и 15 минут — с 2 км (40 блоков над землёй и над рельефом впереди), с
+     * крыши в 800 м (30 над землёй) и изнутри зоны пожаров у огненного смерча. До подрыва зритель облетает точки в 2 км и
+     * 800 м (чанки готовы). Минуты пропускаются: часы сервера — вперёд, у клиента — перемотка, как у повтора Flashback
+     * ({@code ClientNuclear.rewound}: картинка — по возрасту подрыва). Ночь ({@code INCOMING_FIRESTORM=night}, по умолчанию) —
+     * подрыв в 4000 (утро пелены — через 16,7 минуты), сразу после него — {@code time set 18000} и перемотка: утро остаётся по
+     * времени подрыва, на экране — ночь. Качество пелены — {@code INCOMING_PALL} (по умолчанию MEDIUM, как в настройке);
+     * в лог — строки {@code SCENARIO firestorm} (пелена и шторм, время на видеокарте), у крыши через 5 минут — окна по 2 с
+     * со штормом и без него по очереди (строки {@code SCENARIO firestorm gpu}).
+     */
+    private void planFirestorm() {
+        firestorm = true;
+        fsNight = !"day".equals(System.getenv().getOrDefault("INCOMING_FIRESTORM", "night"));
+        hover = true;
+        at(40, () -> {
+            String q = System.getenv().getOrDefault("INCOMING_PALL", "MEDIUM");
+            ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.valueOf(q));
+            cmd("time set 4000");
+            cmd("weather clear");
+            pickEpicentre();
+        });
+        at(80, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %d 200 %d 180 0", fsX, fsZ + FS_ROOF)));
+        at(600, () -> {
+            fsRoofY = around(fsX, fsZ + FS_ROOF) + 30;
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d 200 %d 180 0", fsX, fsZ + FS_FAR));
+        });
+        at(1150, () -> {
+            fsFarY = Math.max(around(fsX, fsZ + FS_FAR) + 40, ahead(fsX, fsZ + FS_FAR) + 15);
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 facing %d %d %d", fsX, fsFarY, fsZ + FS_FAR, fsX, fsFarY, fsZ));
+        });
+        at(1250, () -> cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %d.5 320 %d.5 15 air", fsX, fsZ)));
+    }
+
+    /** Самый высокий рельеф впереди (к северу, до 180 блоков, полосой 64 в стороны) у клиента. */
+    private static int ahead(int x, int z) {
+        int top = 0;
+        for (int a = 16; a <= 180; a += 8) {
+            for (int side = -32; side <= 32; side += 16) top = Math.max(top, ground(x + side, z - a));
+        }
+        return top;
+    }
+
+    /** Самый высокий рельеф у клиента в 8 блоках вокруг колонки (точка съёмки — над ним, а не в шпиле льда рядом). */
+    private static int around(int x, int z) {
+        int top = 0;
+        for (int dx = -8; dx <= 8; dx += 2) {
+            for (int dz = -8; dz <= 8; dz += 2) top = Math.max(top, ground(x + dx, z + dz));
+        }
+        return top;
+    }
+
+    /**
+     * Горит ли место по биому мира (без чанков: шум биомов сервера): лес, тайга, равнины, саванна, джунгли, луга — да; море,
+     * реки, пляжи, снег и лёд, пустыни и горы — нет (шторм не жжёт воду, лёд и снег).
+     */
+    private static boolean burns(net.minecraft.server.level.ServerLevel level, int x, int z) {
+        var source = level.getChunkSource();
+        var biome = source.getGenerator().getBiomeSource().getNoiseBiome(net.minecraft.core.QuartPos.fromBlock(x), net.minecraft.core.QuartPos.fromBlock(64),
+                net.minecraft.core.QuartPos.fromBlock(z), source.randomState().sampler());
+        if (biome.value().getBaseTemperature() < 0.3f) return false;
+        return biome.is(net.minecraft.tags.BiomeTags.IS_FOREST) || biome.is(net.minecraft.tags.BiomeTags.IS_TAIGA) || biome.is(net.minecraft.tags.BiomeTags.IS_SAVANNA)
+                || biome.is(net.minecraft.tags.BiomeTags.IS_JUNGLE) || biome.is(net.minecraft.world.level.biome.Biomes.PLAINS)
+                || biome.is(net.minecraft.world.level.biome.Biomes.SUNFLOWER_PLAINS) || biome.is(net.minecraft.world.level.biome.Biomes.MEADOW);
+    }
+
+    /**
+     * Эпицентр: из точек через 500 блоков в 4 км от точки появления — та, у которой горит больше мест в 1,6 км (кольца через
+     * 400 блоков), и суша под точками съёмки в 800 м и 2 км к югу.
+     */
+    private void pickEpicentre() {
+        var server = Minecraft.getInstance().getSingleplayerServer();
+        server.submit(() -> {
+            var level = server.overworld();
+            int bestX = fsX, bestZ = fsZ;
+            double best = -1;
+            for (int cx = -4000; cx <= 4000; cx += 500) {
+                for (int cz = -4000; cz <= 4000; cz += 500) {
+                    int hit = 0, all = 0;
+                    for (int r = 0; r <= 1600; r += 400) {
+                        int n = r == 0 ? 1 : r / 50;
+                        for (int i = 0; i < n; i++) {
+                            double a = 2 * Math.PI * i / n;
+                            all++;
+                            if (burns(level, cx + (int) (r * Math.cos(a)), cz + (int) (r * Math.sin(a)))) hit++;
+                        }
+                    }
+                    double score = (double) hit / all + (burns(level, cx, cz + FS_ROOF) ? 0.1 : 0) + (burns(level, cx, cz + FS_FAR) ? 0.1 : 0);
+                    if (score > best) {
+                        best = score;
+                        bestX = cx;
+                        bestZ = cz;
+                    }
+                }
+            }
+            fsX = bestX;
+            fsZ = bestZ;
+            Incoming.LOG.info("SCENARIO firestorm epicentre {} {} (burnable land score {})", fsX, fsZ, String.format(java.util.Locale.ROOT, "%.2f", best));
+        }).join();
+    }
+
+    /** Верх рельефа в колонке у клиента (чанка нет — 64). */
+    private static int ground(int x, int z) {
+        var level = Minecraft.getInstance().level;
+        if (!level.hasChunk(x >> 4, z >> 4)) return 64;
+        return Math.max(level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z), 63);
+    }
+
+    /** Сценарий {@code firestorm}: кадры — от прихода подрыва к клиенту. */
+    private void firestormEvents() {
+        if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
+        detTick = tick;
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}, ground {}, night {}", tick, xyz(d.burst()), d.groundY(), fsNight);
+        int t = tick;
+        if (fsNight) {
+            at(t + 5, () -> cmd("time set 18000"));
+            // утро пелены и шторма — снова по времени суток в миг подрыва (4000), а не по 18000
+            at(t + 15, ua.zentix.incoming.client.nuclear.ClientNuclear::rewound);
+        }
+        int gy = (int) Math.round(d.groundY());
+        int far = fsZ + FS_FAR, roof = fsZ + FS_ROOF;
+        if (System.getenv("INCOMING_FIRESTORM_QUICK") != null) {
+            at(t + 40, () -> {
+                fsPickWhirl(d, gy);
+                fsSkip(fsWhirlAge);
+            });
+            at(t + 80, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %d %.1f", fsInside.x, gy + 60, fsInside.z)));
+            at(t + 80 + FS_LOAD, () -> fsFace("inside"));
+            fsShot(t + 140 + FS_LOAD, "inside");
+            at(t + 150 + FS_LOAD, () -> fsGo(fsX, fsFarY, far));
+            at(t + 150 + 2 * FS_LOAD, () -> fsFace("far"));
+            fsShot(t + 210 + 2 * FS_LOAD, "far");
+            at(t + 260 + 2 * FS_LOAD, () -> {
+                Incoming.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+            return;
+        }
+        // через минуту: с 2 км, с крыши в 800 м, изнутри у смерча, что будет идти к 5-й минуте
+        at(t + 100, () -> fsFace("far"));
+        fsShot(t + 1200, "far");
+        at(t + 1210, () -> fsGo(fsX, fsRoofY, roof));
+        at(t + 1210 + FS_LOAD, () -> fsFace("roof"));
+        fsShot(t + 1270 + FS_LOAD, "roof");
+        int in = t + 1280 + FS_LOAD;
+        at(in, () -> {
+            fsPickWhirl(d, gy);
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %d %.1f", fsInside.x, gy + 60, fsInside.z));
+        });
+        at(in + FS_LOAD + 150, () -> fsFace("inside"));
+        fsShot(in + FS_LOAD + 220, "inside");
+        // к смерчу: через 20 с после его начала
+        int five = in + FS_LOAD + 240;
+        at(five, () -> fsSkip(fsWhirlAge));
+        fsShot(five + 120, "inside");
+        fsShot(five + 220, "inside");
+        at(five + 230, () -> fsGo(fsX, fsFarY, far));
+        at(five + 230 + FS_LOAD, () -> fsFace("far"));
+        fsShot(five + 290 + FS_LOAD, "far");
+        int r5 = five + 300 + FS_LOAD;
+        at(r5, () -> fsGo(fsX, fsRoofY, roof));
+        at(r5 + FS_LOAD, () -> fsFace("roof"));
+        fsShot(r5 + FS_LOAD + 60, "roof");
+        // та же точка: время пелены на видеокарте со штормом и без него — окнами по 2 с по очереди (машина общая: подряд
+        // по 10 с одно окно попадало бы на чужую нагрузку целиком)
+        int gpu = r5 + FS_LOAD + 70;
+        for (int k = 0; k < FS_GPU_WINDOWS; k++) {
+            boolean on = k % 2 == 0;
+            at(gpu + 40 * k, () -> ua.zentix.incoming.client.nuclear.NukePall.firestorm(on));
+            at(gpu + 40 * k + 35, () -> Incoming.LOG.info("SCENARIO firestorm gpu {}: {}", on ? "with firestorm" : "without firestorm",
+                    ua.zentix.incoming.client.fx.layer.PallPass.describe()));
+        }
+        int after = gpu + 40 * FS_GPU_WINDOWS;
+        at(after, () -> ua.zentix.incoming.client.nuclear.NukePall.firestorm(false));
+        fsShot(after + 40, "roof_nostorm");
+        at(after + 50, () -> ua.zentix.incoming.client.nuclear.NukePall.firestorm(true));
+        // через 15 минут
+        int fifteen = after + 60;
+        at(fifteen, () -> fsSkip(900));
+        fsShot(fifteen + 120, "roof");
+        at(fifteen + 130, () -> fsGo(fsX, fsFarY, far));
+        at(fifteen + 130 + FS_LOAD, () -> fsFace("far"));
+        fsShot(fifteen + 190 + FS_LOAD, "far");
+        int i15 = fifteen + 200 + FS_LOAD;
+        at(i15, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %d %.1f", fsInside.x, gy + 60, fsInside.z)));
+        at(i15 + FS_LOAD, () -> fsFace("inside"));
+        fsShot(i15 + FS_LOAD + 60, "inside");
+        at(i15 + FS_LOAD + 100, () -> {
+            Incoming.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Точка внутри: в 200–360 блоках сбоку (поперёк ветра, над сушей) от огненного смерча, чья середина ближе всего к
+     * 5-й минуте, — к нему на 20-й секунде его жизни; смерчей нет — в 600 м к юго-востоку от эпицентра, к эпицентру.
+     */
+    private void fsPickWhirl(ua.zentix.incoming.nuclear.Detonation d, int gy) {
+        var a = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast();
+        ua.zentix.incoming.client.nuclear.FireStorm.Whirl best = null;
+        for (var w : a.storm.whirls()) if (best == null || Math.abs(w.startS() + 20 - 300) < Math.abs(best.startS() + 20 - 300)) best = w;
+        if (best == null) {
+            fsWhirlAge = 300;
+            fsInside = new Vec3(d.burst().x + 420, gy, d.burst().z + 420);
+            fsLook = new Vec3(d.burst().x, gy + 40, d.burst().z);
+        } else {
+            fsWhirlAge = best.startS() + 20;
+            double bx = best.baseX(fsWhirlAge + 5), bz = best.baseZ(fsWhirlAge + 5);
+            double px = -Math.sin(d.windDir()), pz = Math.cos(d.windDir());
+            // сторона и даль — где под камерой горит суша, а не море или лёд
+            var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+            int bestDry = -1;
+            for (int dist : new int[] {200, 280, 360}) {
+                for (int side : new int[] {1, -1}) {
+                    double x = bx + side * dist * px, z = bz + side * dist * pz;
+                    int dry = 0;
+                    for (int k = -2; k <= 2; k++) if (burns(level, (int) Math.floor(x + 24 * k * pz), (int) Math.floor(z - 24 * k * px))) dry++;
+                    if (dry > bestDry) {
+                        bestDry = dry;
+                        fsInside = new Vec3(x, gy, z);
+                    }
+                }
+            }
+            fsLook = new Vec3(bx, gy + 45, bz);
+        }
+        Incoming.LOG.info("SCENARIO firestorm whirls {}, filming one at {} s from {}", a.storm.whirls(), String.format(java.util.Locale.ROOT, "%.0f", fsWhirlAge), xyz(fsInside));
+    }
+
+    /** Перенос к точке съёмки (высота — по рельефу, взгляд — потом, {@link #fsFace}). */
+    private static void fsGo(double x, int y, double z) {
+        cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %d %.1f", x + 0.5, y, z + 0.5));
+    }
+
+    /** Взгляд с точки съёмки: с 2 км и с крыши — на эпицентр над землёй, изнутри — на смерч (высота — по готовому рельефу). */
+    private void fsFace(String where) {
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        int gy = (int) Math.round(d.groundY());
+        // чанки точки уже готовы (камера там FS_LOAD тиков): облёт до подрыва мог их не застать
+        fsRoofY = Math.max(fsRoofY, around(fsX, fsZ + FS_ROOF) + 30);
+        fsFarY = Math.max(fsFarY, around(fsX, fsZ + FS_FAR) + 40);
+        switch (where) {
+            case "far" -> cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 facing %.1f %d %.1f", fsX, fsFarY, fsZ + FS_FAR, d.burst().x, gy + 60, d.burst().z));
+            case "roof" -> cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 facing %.1f %d %.1f", fsX, fsRoofY, fsZ + FS_ROOF, d.burst().x, gy + 90, d.burst().z));
+            default -> {
+                int y = around((int) Math.floor(fsInside.x), (int) Math.floor(fsInside.z)) + 20;
+                cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %d %.1f facing %.1f %.1f %.1f", fsInside.x, y, fsInside.z, fsLook.x, fsLook.y, fsLook.z));
+            }
+        }
+    }
+
+    /**
+     * Пропуск времени к {@code ageSeconds} после подрыва: часы сервера — туда же (всем игрокам — пакет времени), у
+     * клиента — перемотка, как у повтора: шторм, пелена и всё ядерное — по новому возрасту подрыва.
+     */
+    private void fsSkip(double ageSeconds) {
+        var server = Minecraft.getInstance().getSingleplayerServer();
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        long target = d.gameTime() + Math.round(ageSeconds * 20);
+        Incoming.LOG.info("SCENARIO firestorm skip to {} s after the burst", String.format(java.util.Locale.ROOT, "%.0f", ageSeconds));
+        server.execute(() -> {
+            var level = server.overworld();
+            ((net.minecraft.world.level.storage.ServerLevelData) level.getLevelData()).setGameTime(target);
+            server.getPlayerList().broadcastAll(new net.minecraft.network.protocol.game.ClientboundSetTimePacket(level.getGameTime(), level.getDayTime(),
+                    level.getGameRules().getBoolean(GameRules.RULE_DAYLIGHT)));
+        });
+        at(tick + 15, ua.zentix.incoming.client.nuclear.ClientNuclear::rewound);
+    }
+
+    /** Кадр сценария {@code firestorm}: имя — точка, ночь или день и секунды после подрыва; строка о пелене и шторме. */
+    private void fsShot(int t, String name) {
+        at(t, () -> {
+            var list = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations();
+            int age = list.isEmpty() ? 0 : (int) Math.round(list.getLast().ticks(0) / 20.0);
+            String full = String.format(java.util.Locale.ROOT, "fs_%s_%s_%04ds", fsNight ? "night" : "day", name, age);
+            Incoming.LOG.info("SCENARIO firestorm {} at {}: {}; layer {}", full, xyz(Minecraft.getInstance().gameRenderer.getMainCamera().getPosition()),
+                    ua.zentix.incoming.client.nuclear.NukePall.describe(), ua.zentix.incoming.client.fx.layer.FxLayer.describeTiming());
+            Minecraft mc = Minecraft.getInstance();
+            Screenshot.grab(mc.gameDirectory, full + ".png", mc.getMainRenderTarget(), c -> {});
+        });
+    }
+
     /** Кадр сценария {@code pall} со строкой о пелене у камеры и в кадре. */
     private void pallShot(int t, String name) {
         at(t, () -> Incoming.LOG.info("SCENARIO pall {} at {}: {}; layer {}", name, xyz(Minecraft.getInstance().gameRenderer.getMainCamera().getPosition()),
@@ -668,6 +978,144 @@ public final class ClientScenario {
             });
         }
         wallStage++;
+    }
+
+    /** Эпицентр сценария pall-front (наземный подрыв: высоту берёт земля). */
+    private static final Vec3 FRONT_GZ = new Vec3(0.5, 320, -1499.5);
+
+    /**
+     * Пелена за фронтом ночью, как кадр повтора у хоста (камера в 400 м от наземных 15 кт, на 120 м над землёй, взгляд
+     * чуть вверх, FOV 50): за эпицентром — квартал башен (их сносит волна, руины стоят). Кадры — от прихода фронта
+     * к камере: 0, 2, 5, 10, 20 и 60 с (pall_front_*), в лог — пелена у камеры. Качество — {@code INCOMING_PALL}
+     * (по умолчанию MEDIUM). {@code INCOMING_EXPORT=2560x1440} — как вывод видео Flashback: с подрыва окно сообщает
+     * размер вывода ({@code Window.getWidth/getHeight}) и кадр игры — этого размера, больше окна (Flashback делает то же
+     * своим миксином окна и {@code Minecraft.resizeDisplay}).
+     * <p>
+     * {@code low} (сценарий {@code pall-low}): эпицентр — на столбе в 45 блоках над землёй у камеры, камера — в 8 блоках
+     * над землёй, то есть ниже земли под эпицентром (как у кадра трейлера из долины), взгляд — на эпицентр почти по
+     * горизонту. Луч пелены, за которым нет мира (за прорисовкой и между LOD Distant Horizons), должен кончаться на
+     * рельефе, а не на плоскости земли под эпицентром: ниже неё — пустота без пелены, ровный срез по горизонту. Кадры —
+     * через 5, 20 и 60 с после фронта (pall_low_*), камера перед каждым ставится на место (волна её сносит).
+     */
+    private void planPallFront(boolean low) {
+        front = true;
+        frontLow = low;
+        int[] towersX = {90, 150, 210, 270};
+        int[] towersZ = {-1560, -1440};
+        at(40, () -> {
+            String q = System.getenv().getOrDefault("INCOMING_PALL", "MEDIUM");
+            ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.valueOf(q));
+            Minecraft.getInstance().options.fov().set(50);
+            cmd("time set 18000");
+            cmd("weather clear");
+            cmd("forceload add 64 -1616 303 -1385");
+            if (low) cmd(String.format(java.util.Locale.ROOT, "forceload add %d %d %d %d", (int) FRONT_GZ.x - 8, (int) FRONT_GZ.z - 8,
+                    (int) FRONT_GZ.x + 8, (int) FRONT_GZ.z + 8));
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 200 %.1f -90 -3", FRONT_GZ.x - 400, FRONT_GZ.z));
+            hover = true;
+        });
+        // квартал башен за эпицентром: от y 40 (под любым рельефом) на 40–70 блоков над уровнем моря; дважды — вдруг чанк
+        // ещё не загрузился к первому разу
+        for (int when : new int[]{480, 560}) {
+            at(when, () -> {
+                int k = 0;
+                for (int x : towersX) {
+                    for (int z : towersZ) {
+                        int top = 63 + 40 + 10 * (k++ % 4);
+                        cmd(String.format(java.util.Locale.ROOT, "fill %d 40 %d %d %d %d minecraft:stone_bricks hollow", x, z, x + 13, top, z + 13));
+                    }
+                }
+            });
+        }
+        at(600, () -> {
+            Minecraft mc = Minecraft.getInstance();
+            int x = (int) Math.floor(FRONT_GZ.x - 400), z = (int) Math.floor(FRONT_GZ.z);
+            int ground = Math.max(mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z), 63);
+            int above = low ? 8 : 120;
+            frontAt = new Vec3(x + 0.5, ground + above, z + 0.5);
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f -90 -3", frontAt.x, frontAt.y, frontAt.z));
+            Incoming.LOG.info("SCENARIO pall-front camera at {} ({} above ground {})", xyz(frontAt), above, ground);
+            if (low) {
+                // эпицентр на столбе: земля под ним на 45 блоков выше земли у камеры (если там не выше и так)
+                int gx = (int) Math.floor(FRONT_GZ.x), gz = (int) Math.floor(FRONT_GZ.z);
+                cmd(String.format(java.util.Locale.ROOT, "fill %d 40 %d %d %d %d minecraft:stone", gx - 3, gz - 3, gx + 3, ground + 45, gz + 3));
+            }
+        });
+        at(660, () -> {
+            Minecraft.getInstance().options.hideGui = true;
+            cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %.1f %.1f %.1f 15 ground", FRONT_GZ.x, FRONT_GZ.y, FRONT_GZ.z));
+            String export = System.getenv("INCOMING_EXPORT");
+            if (export != null && export.matches("\\d+x\\d+")) {
+                String[] wh = export.split("x");
+                exportSize(Integer.parseInt(wh[0]), Integer.parseInt(wh[1]));
+            }
+        });
+    }
+
+    /** Сценарий pall-front: кадры — от прихода фронта к камере (по модели подрыва у клиента). */
+    private void frontEvents() {
+        if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
+        detTick = tick;
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        int arrive = (int) Math.ceil(d.arrivalTicks(cam.distanceTo(d.burst())));
+        Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}, ground {}, front at the camera in {} ticks", tick, xyz(d.burst()),
+                String.format(java.util.Locale.ROOT, "%.0f", d.groundY()), arrive);
+        if (frontLow) {
+            for (int s : new int[]{5, 20, 60}) {
+                int t = tick + arrive + 20 * s;
+                // волна сносит камеру: перед кадром — снова на место
+                at(t - 4, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f -90 -3", frontAt.x, frontAt.y, frontAt.z)));
+                pallShot(t, "low_" + s + "s");
+                if (s == 60) offShot(t, "low_" + s + "s_off");
+            }
+        } else {
+            for (int s : new int[]{0, 2, 5, 10, 20, 60}) {
+                int t = tick + arrive + 20 * s;
+                pallShot(t, "front_" + s + "s");
+                if (s > 0) offShot(t, "front_" + s + "s_off");
+            }
+        }
+        at(tick + arrive + 1240, () -> {
+            Incoming.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Тот же кадр без пелены (качество OFF на два-три кадра; на llvmpipe тики идут пачками между кадрами — снимок через
+     * 8 тиков): что пелена делает с кадром — свет стены пыли и мира за ней.
+     */
+    private void offShot(int t, String name) {
+        var quality = ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality;
+        var was = new Object() { ua.zentix.incoming.IncomingConfig.Client.DustQuality q; };
+        at(t + 2, () -> {
+            was.q = quality.get();
+            quality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.OFF);
+        });
+        shot(t + 10, "pall_" + name);
+        at(t + 11, () -> quality.set(was.q));
+    }
+
+    /**
+     * Кадр игры размера {@code w}×{@code h}, больше окна, — как у вывода видео Flashback: окно сообщает этот размер
+     * (поля размера кадра окна; у Flashback — миксин {@code Window.getWidth/getHeight}), и {@code resizeDisplay}
+     * ставит его кадру игры. Кадры сценария снимаются с кадра игры — этого размера.
+     */
+    private static void exportSize(int w, int h) {
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            for (String name : new String[]{"framebufferWidth", "framebufferHeight"}) {
+                java.lang.reflect.Field f = com.mojang.blaze3d.platform.Window.class.getDeclaredField(name);
+                f.setAccessible(true);
+                f.setInt(mc.getWindow(), name.endsWith("Width") ? w : h);
+            }
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
+        mc.resizeDisplay();
+        Incoming.LOG.info("SCENARIO export size: window reports {}x{}, game frame {}x{}", mc.getWindow().getWidth(), mc.getWindow().getHeight(),
+                mc.getMainRenderTarget().width, mc.getMainRenderTarget().height);
     }
 
     /** Ядерный сценарий: кадры входа боеголовки и после подрыва — от момента, когда клиент получил подрыв. */

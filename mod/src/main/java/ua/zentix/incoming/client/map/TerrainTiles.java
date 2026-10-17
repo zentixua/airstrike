@@ -501,6 +501,27 @@ public final class TerrainTiles {
         return OptionalInt.empty();
     }
 
+    /**
+     * Не горит ли поверхность колонки (огненный шторм ядерки): по самой подробной готовой плитке, чанки клиента первыми;
+     * −1 — не знаем, 1 — вода, лёд или снег, 0 — другое.
+     */
+    public static int wet(int x, int z) {
+        for (int i = layers.size() - 1; i >= 0; i--) {
+            Map<Key, Tile> tiles = layers.get(i).tiles;
+            for (int l = 0; l <= MAX_LEVEL; l++) {
+                int span = SIZE << l;
+                Tile t = tiles.get(new Key(l, Math.floorDiv(x, span), Math.floorDiv(z, span)));
+                if (t == null || t.columns == null) continue;
+                int px = Math.floorMod(x, span) >> l, pz = Math.floorMod(z, span) >> l;
+                int j = pz * SIZE + px;
+                if (!t.columns.has(j)) continue;
+                int color = t.columns.color[j] & 0x3F;
+                return t.columns.depth[j] > 0 || color == MapColor.WATER.id || color == MapColor.ICE.id || color == MapColor.SNOW.id ? 1 : 0;
+            }
+        }
+        return -1;
+    }
+
     /** Для лога и сценария: по слоям — сколько плиток построено и с рельефом, сколько строится, что отдал источник. */
     public static String stats() {
         StringBuilder b = new StringBuilder();

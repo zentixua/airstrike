@@ -50,9 +50,16 @@ import java.util.concurrent.CompletionException;
  *     чёткие).</li>
  * </ol>
  * Квадраты слоя после этого рисуются со своей долей пелены перед ними ({@code fx.vsh}: те же поле и таблица, без
- * шума). Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, шум 64³ (RG8) и 64² (R8): всё
- * вместе меньше 2 МБ на 1080p. Шум считается в фоне при первом подрыве (около секунды); пока он не готов,
- * пелены нет.
+ * шума).
+ * <p>
+ * Над горящим городом в тех же проходах — огненный шторм ({@code client/nuclear/FireStorm}): у слота подрыва своя
+ * карта огня ({@link Fire}, RGBA16F по клеткам источников с уменьшенными копиями — скопления источников света и дыма):
+ * в лучах — столбы дыма и зарево снизу на пелене и дыме, огненные смерчи; на кадре — пламя на поверхностях города
+ * (по расстоянию до мира за пикселем, и на LOD Distant Horizons); у квадратов слоя — свет пожаров снизу.
+ * <p>
+ * Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, шум 64³ (RG8) и 64² (R8): всё вместе
+ * меньше 2 МБ на 1080p; карты огня — до 0,7 МБ на слот (сторона до 256 клеток), карты рельефа под пеленой — 32 КБ на слот. Шум считается в фоне при первом
+ * подрыве (около секунды); пока он не готов, пелены нет.
  * <p>
  * Подробность сама держит бюджет ({@link Detail}): время проходов на видеокарте меряют метки времени OpenGL, читаемые
  * через кадры (без ожидания), и пока оно дольше {@link Detail#BUDGET_MS} мс, кадр лучей мельчает и шагов меньше
@@ -214,6 +221,59 @@ public final class PallPass {
         }
     }
 
+    /** Огненный шторм слота ({@code client/nuclear/FireStorm}): числа для шейдера и карта огня. */
+    public static final class Fire {
+        /** Слот огня ({@code pall.glsl}); нули — у слота шторма нет. */
+        public final Matrix4f params = new Matrix4f().zero();
+        /** Карта огня: RGBA по клеткам, сторона {@link #side}, x быстрее; null — шторма нет. */
+        @Nullable
+        public float[] map;
+        public int side;
+        /** Чья карта и какое её заполнение: текстура грузится заново, только когда они другие. */
+        @Nullable
+        public Object source;
+        public int version;
+
+        public void clear() {
+            params.zero();
+            map = null;
+            source = null;
+            side = version = 0;
+        }
+
+        boolean on() {
+            return map != null && side > 0 && params.m00() > 0;
+        }
+    }
+
+    /**
+     * Рельеф под пеленой слота ({@code client/nuclear/PallGround}): где кончается луч, за которым нет мира. Карта высот
+     * над землёй под эпицентром, R16F с билинейной выборкой, края — как у края.
+     */
+    public static final class Ground {
+        /** Полсторона карты, низ и верх карты (над землёй под эпицентром), клетка — блоки ({@code pall.glsl}); нули — карты нет. */
+        public final Vector4f params = new Vector4f();
+        /** Высоты по клеткам, сторона {@link #side}, x быстрее; null — карты нет. */
+        @Nullable
+        public float[] map;
+        public int side;
+        /** Чья карта и какое её заполнение: текстура грузится заново, только когда они другие. */
+        @Nullable
+        public Object source;
+        public int version;
+
+        public void clear() {
+            params.zero();
+            map = null;
+            source = null;
+            side = version = 0;
+        }
+
+        boolean on() {
+            return map != null && side > 0 && params.x > 0;
+        }
+    }
+
     /** Пелена кадра — что её рисует ({@code client/nuclear/NukePall#frame}). */
     public static final class Frame {
         /** Слоты подрывов ({@code pall.glsl}): не больше двух самых заметных. */
@@ -226,11 +286,36 @@ public final class PallPass {
         public final Vector4f sun = new Vector4f();
         /** Свет солнца, неба и пожаров на экране. */
         public final Vector3f sunLight = new Vector3f(), skyLight = new Vector3f(), fireLight = new Vector3f();
+        /**
+         * Свет стены пыли на пелене слотов ({@code client/nuclear/CloudPuffs#pallLight}): glow — свет шара и шапки сверху,
+         * накал гриба, шесть радиусов шара и край зоны пожаров (блоки); hot — цвет накала (rgb) и высота шара или шапки
+         * над землёй под эпицентром (блоки, w). Нули — без отсвета.
+         */
+        public final Vector4f glow0 = new Vector4f(), glow1 = new Vector4f(), hot0 = new Vector4f(), hot1 = new Vector4f();
+        /** Сила отсвета стены на пыли при свете неба кадра ({@code CloudPuffs#glowOnSmoke}). */
+        public float glowOnSmoke;
         /** Средний свет пелены (rgb) — для квадратов слоя перед частицами; w — 1, если пелена есть. */
         public final Vector4f ambient = new Vector4f();
         /** Дальше стольких блоков луч не идёт (в густой пыли у глаза — что за ней, всё равно не видно). */
         public float clip;
         public Quality quality = Quality.MEDIUM;
+        /** Огненный шторм слотов. */
+        public final Fire fire0 = new Fire(), fire1 = new Fire();
+        /** Рамка шторма от глаза (столбы, зарево, смерчи), блоки: там шаги луча гуще; min > max — шторма нет. */
+        public final Vector3f fireMin = new Vector3f(), fireMax = new Vector3f();
+        /**
+         * Огненные смерчи кадра (до четырёх, по столбцу на смерч): основание (x, z от глаза, земля от глаза по y) и радиус
+         * ядра; высота, сила 0..1 (0 — смерча нет), секунды с его начала, закрутка ±1; наклон по ветру (x, z на блок
+         * высоты), пламя, зерно.
+         */
+        public final Matrix4f whirlPos = new Matrix4f().zero(), whirlShape = new Matrix4f().zero(), whirlLean = new Matrix4f().zero();
+        /** Рельеф под пеленой слотов. */
+        public final Ground ground0 = new Ground(), ground1 = new Ground();
+        /**
+         * Мир кадра кончается не ближе стольких блоков по земле от глаза (дальность прорисовки): луч в пустоту прошёл его,
+         * ничего не задев, — рельеф под пеленой ({@link Ground}) режет его только дальше.
+         */
+        public float floorFrom;
     }
 
     @Nullable
@@ -245,6 +330,18 @@ public final class PallPass {
     private static final int[] TEXTURES = {-1, -1, -1}, FBOS = {-1, -1, -1};
     private static int latest;
     private static int table = -1, noise = -1, blue = -1;
+    /** Карты огня слотов (текстура, её сторона, чья и какое заполнение) и карты этого кадра (−1 — нет). */
+    private static final int[] FIRE = {-1, -1}, FIRE_SIDE = new int[2], FIRE_VERSION = new int[2], FIRE_NOW = {-1, -1};
+    private static final Object[] FIRE_SOURCE = new Object[2];
+    /** Карты рельефа под пеленой слотов (текстура, сторона, чья и какое заполнение). */
+    private static final int[] GROUND = {-1, -1}, GROUND_SIDE = new int[2], GROUND_VERSION = new int[2];
+    private static final Object[] GROUND_SOURCE = new Object[2];
+    @Nullable
+    private static FloatBuffer groundBuffer;
+    private static final Vector4f NO_GROUND = new Vector4f();
+    @Nullable
+    private static FloatBuffer fireBuffer;
+    private static final Matrix4f NO_FIRE = new Matrix4f().zero();
     @Nullable
     private static CompletableFuture<byte[][]> textures;
     private static FloatBuffer tableBuffer;
@@ -296,6 +393,11 @@ public final class PallPass {
         return table;
     }
 
+    /** Карта огня слота {@code k} этого кадра ({@code Sampler7}/{@code Sampler8} шейдера {@code fx}); −1 — нет. */
+    static int fireMap(int k) {
+        return FIRE_NOW[k];
+    }
+
     /**
      * Пелена этого кадра после накопления ({@code Sampler6} шейдера {@code fx}: свет и пропускание до мира за пикселем —
      * свет пелены перед квадратом слоя берётся из него).
@@ -333,6 +435,14 @@ public final class PallPass {
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0);
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, 0);
         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, WIDTH, ROWS, GL11.GL_RGBA, GL11.GL_FLOAT, tableBuffer);
+        FIRE_NOW[0] = fire(0, f.fire0);
+        FIRE_NOW[1] = fire(1, f.fire1);
+        int fire0 = FIRE_NOW[0] >= 0 ? FIRE_NOW[0] : table, fire1 = FIRE_NOW[1] >= 0 ? FIRE_NOW[1] : table;
+        Matrix4f fireSlot0 = FIRE_NOW[0] >= 0 ? f.fire0.params : NO_FIRE, fireSlot1 = FIRE_NOW[1] >= 0 ? f.fire1.params : NO_FIRE;
+        int ground0 = ground(0, f.ground0), ground1 = ground(1, f.ground1);
+        Vector4f groundSlot0 = ground0 >= 0 ? f.ground0.params : NO_GROUND, groundSlot1 = ground1 >= 0 ? f.ground1.params : NO_GROUND;
+        if (ground0 < 0) ground0 = table;
+        if (ground1 < 0) ground1 = table;
 
         VIEW_PROJECTION.set(projection).mul(view);
         VIEW_PROJECTION.invert(INVERSE);
@@ -356,6 +466,10 @@ public final class PallPass {
         RenderSystem.setShaderTexture(0, scene);
         RenderSystem.setShaderTexture(1, table);
         RenderSystem.setShaderTexture(2, blue);
+        RenderSystem.setShaderTexture(3, fire0);
+        RenderSystem.setShaderTexture(4, fire1);
+        RenderSystem.setShaderTexture(5, ground0);
+        RenderSystem.setShaderTexture(6, ground1);
         m.safeGetUniform("InvViewProj").set(INVERSE);
         m.safeGetUniform("PallForward").set(FORWARD.x, FORWARD.y, FORWARD.z);
         m.safeGetUniform("PallSlot0").set(f.slot0);
@@ -366,7 +480,22 @@ public final class PallPass {
         m.safeGetUniform("PallSunLight").set(f.sunLight.x, f.sunLight.y, f.sunLight.z);
         m.safeGetUniform("PallSkyLight").set(f.skyLight.x, f.skyLight.y, f.skyLight.z);
         m.safeGetUniform("PallFireLight").set(f.fireLight.x, f.fireLight.y, f.fireLight.z);
+        m.safeGetUniform("PallGlow0").set(f.glow0.x, f.glow0.y, f.glow0.z, f.glow0.w);
+        m.safeGetUniform("PallGlow1").set(f.glow1.x, f.glow1.y, f.glow1.z, f.glow1.w);
+        m.safeGetUniform("PallHot0").set(f.hot0.x, f.hot0.y, f.hot0.z, f.hot0.w);
+        m.safeGetUniform("PallHot1").set(f.hot1.x, f.hot1.y, f.hot1.z, f.hot1.w);
+        m.safeGetUniform("PallGlowOnSmoke").set(f.glowOnSmoke);
         m.safeGetUniform("PallFrame").set((float) (frame % 4096), step.steps, factor, f.clip);
+        m.safeGetUniform("PallFire0").set(fireSlot0);
+        m.safeGetUniform("PallFire1").set(fireSlot1);
+        m.safeGetUniform("PallFireMin").set(f.fireMin.x, f.fireMin.y, f.fireMin.z);
+        m.safeGetUniform("PallFireMax").set(f.fireMax.x, f.fireMax.y, f.fireMax.z);
+        m.safeGetUniform("PallWhirlPos").set(f.whirlPos);
+        m.safeGetUniform("PallWhirlShape").set(f.whirlShape);
+        m.safeGetUniform("PallWhirlLean").set(f.whirlLean);
+        m.safeGetUniform("PallGround0").set(groundSlot0.x, groundSlot0.y, groundSlot0.z, groundSlot0.w);
+        m.safeGetUniform("PallGround1").set(groundSlot1.x, groundSlot1.y, groundSlot1.z, groundSlot1.w);
+        m.safeGetUniform("PallFloorFrom").set(f.floorFrom);
         quad(m, true);
 
         // 2. накопление: из прошлого накопленного — в другое
@@ -392,13 +521,23 @@ public final class PallPass {
         RenderSystem.setShaderTexture(0, TEXTURES[1 + latest]);
         RenderSystem.setShaderTexture(1, scene);
         RenderSystem.setShaderTexture(2, table);
+        RenderSystem.setShaderTexture(3, fire0);
+        RenderSystem.setShaderTexture(4, fire1);
+        RenderSystem.setShaderTexture(5, ground0);
+        RenderSystem.setShaderTexture(6, ground1);
         c.safeGetUniform("InvViewProj").set(INVERSE);
         c.safeGetUniform("PallForward").set(FORWARD.x, FORWARD.y, FORWARD.z);
         c.safeGetUniform("PallSlot0").set(f.slot0);
         c.safeGetUniform("PallSlot1").set(f.slot1);
         c.safeGetUniform("PallSun").set(f.sun.x, f.sun.y, f.sun.z, f.sun.w);
         c.safeGetUniform("PallFrame").set(0f, 0f, factor, 0f);
-        quad(c, false);
+        c.safeGetUniform("PallFire0").set(fireSlot0);
+        c.safeGetUniform("PallFire1").set(fireSlot1);
+        c.safeGetUniform("PallGround0").set(groundSlot0.x, groundSlot0.y, groundSlot0.z, groundSlot0.w);
+        c.safeGetUniform("PallGround1").set(groundSlot1.x, groundSlot1.y, groundSlot1.z, groundSlot1.w);
+        c.safeGetUniform("PallFloorFrom").set(f.floorFrom);
+        // пламя на поверхностях мерцает по трёхмерному шуму
+        quad(c, true);
         RenderSystem.enableDepthTest();
         end(timing);
 
@@ -436,6 +575,78 @@ public final class PallPass {
             GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
             GlStateManager._activeTexture(unit);
         }
+    }
+
+    /**
+     * Карта огня слота {@code k} в видеопамять, если она другая (другой подрыв или новое заполнение), с уменьшенными
+     * копиями — скопления источников; вне карты — нули (край — прозрачная рамка). −1 — у слота шторма нет.
+     */
+    private static int fire(int k, Fire f) {
+        if (!f.on()) return -1;
+        float[] map = f.map;
+        if (FIRE[k] < 0) {
+            FIRE[k] = GlStateManager._genTexture();
+            GlStateManager._bindTexture(FIRE[k]);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MAG_FILTER, GlConst.GL_LINEAR);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_S, GL13.GL_CLAMP_TO_BORDER);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_T, GL13.GL_CLAMP_TO_BORDER);
+            FIRE_SIDE[k] = 0;
+        }
+        if (f.source == FIRE_SOURCE[k] && f.version == FIRE_VERSION[k] && f.side == FIRE_SIDE[k]) return FIRE[k];
+        int n = f.side * f.side * 4;
+        if (map == null || map.length < n) return -1;
+        if (fireBuffer == null || fireBuffer.capacity() < n) {
+            if (fireBuffer != null) MemoryUtil.memFree(fireBuffer);
+            fireBuffer = MemoryUtil.memAllocFloat(n);
+        }
+        FloatBuffer buf = fireBuffer;
+        buf.clear();
+        buf.put(map, 0, n).flip();
+        GlStateManager._bindTexture(FIRE[k]);
+        GlStateManager._pixelStore(GL11.GL_UNPACK_ROW_LENGTH, 0);
+        GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0);
+        GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, f.side, f.side, 0, GL11.GL_RGBA, GL11.GL_FLOAT, buf);
+        GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
+        FIRE_SOURCE[k] = f.source;
+        FIRE_VERSION[k] = f.version;
+        FIRE_SIDE[k] = f.side;
+        return FIRE[k];
+    }
+
+    /** Карта рельефа под пеленой слота {@code k} в видеопамять, если она другая (другой подрыв или новое заполнение); −1 — карты нет. */
+    private static int ground(int k, Ground g) {
+        if (!g.on()) return -1;
+        float[] map = g.map;
+        int n = g.side * g.side;
+        if (map == null || map.length < n) return -1;
+        if (GROUND[k] < 0) {
+            GROUND[k] = GlStateManager._genTexture();
+            GlStateManager._bindTexture(GROUND[k]);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MIN_FILTER, GlConst.GL_LINEAR);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MAG_FILTER, GlConst.GL_LINEAR);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_S, GlConst.GL_CLAMP_TO_EDGE);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_T, GlConst.GL_CLAMP_TO_EDGE);
+            GROUND_SIDE[k] = 0;
+        }
+        if (g.source == GROUND_SOURCE[k] && g.version == GROUND_VERSION[k] && g.side == GROUND_SIDE[k]) return GROUND[k];
+        if (groundBuffer == null || groundBuffer.capacity() < n) {
+            if (groundBuffer != null) MemoryUtil.memFree(groundBuffer);
+            groundBuffer = MemoryUtil.memAllocFloat(n);
+        }
+        FloatBuffer buf = groundBuffer;
+        buf.clear();
+        buf.put(map, 0, n).flip();
+        GlStateManager._bindTexture(GROUND[k]);
+        GlStateManager._pixelStore(GL11.GL_UNPACK_ROW_LENGTH, 0);
+        GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0);
+        GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R16F, g.side, g.side, 0, GL11.GL_RED, GL11.GL_FLOAT, buf);
+        GROUND_SOURCE[k] = g.source;
+        GROUND_VERSION[k] = g.version;
+        GROUND_SIDE[k] = g.side;
+        return GROUND[k];
     }
 
     /** Шум из фона — в видеопамять (один раз); false — ещё не готов. */
@@ -627,5 +838,9 @@ public final class PallPass {
         if (previousEye != null) DETAIL.restart();
         history = false;
         previousEye = null;
+        // карты огня прежних подрывов не держим (текстуры остаются — под следующий)
+        FIRE_SOURCE[0] = FIRE_SOURCE[1] = null;
+        FIRE_NOW[0] = FIRE_NOW[1] = -1;
+        GROUND_SOURCE[0] = GROUND_SOURCE[1] = null;
     }
 }

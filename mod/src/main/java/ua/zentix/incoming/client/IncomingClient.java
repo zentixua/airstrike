@@ -101,6 +101,7 @@ public final class IncomingClient {
         modBus.addListener(Fx::registerProviders);
         modBus.addListener(FxLayer::registerShaders);
         modBus.addListener(FarModels::registerShaders);
+        modBus.addListener(NukeRenderer::registerShaders);
         modBus.addListener(IncomingClient::reloadListeners);
         modBus.addListener(IncomingClient::blockColors);
         TerrainTiles.init();
