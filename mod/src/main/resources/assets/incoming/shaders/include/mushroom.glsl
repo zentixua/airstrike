@@ -402,6 +402,12 @@ float mushBbU(float kelvin) {
     return clamp(x, 0.0, 1.0);
 }
 
+// Свет ламбертова шара радиуса R (квадрат r2) в d (квадрат d2) от его середины — доля света у его поверхности:
+// R²/max(d², R²) (MushroomModel.light)
+float mushBallFalloff(float d2, float r2) {
+    return r2 / max(d2, r2);
+}
+
 // Свет чёрного тела температуры T в единицах кадра (белая стена в полдень — 1), линейный rgb (BlackBody)
 vec3 mushBlackBody(sampler2D data, float kelvin) {
     vec2 size = vec2(textureSize(data, 0));

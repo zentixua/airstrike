@@ -37,7 +37,8 @@ paths:
   по генератору суша под эпицентром и в 600 блоках вокруг: у зерна сценария к северу море, подрыв там водяной, и столб
   воды закрывал шар), зритель висит в 200 блоках над землёй,
   кадры `pall_mushroom_<секунды>s` от 2 с до 4 минут; утро (солнце сбоку) или `INCOMING_MUSHROOM=night`, качество —
-  `INCOMING_PALL`.
+  `INCOMING_PALL`. `INCOMING_MUSHROOM=shadow` — тень гриба на земле (подрыв в 5 км, кадры `pall_shadow_*`),
+  `glow` — свет шара на земле ночью (подрыв в 3 км к востоку, кадры `pall_glow_<секунды>s` от 1 до 14 с).
 - С Iris без шейдерпака и DH (как у ноутбука хоста): `INCOMING_SHADERS=1 INCOMING_DH=1` и `-PmcModsDir` с каталогом, где
   к модам `fetch_runtime_mods.py` добавлены Sodium, Iris и jar DH той версии, что в сборке (Modrinth, sha512 — из
   `pack/mods/*.pw.toml` open-skies); `iris.properties` не писать — шейдеры выключены. LOD DH в облаке строит мало: доля

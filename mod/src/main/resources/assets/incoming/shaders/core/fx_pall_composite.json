@@ -10,7 +10,8 @@
         { "name": "Sampler5" },
         { "name": "Sampler6" },
         { "name": "Sampler7" },
-        { "name": "Sampler8" }
+        { "name": "Sampler8" },
+        { "name": "Sampler9" }
     ],
     "uniforms": [
         { "name": "InvViewProj", "type": "matrix4x4", "count": 16, "values": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] },
@@ -28,6 +29,10 @@
         { "name": "PallFloorFrom", "type": "float", "count": 1, "values": [160.0] },
         { "name": "PallWater0", "type": "float", "count": 4, "values": [0.0, 0.0, 0.0, 0.0] },
         { "name": "PallWater1", "type": "float", "count": 4, "values": [0.0, 0.0, 0.0, 0.0] },
-        { "name": "Haze", "type": "float", "count": 4, "values": [0.0, 1e9, 2e9, 0.0] }
+        { "name": "Haze", "type": "float", "count": 4, "values": [0.0, 1e9, 2e9, 0.0] },
+        { "name": "PallBalls", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallBallLight", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallOpenSky", "type": "float", "count": 3, "values": [1.0, 1.0, 1.0] },
+        { "name": "PallFaceShade", "type": "float", "count": 4, "values": [1.0, 0.5, 0.8, 0.6] }
     ]
 }

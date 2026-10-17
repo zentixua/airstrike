@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -373,8 +374,12 @@ class PallGlslTest {
         assertTrue(march.contains("shownCover = min(cover * lum, 1.0);"), "пересвет — в долю пикселя, не больше всего пикселя");
         assertTrue(march.contains("vec4 res = vec4(shown, min(transmit + lost, 1.0));"),
                 "пропускание кадра — настоящее и при пересвете");
-        assertEquals(1, occurrences(composite, "pallDisplay("), "тень на мире в экран — один раз");
-        assertTrue(composite.contains("pall.a *= mix(1.0, pallDisplay(shade(p)), seen);"), "тень на мире — в экран, вдали тает в дымке и тумане");
+        assertEquals(4, occurrences(composite, "pallDisplay("), "тень на мире в экран — один раз, мир в свете шаров — раз на канал");
+        assertTrue(composite.contains("float kept = mix(1.0, pallDisplay(shade(p, over)), seen);"), "тень на мире — в экран, вдали тает в дымке и тумане");
+        assertTrue(composite.contains("pall.a *= kept;"), "без света шаров тень — множитель мира в смешивании");
+        assertTrue(composite.contains("pall = vec4(pall.rgb + pall.a * shown, 0.0);"), "мир в свете шаров — за пеленой, пиксель целиком");
+        assertEquals(scalar(march, "CROSS"), scalar(composite, "CROSS"), "пересвет к белому — как у вещества");
+        assertArrayEquals(vec3(march, "LUMA"), vec3(composite, "LUMA"));
     }
 
     private static int occurrences(String text, String what) {
