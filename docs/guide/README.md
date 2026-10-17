@@ -22,7 +22,7 @@ Shift+RMB opens the console (salvo, spread, target), and `,` opens the map for s
 | Section | What it covers |
 |---|---|
 | [Strike Designator](designator.md) | binoculars, console, projectiles on screen, abort |
-| [Targeting map](map.md) | long-range strikes, flight route |
+| [Targeting map](map.md) | long-range strikes, flight route, launch site |
 | [Projectile camera](camera.md) | onboard view, new target, Lancet |
 | [Weapons](weapons.md) | how each one differs and when to use it |
 | [Munitions and crafting](munitions.md) | recipes, what a launch uses |
@@ -47,6 +47,7 @@ Shift+RMB opens the console (salvo, spread, target), and `,` opens the map for s
 | in the projectile camera | LMB / Shift | new target / exit |
 | on the map | LMB / Enter | pick a target / fire |
 | on the map | Shift+LMB / RMB | add / remove a route point |
+| on the map | Ctrl+LMB | pick a launch site (operators and the host) |
 | near another player's nuclear launch | `.` | second key |
 
 Keys are changed under Options → Controls → Key Binds → Incoming.

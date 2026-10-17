@@ -202,14 +202,22 @@ public class MapScreen extends Screen {
         return mc.player != null && (mc.player.hasPermissions(2) || mc.hasSingleplayerServer());
     }
 
-    /** Место пуска, с которого пойдёт удар; пусто — у игрока (не выбрано или выбирать его игроку нельзя). */
+    /** Выбранное место пуска — значок на карте; пусто — не выбрано или выбирать его игроку нельзя. */
     private Optional<MapTarget.Place> launchSite() {
         return launchAllowed ? MapTarget.launch(Minecraft.getInstance().level) : Optional.empty();
     }
 
-    /** Откуда идёт путь по горизонтали: место пуска, без него — игрок. */
+    /**
+     * Место пуска, с которого уйдёт удар с карты: выбранное, если пульт его берёт ({@link RemoteScreen#launchFrom}: не у
+     * привязанных пусковых, не у МБР); пусто — пуск у игрока. Путь на карте, его длина и огонь — от него же.
+     */
+    private Optional<Vec3> launchFrom() {
+        return launchSite().isPresent() ? remote.launchFrom() : Optional.empty();
+    }
+
+    /** Откуда идёт путь по горизонтали: место пуска удара, без него — игрок. */
     private Vec3 start(Vec3 me) {
-        return launchSite().map(l -> new Vec3(l.x(), 0, l.z())).orElse(me);
+        return launchFrom().orElse(me);
     }
 
     /** Кнопка места пуска: выбрать на карте, передумать или снова пускать у себя. */
@@ -259,9 +267,9 @@ public class MapScreen extends Screen {
         return aimPoint().map(aim -> via.length(start, aim));
     }
 
-    /** Нижняя панель: строки и кнопки; у тех, кто выбирает место пуска, — на строку выше. */
+    /** Нижняя панель: строки и кнопки; у тех, кто выбирает место пуска (в мире без потолка), — на строку выше. */
     private int panel() {
-        return BOTTOM + (launchAllowed ? LAUNCH_LINE : 0);
+        return BOTTOM + (launchAllowed && !ceiling() ? LAUNCH_LINE : 0);
     }
 
     private MapProjection projection() {
@@ -276,7 +284,7 @@ public class MapScreen extends Screen {
     private void fire() {
         if (!canFire()) return;
         if (selectedPlayer().isEmpty()) remote.aimAtPlace();
-        remote.fire(MapTarget.waypoints(Minecraft.getInstance().level), launchSite().map(l -> new Vec3(l.x(), 0, l.z())));
+        remote.fire(MapTarget.waypoints(Minecraft.getInstance().level), launchFrom());
     }
 
     private void centerOnPlayer() {
@@ -287,7 +295,7 @@ public class MapScreen extends Screen {
     }
 
     /** У мира с потолком (Незер) карта видит только крышу: место не выбирается, сервер такой удар не примет. */
-    static boolean ceiling() {
+    private static boolean ceiling() {
         Minecraft mc = Minecraft.getInstance();
         return mc.level != null && mc.level.dimensionType().hasCeiling();
     }
@@ -510,8 +518,9 @@ public class MapScreen extends Screen {
         Vec3 me = p.getPosition(partialTick);
         int[] op = map.at(me);
         Optional<MapTarget.Place> site = launchSite();
-        // путь к цели — от места пуска, без него — от игрока
-        int[] start = site.map(t -> map.at(t.x(), t.z())).orElse(op);
+        int[] siteAt = site.map(t -> map.at(t.x(), t.z())).orElse(op);
+        // путь к цели — от места пуска, если удар уйдёт с него, иначе — от игрока
+        int[] start = launchFrom().isPresent() ? siteAt : op;
         Loadout l = remote.loadout();
         Optional<String> aimedPlayer = selectedPlayer();
 
@@ -584,16 +593,17 @@ public class MapScreen extends Screen {
         if (aimedPlayer.isEmpty() && aim != null) crosshair(g, aim[0], aim[1]);
 
         // место пуска: значок с подписью (под курсором — рамка: тянуть — сдвиг, ПКМ — убрать), за краем — стрелкой; пока
-        // его выбирают — под курсором
+        // его выбирают — под курсором; удар его не берёт (привязанные пусковые, МБР) — бледный
         if (site.isPresent()) {
             Component name = Component.translatable("incoming.map.launch.label");
-            int[] edge = edge(start[0], start[1], bottom);
+            int color = launchFrom().isPresent() ? LAUNCH : (LAUNCH & 0x00FFFFFF) | 0x80000000;
+            int[] edge = edge(siteAt[0], siteAt[1], bottom);
             if (edge == null) {
-                launchMark(g, start[0], start[1], LAUNCH);
-                label(g, name, start[0], start[1] + 10, LAUNCH);
-                if (grabbedLaunch || onMap(mouseX, mouseY) && grabbed < 0 && launchAt(mouseX, mouseY)) HudDraw.ring(g, start[0] + 0.5f, start[1] + 0.5f, 10, 1, OPERATOR);
+                launchMark(g, siteAt[0], siteAt[1], color);
+                label(g, name, siteAt[0], siteAt[1] + 10, color);
+                if (grabbedLaunch || onMap(mouseX, mouseY) && grabbed < 0 && launchAt(mouseX, mouseY)) HudDraw.ring(g, siteAt[0] + 0.5f, siteAt[1] + 0.5f, 10, 1, OPERATOR);
             } else {
-                edgeMark(g, edge, start, bottom, name, LAUNCH);
+                edgeMark(g, edge, siteAt, bottom, name, color);
             }
         }
         if (pickingLaunch && onMap(mouseX, mouseY)) launchMark(g, mouseX, mouseY, (LAUNCH & 0x00FFFFFF) | 0x90000000);
@@ -802,21 +812,39 @@ public class MapScreen extends Screen {
         } else if (site.isEmpty()) {
             line = Component.translatable("incoming.map.launch.hint");
         } else {
-            WeaponSpec.Launch launch = remote.loadout().weapon().spec().launch();
             Component at = Component.translatable("incoming.map.launch.at", Mth.floor(site.get().x()), Mth.floor(site.get().z()));
+            Component full = launchEffect(at);
             Optional<Vec3> aim = aimPoint();
             if (aim.isPresent()) {
                 double dx = aim.get().x - site.get().x(), dz = aim.get().z - site.get().z();
-                at = Component.translatable("incoming.map.launch.at_target", at, distance(Math.sqrt(dx * dx + dz * dz)));
+                full = launchEffect(Component.translatable("incoming.map.launch.at_target", at, distance(Math.sqrt(dx * dx + dz * dz))));
             }
-            line = switch (launch) {
-                case ICBM -> Component.translatable("incoming.map.launch.unused", at, remote.loadout().weapon().displayName());
-                case BOMBER -> Component.translatable("incoming.map.launch.approach", at, remote.loadout().weapon().displayName());
-                case GUIDED, ROCKET, LOITER -> Component.translatable("incoming.map.launch.set", at);
-            };
+            // узкий экран (крупный масштаб интерфейса): сперва без расстояния до цели, потом одно место
+            line = fit(full, launchEffect(at), at);
         }
-        int color = site.isPresent() && remote.linked() == 0 || pickingLaunch ? LAUNCH : DIM;
+        int color = launchFrom().isPresent() || pickingLaunch ? LAUNCH : DIM;
         g.drawCenteredString(font, line, width / 2, height - panel() + 29, color);
+    }
+
+    /**
+     * Что оружие сделает с местом пуска {@code at} — по способу пуска из паспорта ({@link WeaponSpec.Launch}): пусковая
+     * встанет на нём, B-2 зайдёт с его стороны, МБР его не берёт.
+     */
+    private Component launchEffect(Component at) {
+        Component weapon = remote.loadout().weapon().displayName();
+        return switch (remote.loadout().weapon().spec().launch()) {
+            case ICBM -> Component.translatable("incoming.map.launch.unused", at, weapon);
+            case BOMBER -> Component.translatable("incoming.map.launch.approach", at, weapon);
+            case GUIDED, ROCKET, LOITER -> Component.translatable("incoming.map.launch.set", at);
+        };
+    }
+
+    /** Первая строка, что помещается в ширину экрана с полями, иначе последняя. */
+    private Component fit(Component... lines) {
+        for (Component line : lines) {
+            if (font.width(line) <= width - 16) return line;
+        }
+        return lines[lines.length - 1];
     }
 
     /** «X 1200  Z −340 · 2.40 км · азимут 135°» — дальность и азимут от игрока. */

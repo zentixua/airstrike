@@ -197,7 +197,7 @@ public class RemoteScreen extends Screen {
         // маршрут и место пуска с карты — у цели «На карте», как у огня с самой карты
         boolean map = loadout.mode() == TargetMode.MAP;
         addRenderableWidget(Button.builder(fireLabel.copy().withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
-                b -> fire(map ? MapTarget.waypoints(minecraft.level) : Waypoints.NONE, map ? MapTarget.launchPoint(minecraft.level) : Optional.empty()))
+                b -> fire(map ? MapTarget.waypoints(minecraft.level) : Waypoints.NONE, map ? launchFrom() : Optional.empty()))
                 .bounds(x0 + 4, by, 128, 22).build());
         addRenderableWidget(Button.builder(Component.translatable("incoming.remote.clear"), b -> {
             PacketDistributor.sendToServer(new C2S.Clear());
@@ -211,6 +211,17 @@ public class RemoteScreen extends Screen {
     int linked() {
         LocalPlayer p = Minecraft.getInstance().player;
         return hand != null && p != null ? LauncherLinks.of(p.getItemInHand(hand)).size() : 0;
+    }
+
+    /**
+     * Место пуска с карты, с которого уйдёт удар этого пульта: выбранное оператором или хостом
+     * ({@link MapScreen#mayPickLaunchSite}), если пульт не ставит задачу привязанным пусковым (они пускают со своего
+     * места) и оружие с него стартует или заходит (МБР — со своей площадки: старое место вдали её пуск не остановит).
+     * Пусто — пуск у игрока; от того же места карта рисует путь и считает его длину.
+     */
+    Optional<Vec3> launchFrom() {
+        if (linked() > 0 || !MapScreen.mayPickLaunchSite() || loadout.weapon().spec().launch() == WeaponSpec.Launch.ICBM) return Optional.empty();
+        return MapTarget.launchPoint(Minecraft.getInstance().level);
     }
 
     /** Чужие игроки, которых видит или недавно видела своя сторона ({@link MapPlayers#targets}): по другим пульт не бьёт. */
@@ -345,16 +356,14 @@ public class RemoteScreen extends Screen {
 
     /**
      * Огонь по цели пульта; с карты наведения — по выбранному там месту или игроку ({@link #aimAtPlace},
-     * {@link #aimAtPlayer}), по точкам маршрута {@code via}, если оружие по ним летает, и с места пуска {@code from}, если
-     * его выбрали (только оператор или хост: {@link MapScreen#mayPickLaunchSite}; у пульта с привязанными пусковыми места
-     * пуска нет — они пускают со своего). Карта открывается и клавишей, без показа пульта, поэтому здесь —
+     * {@link #aimAtPlayer}), по точкам маршрута {@code via}, если оружие по ним летает, и с места пуска {@code from}
+     * ({@link #launchFrom}). Карта открывается и клавишей, без показа пульта, поэтому здесь —
      * {@code Minecraft.getInstance()}, а не поле экрана.
      */
     void fire(Waypoints via, Optional<Vec3> from) {
         if (loadout.mode() == TargetMode.AIRCRAFT && aircraft == null) return;
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
         if (!loadout.weapon().spec().route().waypoints()) via = Waypoints.NONE;
-        if (linked() > 0 || !MapScreen.mayPickLaunchSite()) from = Optional.empty();
         Optional<C2S.AimHint> aim;
         if (loadout.mode() == TargetMode.MAP) {
             Optional<MapTarget.Place> place = MapTarget.get(Minecraft.getInstance().level);
@@ -418,8 +427,7 @@ public class RemoteScreen extends Screen {
                                 : Component.translatable("incoming.remote.hint.map", Mth.floor(p.x()), Mth.floor(p.z())))
                         .orElse(Component.translatable("incoming.remote.hint.no_map"));
                 // место пуска с карты (его пуск и возьмёт)
-                Optional<MapTarget.Place> from = linked() > 0 || !MapScreen.mayPickLaunchSite() ? Optional.empty() : MapTarget.launch(minecraft.level);
-                yield from.<Component>map(f -> place.copy().append(Component.translatable("incoming.remote.hint.launch", Mth.floor(f.x()), Mth.floor(f.z()))))
+                yield launchFrom().<Component>map(f -> place.copy().append(Component.translatable("incoming.remote.hint.launch", Mth.floor(f.x), Mth.floor(f.z))))
                         .orElse(place);
             }
         };
