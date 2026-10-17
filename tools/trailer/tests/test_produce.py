@@ -601,6 +601,21 @@ class ProduceTest(unittest.TestCase):
         self.assertIn("nw-C-a0", c.state["released"], "прежний снимок — в очередь удаления")
         self.assertTrue(os.path.exists(os.path.join(self.cfg["work"], "retake.txt.done")))
 
+    def test_retake_keeps_the_old_recording_aside(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        rec = c.state["takes"]["C"]["attempts"][-1]["rec"]
+        with open(os.path.join(rec, "mark"), "w") as f:
+            f.write("вывод в монтаже")
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c.run(["C"]))
+        new = c.state["takes"]["C"]["attempts"][-1]["rec"]
+        self.assertFalse(os.path.exists(os.path.join(new, "mark")), "новая запись — в чистой папке")
+        aside = [d for d in os.listdir(os.path.dirname(rec)) if d.startswith(os.path.basename(rec) + "-")]
+        self.assertEqual(1, len(aside), "прежняя запись — рядом под своим именем")
+        self.assertTrue(os.path.exists(os.path.join(os.path.dirname(rec), aside[0], "mark")))
+
     def test_retake_copy_never_takes_the_name_of_a_protected_world(self):
         c, m = self.conveyor()
         self.assertEqual(0, c.run(["A", "B", "C", "D"]))

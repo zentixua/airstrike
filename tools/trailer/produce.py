@@ -439,6 +439,17 @@ class Conveyor:
         self.m.copy_tree(src, dst)
         return name
 
+    def set_aside(self, path):
+        """Папку — рядом под именем с днём и временем (a0 → a0-1710-0851): вывод из неё остаётся по своему пути."""
+        stamp = time.strftime("%d%m-%H%M", time.localtime(self.m.now()))
+        dst, k = f"{path}-{stamp}", 1
+        while os.path.exists(dst):
+            k += 1
+            dst = f"{path}-{stamp}-{k}"
+        os.rename(self.guard.check(path, "перенос"), self.guard.check(dst, "перенос в"))
+        self.say(f"прежняя запись {os.path.basename(path)} — в {os.path.basename(dst)}")
+        return dst
+
     def remove(self, path):
         self.guard.check(path, "удаление")
         if os.path.exists(path):
@@ -884,6 +895,11 @@ class Conveyor:
             # прежний запасной снимок дубля — в очередь удаления: kept пересъёмки — мир её записанной попытки
             if st.get("kept") and st["kept"] not in (st.get("snapshot"), src):
                 self.release(st["kept"])
+            # прежние записи — в сторону, а не под удаление первой попыткой пересъёмки: их выводы стоят в монтаже, пока
+            # новая запись не прошла (17.10: пересъёмка T05 стёрла запись n07 из черновика)
+            for a in st.get("attempts", []):
+                if a.get("rec") and os.path.isdir(a["rec"]):
+                    self.set_aside(a["rec"])
             self.state["takes"][take] = {"attempts": [], "retake_input": src, "retake_of": st.get("snapshot")}
             self.say(f"{take}: пересъёмка со своего входа ({src or 'мастер'})")
         os.replace(path, path + ".done")
