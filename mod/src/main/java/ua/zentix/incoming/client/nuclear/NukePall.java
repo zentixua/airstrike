@@ -123,7 +123,7 @@ public final class NukePall {
         }
         sigma = (float) s;
         mist = (float) wet;
-        if (headAt != null && !drawsHead()) NukeDust.veil(headAt, cam, headMax, headWet > 0.5);
+        if (headAt != null && !drawsHead(headAt, cam)) NukeDust.veil(headAt, cam, headMax, headWet > 0.5);
         if (muffles()) {
             // глухость меняется плавно: пелена накрывает за секунды
             float target = (float) (1 - Math.exp(-MUFFLE_PER_SIGMA * s));
@@ -165,7 +165,8 @@ public final class NukePall {
     }
 
     /**
-     * Пелена и грибы кадра для слоя эффектов: пелена — до двух подрывов, ближайших к камере по краю их пелены, из тех, у
+     * Пелена и грибы кадра для слоя эффектов: пелена — до двух подрывов, ближайших к камере по краю их пелены или головы
+     * стены ({@link #outside}), из тех, у
      * кого в таблице хоть что-то есть (до фронта и после — пусто) и чья рамка в кадре ({@code frustum} — пирамида
      * видимости от глаза, без дальней плоскости); грибы — {@link MushroomField#frame}. Пелена выключена в настройке —
      * только грибы, на ступени LOW (другого гриба нет). null — ни пелены, ни гриба в кадре: тогда слой не тратит на них ни
@@ -228,9 +229,12 @@ public final class NukePall {
         return a.pall.visible(a.ticks(partial)) || a.wall.reach(t) > 0 || a.wall.wilsonReach(t) > 0;
     }
 
-    /** Насколько камера вне пелены подрыва (по земле), блоки; 0 — внутри. */
+    /**
+     * Насколько камера вне пелены подрыва и головы его стены (по земле), блоки; 0 — внутри. По одной пелене голова,
+     * которая дошла до камеры дальше пелены, уступала бы слот подрывам, в чьей пелене камера, и у глаза не рисовалась.
+     */
     private static double outside(ClientNuclear.Active a, Vec3 eye, float partial) {
-        double r = a.pall.extent(a.ticks(partial));
+        double r = Math.max(a.pall.extent(a.ticks(partial)), a.wall.reach(a.seconds(partial)));
         return Math.max(0, Math.hypot(eye.x - a.d.burst().x, eye.z - a.d.burst().z) - r);
     }
 
@@ -370,11 +374,26 @@ public final class NukePall {
     }
 
     /**
-     * Пелена рисует голову стены и пыль у глаза объёмом: качество не OFF, её шейдеры собрались и шум не сломался. Нет —
-     * голову у глаза показывают пелена на экране и клубы у камеры ({@link NukeDust}).
+     * Пелена рисует голову стены подрыва {@code a} и пыль у глаза {@code eye} объёмом: качество не OFF, её шейдеры собрались
+     * и шум не сломался, и подрыв среди двух, что пелена берёт в кадр ({@link #frame}: ближайшие по краю пелены или головы,
+     * при равенстве — раньше в списке; без пирамиды видимости — клубы живут дольше взгляда). Нет — голову у глаза
+     * показывают пелена на экране и клубы у камеры ({@link NukeDust}).
      */
-    static boolean drawsHead() {
-        return quality() != PallPass.Quality.OFF && PallPass.available();
+    static boolean drawsHead(ClientNuclear.Active a, Vec3 eye) {
+        if (quality() == PallPass.Quality.OFF || !PallPass.available()) return false;
+        double mine = outside(a, eye, 0);
+        int before = 0;
+        boolean earlier = true;
+        for (ClientNuclear.Active o : ClientNuclear.detonations()) {
+            if (o == a) {
+                earlier = false;
+                continue;
+            }
+            if (!visible(o, 0)) continue;
+            double theirs = outside(o, eye, 0);
+            if (theirs < mine || theirs == mine && earlier) before++;
+        }
+        return before < 2;
     }
 
     /**

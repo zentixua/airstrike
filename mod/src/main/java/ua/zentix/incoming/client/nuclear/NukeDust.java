@@ -17,7 +17,9 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.BlastModel;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Стена пыли ударной волны вблизи. Пока голова стены ближе {@link #NEAR} к камере — по её дуге у камеры летят клочья
@@ -135,7 +137,7 @@ public final class NukeDust {
         NukePall.Sky sky = new NukePall.Sky();
         NukePall.sky(level, eye, 0, sky);
         float[] from = new float[3], to = new float[3];
-        boolean puffs = !NukePall.drawsHead();
+        boolean puffs = !NukePall.drawsHead(a, eye);
         for (int i = 0; i < n; i++) {
             double ang = toward + (RANDOM.nextDouble() * 2 - 1) * half;
             double cos = Math.cos(ang), sin = Math.sin(ang);
@@ -187,7 +189,7 @@ public final class NukeDust {
     /**
      * Блоки, которые снесла волна (сервер — тем, кто видит чанк): каждый — один-два куска от эпицентра со скоростью,
      * с которой волна бросает обломки ({@link Detonation#throwSpeed}), и пыль из пролома, когда до места дошёл фронт (только
-     * запасная, {@link NukePall#drawsHead}).
+     * запасная, {@link NukePall#drawsHead}, — решается тогда же).
      */
     static void debris(ClientNuclear.Active a, List<S2C.NukeDebris.Piece> pieces) {
         ClientLevel level = Minecraft.getInstance().level;
@@ -219,8 +221,7 @@ public final class NukeDust {
                         c.z + (RANDOM.nextDouble() - 0.5) * 0.6, ax * u, u * (0.15 + 0.35 * RANDOM.nextDouble()) + 0.1, az * u,
                         0.25f + 0.35f * RANDOM.nextFloat(), delay);
             }
-            // пыль из пролома — запасная: пелена рисует её в голове стены
-            if (!NukePall.drawsHead()) BREACHES.add(new Breach(a, c, ax, az, v, delay));
+            BREACHES.add(new Breach(a, c, ax, az, v, delay));
         }
     }
 
@@ -257,7 +258,7 @@ public final class NukeDust {
         boolean ceiling = level.dimensionType().hasCeiling();
         // над водой — брызги и водяная пыль, сорванного с земли нет
         boolean wet = !ceiling && NukeWater.waterAround(level, ear.x, ear.z);
-        boolean puffs = !NukePall.drawsHead();
+        boolean puffs = !NukePall.drawsHead(a, ear);
         if (!puffs && (ceiling || wet)) return;
         float[] dust0 = new float[3], dust1 = new float[3], smoke0 = new float[3], smoke1 = new float[3];
         if (puffs) {
@@ -319,11 +320,16 @@ public final class NukeDust {
 
     static void tick() {
         ClientLevel level = Minecraft.getInstance().level;
-        BREACHES.removeIf(b -> {
-            if (b.wait-- > 0) return false;
-            if (level != null) breach(level, b);
-            return true;
-        });
+        if (!BREACHES.isEmpty()) {
+            // пыль из пролома — запасная: пелена рисует её в голове стены (решается в тик пыли — настройку могли сменить)
+            Vec3 eye = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+            Map<ClientNuclear.Active, Boolean> heads = new IdentityHashMap<>();
+            BREACHES.removeIf(b -> {
+                if (b.wait-- > 0) return false;
+                if (level != null && !heads.computeIfAbsent(b.a, x -> NukePall.drawsHead(x, eye))) breach(level, b);
+                return true;
+            });
+        }
         // голова у глаза держит пелену, ушла — пелена гаснет (гасить её и тогда, когда голова её держит, — мигание через тик)
         veilTarget = Math.max(veilTarget * VEIL_DECAY, veilWanted);
         veilWanted = 0;
