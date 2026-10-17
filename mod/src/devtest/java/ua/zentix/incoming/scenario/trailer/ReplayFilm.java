@@ -108,6 +108,8 @@ public final class ReplayFilm {
      * момента (17.10: сверка пелены n36 — темнеет ли кадр с начала вывода или копится по истории кадров). null — всё окно.
      */
     private final int @Nullable [] onlyTicks;
+    /** Скины людей по имени (INCOMING_FILM_SKINS — skins.json из tools/trailer/gen_skins.py: имя → PNG); пусто — свои. */
+    private final java.util.Map<String, Path> skins;
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
     /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
@@ -223,6 +225,7 @@ public final class ReplayFilm {
             onlyTicks = new int[]{Integer.parseInt(r[0]), Integer.parseInt(r[1])};
         }
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
+        skins = readSkins(System.getenv("INCOMING_FILM_SKINS"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
         // снятые в прошлый запуск (render/best.txt) не переснимаются, если их не назвали: запуск после падения идёт дальше;
@@ -805,6 +808,19 @@ public final class ReplayFilm {
         if (!Double.isNaN(snapFov)) e.setFOV(snapFov);
     }
 
+    /** Таблица скинов: JSON {имя: путь PNG}; нет файла или переменной — пусто. */
+    static java.util.Map<String, Path> readSkins(@Nullable String file) {
+        java.util.Map<String, Path> out = new java.util.HashMap<>();
+        if (file == null || file.isBlank()) return out;
+        try {
+            JsonObject o = com.google.gson.JsonParser.parseString(Files.readString(Path.of(file))).getAsJsonObject();
+            for (var e : o.entrySet()) out.put(e.getKey(), Path.of(e.getValue().getAsString()));
+        } catch (IOException | RuntimeException e) {
+            Incoming.LOG.warn("SCENARIO film skins: {} не прочитан: {}", file, e.toString());
+        }
+        return out;
+    }
+
     private int outWidth() {
         return probing ? probeWidth : width;
     }
@@ -864,6 +880,11 @@ public final class ReplayFilm {
             // кадры пробы не нужны никому: они рядом и уходят после проверки
             Path to = probing ? (mov ? candDir.resolve("probe.mov") : Files.createDirectories(candDir.resolve("probe")))
                     : mov ? candDir.resolve("frames.mov") : frames;
+            // скин у каждого человека повтора (подмена Flashback по UUID, запись не меняется)
+            if (!skins.isEmpty() && mc.getConnection() != null) {
+                int n = FlashbackApi.skins(skins, mc.getConnection().getOnlinePlayers().stream().map(i -> i.getProfile()).toList());
+                if (n > 0) Incoming.LOG.info("SCENARIO film skins {}: {}", spec.shot(), n);
+            }
             FlashbackApi.queue(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()},
                     outWidth(), outHeight(), a, b, FPS, to, mov);
             go(State.EXPORTING);

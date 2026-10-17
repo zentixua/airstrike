@@ -1128,12 +1128,29 @@ final class Newisle {
                 // до конца записи плана, а не seconds от ready: после ready запись ещё ждёт момент (T02 — 364 тика), и
                 // слежение на seconds×20 + 100 тиков кончалось до окна n52 (журнал взглядов 17.10: в окне n43 люди
                 // смотрели мимо ракет на 90–175°)
-                for (Crowd.Person p : group(a).people()) {
-                    int delay = (int) Math.round((d.get(0).getAsDouble() + random.nextDouble() * (d.get(1).getAsDouble() - d.get(0).getAsDouble())) * 20);
-                    war.later(delay, () -> film.withServer(s -> {
-                        if (run == null) war.trackLook(p.name, type, 400);
-                        else war.trackLook(p.name, type, () -> run.over);
-                    }));
+                // реакция — от мига, когда человек заметил ракету, а не от реплики: ракеты появляются позже, и раньше все
+                // поворачивались в один тик (Артём 17.10). Каждый по-своему: кто на другую ракету, кто сперва на соседа,
+                // один отступает на шаг, один машет рукой к ракете
+                Crowd crowd = group(a);
+                List<Crowd.Person> people = crowd.people();
+                for (int i = 0; i < people.size(); i++) {
+                    Crowd.Person p = people.get(i);
+                    int react = (int) Math.round((d.get(0).getAsDouble() + random.nextDouble() * (d.get(1).getAsDouble() - d.get(0).getAsDouble())) * 20);
+                    String glance = null;
+                    if (i % 5 == 1) {
+                        glance = people.stream().filter(o -> o != p).min(java.util.Comparator.comparingDouble(o -> o.home.distanceToSqr(p.home)))
+                                .map(o -> o.name).orElse(null);
+                    }
+                    War.Follow f = new War.Follow(react, random.nextInt(5), i % 7 == 3 ? 1 : 0, glance, 12 + random.nextInt(14),
+                            i == 2 || i == 8, i == 5);
+                    film.withServer(s -> war.follow(p.name, type, run == null ? new java.util.function.BooleanSupplier() {
+                        int left = 200;
+
+                        @Override
+                        public boolean getAsBoolean() {
+                            return --left < 0;
+                        }
+                    } : () -> run.over, f, () -> crowd.follow(p)));
                 }
             };
             case "crowd.remove" -> () -> film.withServer(s -> {

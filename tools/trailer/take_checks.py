@@ -79,7 +79,8 @@ ICBM_PITCH_TICKS, ICBM_LEAD_TICKS, ICBM_LAG_TICKS, ICBM_BURST = 60, 2, 12, 5.0
 ICBM_ROUND = 0.01                               # места в журнале округлены до 0,01 блока
 SIREN_EVENT, SIREN_BEFORE_S, SIREN_TOTAL_S, SIREN_MAX_S = "incoming:siren", 2.0, 6.0, 26.5
 FLOCK_MIN, FLOCK_SHARE = 6, 0.6
-GAZE_YAW, GAZE_PITCH, GAZE_SHARE, GAZE_RANGE, GAZE_STEP, EYE = 30.0, 15.0, 0.7, 300.0, 2, 1.62
+GAZE_YAW, GAZE_PITCH, GAZE_SHARE, GAZE_RANGE, GAZE_STEP, EYE = 30.0, 15.0, 0.6, 300.0, 2, 1.62
+GAZE_ONSET = 0.6     # с: разброс мигов, когда люди толпы впервые смотрят на ракету, — не меньше (не головы разом)
 TURN_MAX, AXIS_MAX = 120.0, 15.0
 WAVE_SPEED, SHAKE_RANGE, SHAKE_WINDOW, SHAKE_K, SHAKE_MAX = 17.15, 150.0, 12, 6.0, 3.5
 SHAKE_SHARE = 0.15                         # доля от размаха модели Operator, ниже которой толчка нет
@@ -420,9 +421,11 @@ def _gaze_rows(path):
 
 
 def crowd_gaze(rec, take):
-    """Толпа провожает ракеты (`crowd.follow` в ready плана): в окне каждого плана люди группы смотрят на ближнюю
-    ракету этого оружия (в 300 блоках, как War.trackLook) — курс в пределах 30°, тангаж в пределах 15° — не меньше
-    чем в 70 % взглядов (раз в 2 тика). Журнал до 17.10 без взглядов — не провал."""
+    """Толпа провожает ракеты (`crowd.follow` в ready плана): в окне каждого плана люди группы смотрят на одну из ракет
+    этого оружия в 300 блоках (War.follow: кто на ближнюю, кто на другую) — курс в пределах 30°, тангаж в пределах
+    15° — не меньше чем в 60 % взглядов (раз в 2 тика; остальное — реакция и взгляд на соседа). И поворачивают головы
+    не разом: первый взгляд на ракету у людей группы разбросан хотя бы на GAZE_ONSET (Артём 17.10: «все головы
+    одновременно — искусственно»). Журнал до 17.10 без взглядов — не провал."""
     out = []
     for s in take.get("shots", []):
         follow = [a for a in s.get("ready", []) if a.get("do") == "crowd.follow"]
@@ -436,6 +439,20 @@ def crowd_gaze(rec, take):
         for a in follow:
             member, weapon = _crowd_names(take, a.get("group")), a.get("weapon", "")
             paths = [p for w, p in flights.values() if w == weapon]
+
+            def looks(t, eye, yaw, pitch):
+                """None — ракеты в 300 блоках нет; иначе смотрит ли на одну из них."""
+                near = [p[t] for p in paths if t in p and math.dist(p[t], eye) <= GAZE_RANGE]
+                if not near:
+                    return None
+                for q in near:
+                    d = [q[i] - eye[i] for i in range(3)]
+                    want_yaw = math.degrees(math.atan2(-d[0], d[2]))
+                    want_pitch = -math.degrees(math.atan2(d[1], math.hypot(d[0], d[2])))
+                    if abs(_wrap(yaw - want_yaw)) <= GAZE_YAW and abs(pitch - want_pitch) <= GAZE_PITCH:
+                        return True
+                return False
+
             for k, (t0, plan) in enumerate(order):
                 t1 = order[k + 1][0] if k + 1 < len(order) else end
                 good = total = 0
@@ -443,18 +460,22 @@ def crowd_gaze(rec, take):
                     for name, eye, yaw, pitch in gaze.get(t, ()):
                         if not member(name):
                             continue
-                        near = min((p[t] for p in paths if t in p), key=lambda q: math.dist(q, eye), default=None)
-                        if near is None or math.dist(near, eye) > GAZE_RANGE:
+                        v = looks(t, eye, yaw, pitch)
+                        if v is None:
                             continue
-                        d = [near[i] - eye[i] for i in range(3)]
-                        want_yaw = math.degrees(math.atan2(-d[0], d[2]))
-                        want_pitch = -math.degrees(math.atan2(d[1], math.hypot(d[0], d[2])))
                         total += 1
-                        if abs(_wrap(yaw - want_yaw)) <= GAZE_YAW and abs(pitch - want_pitch) <= GAZE_PITCH:
-                            good += 1
+                        good += v
                 if total and good < GAZE_SHARE * total:
                     out.append(f"{plan}: толпа {a.get('group')} смотрит на ракету в {100 * good / total:.0f}% взглядов "
                                f"(курс ±{GAZE_YAW:.0f}°, тангаж ±{GAZE_PITCH:.0f}°; нужно {GAZE_SHARE:.0%})")
+            first = {}
+            for t in sorted(gaze):
+                for name, eye, yaw, pitch in gaze[t]:
+                    if member(name) and name not in first and looks(t, eye, yaw, pitch):
+                        first[name] = t
+            if len(first) >= 3 and (max(first.values()) - min(first.values())) / 20 < GAZE_ONSET:
+                out.append(f"{order[0][1] if order else '?'}: толпа {a.get('group')} повернула головы к ракете разом — "
+                           f"разброс {(max(first.values()) - min(first.values())) / 20:.2f} с, нужно {GAZE_ONSET:.1f}")
     return out
 
 

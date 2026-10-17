@@ -5,7 +5,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Flashback для съёмки: запись повтора плана, повтор, вывод видео по ключевым кадрам. Flashback — мод Fabric (через
@@ -214,6 +217,51 @@ final class FlashbackApi {
             c("exporting.ExportJobQueue").getField("drainingQueue").setBoolean(null, true);
         } catch (ReflectiveOperationException e) {
             throw fail("ExportSettings", e);
+        }
+    }
+
+    /**
+     * Скины людей повтора из файлов (Артём 17.10: «все — Стив и Алекс»): подмена скина Flashback по UUID
+     * ({@code EditorState.skinOverrideFromFile} текущего повтора — её читает сам Flashback при рисовании игрока), без
+     * пересъёмки. {@code byName} — имя → PNG 64×64; UUID — у ботов Almighty по имени ({@code Bots.uuid}), у игроков —
+     * из списка игроков повтора. Уже заданных не меняет. Сколько людей получили скин.
+     */
+    @SuppressWarnings("unchecked")
+    static int skins(Map<String, Path> byName, Iterable<com.mojang.authlib.GameProfile> players) {
+        if (byName.isEmpty()) return 0;
+        try {
+            Object state = c("state.EditorStateManager").getMethod("getCurrent").invoke(null);
+            if (state == null) return 0;
+            var field = state.getClass().getField("skinOverrideFromFile");
+            Map<UUID, Object> over = (Map<UUID, Object>) field.get(state);
+            if (over == null) {
+                over = new HashMap<>();
+                field.set(state, over);
+            }
+            Constructor<?> file = c("FilePlayerSkin").getConstructor(String.class);
+            Map<UUID, Path> ids = new HashMap<>();
+            Method bot = null;
+            try {
+                bot = Class.forName("ua.zentix.almighty.bot.Bots").getMethod("uuid", String.class);
+            } catch (ReflectiveOperationException e) {
+                // без Almighty в клиенте — только игроки из списка повтора
+            }
+            if (bot != null) {
+                for (var e : byName.entrySet()) ids.put((UUID) bot.invoke(null, e.getKey()), e.getValue());
+            }
+            for (var p : players) {
+                Path f = byName.get(p.getName());
+                if (f != null) ids.put(p.getId(), f);
+            }
+            int n = 0;
+            for (var e : ids.entrySet()) {
+                if (over.containsKey(e.getKey())) continue;
+                over.put(e.getKey(), file.newInstance(e.getValue().toString()));
+                n++;
+            }
+            return n;
+        } catch (ReflectiveOperationException e) {
+            throw fail("skinOverrideFromFile", e);
         }
     }
 

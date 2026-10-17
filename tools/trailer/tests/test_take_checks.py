@@ -235,6 +235,30 @@ class CrowdGazeTest(unittest.TestCase):
         out = T.crowd_gaze(self.rec(lambda t, eye, m: (self.at_missile(t, eye, m)[0], 0.0)), self.TAKE)
         self.assertEqual(2, len(out), out)
 
+    def test_heads_turning_together_fail(self):
+        # трое повернули головы в один тик (Артём 17.10: пролог, «все разом»), разброс реакций — проходит
+        def crowd(onsets):
+            rows = [{"t": 0, "mark": "plan:n52"}, {"t": 0, "new": 0, "id": "a", "weapon": "missile", "bomber": False},
+                    {"t": 80, "mark": "end"}]
+            for t in range(0, 80):
+                m = (-50 + 2 * t, 141.6, 100.0)
+                people = []
+                for k, on in enumerate(onsets):
+                    eye = (2.0 * k, 101.62, 0.0)
+                    yaw, pitch = self.at_missile(t, eye, m) if t >= on else (180.0, 0.0)
+                    people.append([f"Des{k}", 2.0 * k, 100.0, 0.0, yaw, pitch])
+                rows.append({"t": t, "f": [[0, m[0], m[1], m[2], 4, 1]]})
+                rows.append({"t": t, "p": people})
+            root = tempfile.mkdtemp()
+            write(os.path.join(root, "replays", "n52.events.jsonl"), rows)
+            return root
+        take = {"stage": [{"do": "crowd", "group": "desert", "prefix": "Des"}],
+                "shots": [{"plans": ["n52"], "ready": [{"do": "crowd.follow", "group": "desert", "weapon": "missile"}]}]}
+        out = T.crowd_gaze(crowd([4, 4, 4]), take)
+        self.assertEqual(1, len(out), out)
+        self.assertIn("разом", out[0])
+        self.assertEqual([], T.crowd_gaze(crowd([4, 12, 22]), take))
+
     def test_old_journal_without_gaze_and_other_people_are_not_checked(self):
         self.assertEqual([], T.crowd_gaze(self.rec(lambda t, eye, m: (180.0, 0.0), gaze=False), self.TAKE))
         take = {"stage": [{"do": "crowd", "group": "desert", "prefix": "Cit"}], "shots": self.TAKE["shots"]}

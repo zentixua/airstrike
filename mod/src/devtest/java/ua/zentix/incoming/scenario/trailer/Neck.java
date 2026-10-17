@@ -28,6 +28,8 @@ final class Neck {
 
     private static final class Head {
         final double freq, damp, glance;
+        /** Мелкое движение головы живого человека и когда он следит за целью, градусов. */
+        final double tremor;
         final int react;
         final double phase;
         boolean init;
@@ -43,11 +45,14 @@ final class Neck {
 
         Head(String name) {
             RandomSource r = RandomSource.create(name.hashCode() * 31L + 7);
-            freq = 2.2 + r.nextDouble() * 1.2;
-            damp = 0.55 + r.nextDouble() * 0.25;
-            react = 1 + r.nextInt(3);
+            // скорость поворота и перелёт у каждого свои (17.10: головы толпы шли одинаково): от неторопливого с
+            // заметным перелётом до быстрого и точного
+            freq = 1.5 + r.nextDouble() * 2.2;
+            damp = 0.42 + r.nextDouble() * 0.43;
+            react = 1 + r.nextInt(5);
             glance = 0.6 + r.nextDouble() * 0.8;
             phase = r.nextDouble() * Math.PI * 2;
+            tremor = 0.35 + r.nextDouble() * 0.7;
         }
     }
 
@@ -128,8 +133,9 @@ final class Neck {
             h.glanceAt = now + (away ? 15 + random.nextInt(35) : 40 + random.nextInt(90));
         }
         double sway = Math.min(1, h.quiet / 40.0);
-        double ty = h.aimYaw + h.gy + sway * 1.5 * Math.sin(now * 0.031 + h.phase);
-        double tp = h.aimPitch + h.gp + sway * 1.0 * Math.sin(now * 0.047 + h.phase * 1.7);
+        double live = h.tremor * (0.6 * Math.sin(now * 0.13 + h.phase * 2.3) + 0.4 * Math.sin(now * 0.29 + h.phase));
+        double ty = h.aimYaw + h.gy + sway * 1.5 * Math.sin(now * 0.031 + h.phase) + live;
+        double tp = h.aimPitch + h.gp + sway * 1.0 * Math.sin(now * 0.047 + h.phase * 1.7) + 0.6 * live;
         // пружина: ω — в радианах за тик, четыре шага на тик
         double w = 2 * Math.PI * h.freq / 20;
         for (int i = 0; i < 4; i++) {

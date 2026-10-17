@@ -1123,6 +1123,57 @@ final class War {
         step[0].run();
     }
 
+    /**
+     * Как человек провожает ракеты: замечает первую в 300 блоках и только через свою реакцию ({@code react}, тиков)
+     * поворачивает голову; смотрит на ближнюю или на соседнюю ({@code pick} — какую по дальности), чуть позади неё
+     * ({@code lag} тиков хода); {@code glance} — сперва на соседа ({@code glanceTicks}), «видел?»; {@code stepBack} —
+     * отступить на шаг назад, {@code point} — взмах рукой к ракете. Артём 17.10 (пролог, 0:05): все головы
+     * поворачивались разом и одинаково — искусственно.
+     */
+    record Follow(int react, int lag, int pick, @Nullable String glance, int glanceTicks, boolean stepBack, boolean point) {}
+
+    /** {@link Follow} до {@code over} (раз в 2 тика сервера); {@code noticed} — в тик, когда бот заметил ракету. */
+    void follow(String bot, Class<? extends Entity> type, BooleanSupplier over, Follow f, Runnable noticed) {
+        MinecraftServer server = server();
+        long[] seenAt = {-1}, busyUntil = {0};
+        boolean[] stepped = {false}, pointed = {false};
+        Runnable[] step = new Runnable[1];
+        step[0] = () -> {
+            var sp = cast().player(bot);
+            if (sp == null || over.getAsBoolean()) return;
+            long now = server.getTickCount();
+            List<Entity> near = new ArrayList<>(sp.serverLevel().getEntitiesOfClass(type, sp.getBoundingBox().inflate(300)));
+            near.sort(Comparator.comparingDouble(x -> x.distanceToSqr(sp)));
+            if (seenAt[0] < 0 && !near.isEmpty()) {
+                seenAt[0] = now;
+                noticed.run();
+            }
+            long own = seenAt[0] < 0 ? -1 : now - seenAt[0] - f.react();
+            if (own >= 0 && now >= busyUntil[0]) {
+                JsonArray a = Cast.steps();
+                var other = f.glance() != null && own < f.glanceTicks() ? cast().player(f.glance()) : null;
+                if (other != null) {
+                    a.add(Cast.lookAt(other.getEyePosition()));
+                } else if (!near.isEmpty()) {
+                    Entity m = near.get(Math.min(f.pick(), near.size() - 1));
+                    a.add(Cast.lookAt(m.position().subtract(m.getDeltaMovement().scale(f.lag()))));
+                }
+                if (f.stepBack() && !stepped[0] && other == null && !near.isEmpty()) {
+                    stepped[0] = true;
+                    a.add(Cast.hold("back", 7));
+                    busyUntil[0] = now + 8;
+                }
+                if (f.point() && !pointed[0] && own >= 12 && !near.isEmpty()) {
+                    pointed[0] = true;
+                    a.add(Cast.step("press", "attack"));
+                }
+                if (!a.isEmpty()) cast().act(bot, a, true);
+            }
+            server.tell(new TickTask(server.getTickCount() + 2, step[0]));
+        };
+        step[0].run();
+    }
+
     // ================================================================ I · рассвет и утро над Востоком
 
     private void dawn() {
