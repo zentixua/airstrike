@@ -48,7 +48,8 @@ public final class FlashChar {
         if (st.isAir() || !st.canOcclude()) return NONE;
         boolean chars = st.is(ModTags.NUKE_CHARS), soots = !chars && st.is(ModTags.NUKE_SOOTS);
         if (!chars && !soots) return NONE;
-        if (!Block.isShapeFullBlock(st.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO))) return NONE;
+        // из кэша состояния: материал читает и снятие меток на каждом оповещении соседей и отправке чанка
+        if (!st.isCollisionShapeFullBlock(EmptyBlockGetter.INSTANCE, BlockPos.ZERO)) return NONE;
         return chars ? CHARS : SOOTS;
     }
 

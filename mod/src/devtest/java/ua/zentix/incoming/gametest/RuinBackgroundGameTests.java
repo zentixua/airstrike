@@ -868,6 +868,7 @@ public final class RuinBackgroundGameTests {
                     RuinPlan server = RuinPlanner.planFresh(level, d, chunk, false);
                     h.assertTrue(disk.changedBlocks() > 0, "постройка не разрушена: сравнивать нечего");
                     String diff = disk.differs(server);
+                    if (diff == null) diff = flashDiffers(disk, server);
                     h.assertTrue(diff == null, "план с окном с диска не такой, как в потоке сервера:" + diff);
                     Incoming.LOG.info("Окно без соседей на диске: прочитано {}, нет на диске {}, план — {} мест", window[0], window[1], disk.changedBlocks());
                 })
