@@ -882,8 +882,13 @@ public final class ReplayFilm {
                     : mov ? candDir.resolve("frames.mov") : frames;
             // скин у каждого человека повтора (подмена Flashback по UUID, запись не меняется)
             if (!skins.isEmpty() && mc.getConnection() != null) {
-                int n = FlashbackApi.skins(skins, mc.getConnection().getOnlinePlayers().stream().map(i -> i.getProfile()).toList());
-                if (n > 0) Incoming.LOG.info("SCENARIO film skins {}: {}", spec.shot(), n);
+                try {
+                    int n = FlashbackApi.skins(skins, mc.getConnection().getOnlinePlayers().stream().map(i -> i.getProfile()).toList());
+                    if (n > 0) Incoming.LOG.info("SCENARIO film skins {}: {}", spec.shot(), n);
+                } catch (RuntimeException e) {
+                    // без скинов план выводится как раньше; строка — в отчёт пакета
+                    Incoming.LOG.error("SCENARIO film skins failed {}: {}", spec.shot(), e.toString());
+                }
             }
             FlashbackApi.queue(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()},
                     outWidth(), outHeight(), a, b, FPS, to, mov);
