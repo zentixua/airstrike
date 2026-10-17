@@ -368,12 +368,24 @@ public final class S2C {
     /**
      * Ядерный подрыв: всё остальное (вспышку, шар, гриб, волну, звук, дождь) клиент считает сам по модели. Кроме
      * настроек сервера: {@code blackout} — радиус, в котором удар гасит сеть ({@code Blackouts.nukeRadius}; 0 — не
-     * гасит), там лампы коротят дугой ЭМИ.
+     * гасит), там лампы коротят дугой ЭМИ. Повтор Flashback, записанный до {@code blackout}, хранит пакет без него —
+     * такой читается с 0 (в нём и не было ЭМИ), иначе ядерка в старом повторе не открывается вовсе.
      */
     public record NukeDetonation(Detonation detonation, float blackout) implements CustomPacketPayload {
         public static final Type<NukeDetonation> TYPE = new Type<>(Incoming.id("nuke_detonation"));
-        public static final StreamCodec<ByteBuf, NukeDetonation> CODEC = StreamCodec.composite(Detonation.STREAM_CODEC, NukeDetonation::detonation,
-                ByteBufCodecs.FLOAT, NukeDetonation::blackout, NukeDetonation::new);
+        public static final StreamCodec<ByteBuf, NukeDetonation> CODEC = new StreamCodec<>() {
+            @Override
+            public NukeDetonation decode(ByteBuf b) {
+                Detonation d = Detonation.STREAM_CODEC.decode(b);
+                return new NukeDetonation(d, b.readableBytes() >= Float.BYTES ? b.readFloat() : 0f);
+            }
+
+            @Override
+            public void encode(ByteBuf b, NukeDetonation p) {
+                Detonation.STREAM_CODEC.encode(b, p.detonation);
+                b.writeFloat(p.blackout);
+            }
+        };
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
