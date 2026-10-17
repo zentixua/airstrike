@@ -31,8 +31,10 @@ The blast wave rolls out over the land as a wall of dust and smoke and breaks bu
 fly with the dust. The ground shakes harder and harder as the wall comes closer. After a ground burst a short jolt
 comes through the ground first, seconds before the wave.
 
-Behind the wave a pall of dust rises over the town, up to about 200 m high at 15 kt and lower toward the edge. In the
-thick of it you see only some 40 m and sounds are muffled. The dust settles over a few minutes and drifts downwind.
+Behind the wave a pall of dust climbs over the town for a minute or two, up to about 200 m high at 15 kt and lower
+toward the edge. From a rooftop near the blast you first see the wave cross the town, then the dust swallows you. At
+night the fireball, the glowing cloud and the fires light it orange, as they light the wall of dust. In the thick of it
+you see only some 40 m and sounds are muffled. The dust settles over a few minutes and drifts downwind.
 Above the fires smoke stays until morning, lit orange from below at night, and ash and scraps of burnt paper fall
 around you.
 

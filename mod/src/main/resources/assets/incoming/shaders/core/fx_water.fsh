@@ -78,7 +78,10 @@ vec3 neighbour(ivec2 px, ivec2 axis, vec3 p, ivec2 size) {
 }
 
 vec4 ring(int i) {
-    return i == 0 ? Ring0 : (i == 1 ? Ring1 : (i == 2 ? Ring2 : Ring3));
+    if (i == 0) return Ring0;
+    if (i == 1) return Ring1;
+    if (i == 2) return Ring2;
+    return Ring3;
 }
 
 const float PI = 3.14159265;

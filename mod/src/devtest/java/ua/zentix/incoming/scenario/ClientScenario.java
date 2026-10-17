@@ -70,6 +70,9 @@ public final class ClientScenario {
     /** Сценарий {@code wall}: стена пыли проходит мимо камеры; сколько кадров её прохода уже снято. */
     private boolean wall;
     private int wallStage;
+    /** Сценарий pall-front: место камеры (в воздухе, в 400 блоках к западу от эпицентра). */
+    private boolean front;
+    private Vec3 frontAt = Vec3.ZERO;
     private int detTick = -1;
     /** Ядерный сценарий: точка в следе осадков и игровой тик, когда туда идти (−1 — не ждём). */
     private Vec3 falloutSpot = Vec3.ZERO;
@@ -174,6 +177,7 @@ public final class ClientScenario {
         else if ("nuke-water".equals(mode) || "nuke-lake".equals(mode)) planNukeWater("nuke-lake".equals(mode));
         else if ("pall".equals(mode)) planPall();
         else if ("wall".equals(mode)) planWall();
+        else if ("pall-front".equals(mode)) planPallFront();
         else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("replay".equals(mode)) {
@@ -247,6 +251,7 @@ public final class ClientScenario {
         if (water) waterEvents();
         if (pall) pallEvents();
         if (wall) wallEvents();
+        if (front) frontEvents();
         if (city != null) city.tick(tick);
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
@@ -660,6 +665,119 @@ public final class ClientScenario {
             });
         }
         wallStage++;
+    }
+
+    /** Эпицентр сценария pall-front (наземный подрыв: высоту берёт земля). */
+    private static final Vec3 FRONT_GZ = new Vec3(0.5, 320, -1499.5);
+
+    /**
+     * Пелена за фронтом ночью, как кадр повтора у хоста (камера в 400 м от наземных 15 кт, на 120 м над землёй, взгляд
+     * чуть вверх, FOV 50): за эпицентром — квартал башен (их сносит волна, руины стоят). Кадры — от прихода фронта
+     * к камере: 0, 2, 5, 10, 20 и 60 с (pall_front_*), в лог — пелена у камеры. Качество — {@code INCOMING_PALL}
+     * (по умолчанию MEDIUM). {@code INCOMING_EXPORT=2560x1440} — как вывод видео Flashback: с подрыва окно сообщает
+     * размер вывода ({@code Window.getWidth/getHeight}) и кадр игры — этого размера, больше окна (Flashback делает то же
+     * своим миксином окна и {@code Minecraft.resizeDisplay}).
+     */
+    private void planPallFront() {
+        front = true;
+        int[] towersX = {90, 150, 210, 270};
+        int[] towersZ = {-1560, -1440};
+        at(40, () -> {
+            String q = System.getenv().getOrDefault("INCOMING_PALL", "MEDIUM");
+            ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.valueOf(q));
+            Minecraft.getInstance().options.fov().set(50);
+            cmd("time set 18000");
+            cmd("weather clear");
+            cmd("forceload add 64 -1616 303 -1385");
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 200 %.1f -90 -3", FRONT_GZ.x - 400, FRONT_GZ.z));
+            hover = true;
+        });
+        // квартал башен за эпицентром: от y 40 (под любым рельефом) на 40–70 блоков над уровнем моря; дважды — вдруг чанк
+        // ещё не загрузился к первому разу
+        for (int when : new int[]{480, 560}) {
+            at(when, () -> {
+                int k = 0;
+                for (int x : towersX) {
+                    for (int z : towersZ) {
+                        int top = 63 + 40 + 10 * (k++ % 4);
+                        cmd(String.format(java.util.Locale.ROOT, "fill %d 40 %d %d %d %d minecraft:stone_bricks hollow", x, z, x + 13, top, z + 13));
+                    }
+                }
+            });
+        }
+        at(600, () -> {
+            Minecraft mc = Minecraft.getInstance();
+            int x = (int) Math.floor(FRONT_GZ.x - 400), z = (int) Math.floor(FRONT_GZ.z);
+            int ground = Math.max(mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z), 63);
+            frontAt = new Vec3(x + 0.5, ground + 120, z + 0.5);
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f -90 -3", frontAt.x, frontAt.y, frontAt.z));
+            Incoming.LOG.info("SCENARIO pall-front camera at {} ({} above ground {})", xyz(frontAt), 120, ground);
+        });
+        at(660, () -> {
+            Minecraft.getInstance().options.hideGui = true;
+            cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %.1f %.1f %.1f 15 ground", FRONT_GZ.x, FRONT_GZ.y, FRONT_GZ.z));
+            String export = System.getenv("INCOMING_EXPORT");
+            if (export != null && export.matches("\\d+x\\d+")) {
+                String[] wh = export.split("x");
+                exportSize(Integer.parseInt(wh[0]), Integer.parseInt(wh[1]));
+            }
+        });
+    }
+
+    /** Сценарий pall-front: кадры — от прихода фронта к камере (по модели подрыва у клиента). */
+    private void frontEvents() {
+        if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
+        detTick = tick;
+        var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        int arrive = (int) Math.ceil(d.arrivalTicks(cam.distanceTo(d.burst())));
+        Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}, ground {}, front at the camera in {} ticks", tick, xyz(d.burst()),
+                String.format(java.util.Locale.ROOT, "%.0f", d.groundY()), arrive);
+        for (int s : new int[]{0, 2, 5, 10, 20, 60}) {
+            int t = tick + arrive + 20 * s;
+            pallShot(t, "front_" + s + "s");
+            if (s > 0) offShot(t, "front_" + s + "s_off");
+        }
+        at(tick + arrive + 1240, () -> {
+            Incoming.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Тот же кадр без пелены (качество OFF на два-три кадра; на llvmpipe тики идут пачками между кадрами — снимок через
+     * 8 тиков): что пелена делает с кадром — свет стены пыли и мира за ней.
+     */
+    private void offShot(int t, String name) {
+        var quality = ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality;
+        var was = new Object() { ua.zentix.incoming.IncomingConfig.Client.DustQuality q; };
+        at(t + 2, () -> {
+            was.q = quality.get();
+            quality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.OFF);
+        });
+        shot(t + 10, "pall_" + name);
+        at(t + 11, () -> quality.set(was.q));
+    }
+
+    /**
+     * Кадр игры размера {@code w}×{@code h}, больше окна, — как у вывода видео Flashback: окно сообщает этот размер
+     * (поля размера кадра окна; у Flashback — миксин {@code Window.getWidth/getHeight}), и {@code resizeDisplay}
+     * ставит его кадру игры. Кадры сценария снимаются с кадра игры — этого размера.
+     */
+    private static void exportSize(int w, int h) {
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            for (String name : new String[]{"framebufferWidth", "framebufferHeight"}) {
+                java.lang.reflect.Field f = com.mojang.blaze3d.platform.Window.class.getDeclaredField(name);
+                f.setAccessible(true);
+                f.setInt(mc.getWindow(), name.endsWith("Width") ? w : h);
+            }
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
+        mc.resizeDisplay();
+        Incoming.LOG.info("SCENARIO export size: window reports {}x{}, game frame {}x{}", mc.getWindow().getWidth(), mc.getWindow().getHeight(),
+                mc.getMainRenderTarget().width, mc.getMainRenderTarget().height);
     }
 
     /** Ядерный сценарий: кадры входа боеголовки и после подрыва — от момента, когда клиент получил подрыв. */

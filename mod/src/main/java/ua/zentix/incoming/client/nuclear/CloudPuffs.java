@@ -530,11 +530,60 @@ public final class CloudPuffs {
         // низ — с землёй и обломками, темнее; верх светлее — освещён небом
         s.shade *= 0.75 + 0.35 * up;
         double fire = fireZone(rr);
-        double lit = (0.3 + 0.4 * up) * m.overhead * lightFalloff(rr, m.rf);
-        double burn = fire * (0.95 - 0.45 * up) * m.glow;
+        double lit = lit(rr, up, m.overhead, 6 * m.rf);
+        double burn = burn(rr, up, m.glow, fireGround);
         s.heat = Math.max(lit, burn);
         if (burn > lit) s.hot = FIRE;
         s.rgb = lerpRgb(lerpRgb(DUST_LOW, DUST, up), DUST_BURNT, fire);
+    }
+
+    /**
+     * Отсвет шара, потом раскалённой шапки сверху на пыли у земли 0..1 ({@code pallLit} в {@code pall.glsl} — то же):
+     * на {@code r} от эпицентра по земле и доле высоты пыли {@code up} (низ темнее), {@code overhead} — свет шара и шапки
+     * 0..1, {@code lightR} — шесть радиусов шара ({@link #lightFalloff}); r и lightR — в одних единицах.
+     */
+    static double lit(double r, double up, double overhead, double lightR) {
+        double x = r / Math.max(lightR, 1e-3);
+        return (0.3 + 0.4 * up) * overhead / (1 + x * x);
+    }
+
+    /**
+     * Отсвет пожаров под пылью 0..1 ({@code pallBurn} в {@code pall.glsl} — то же): в зоне поджига до {@code fireR}
+     * ({@link #fireZone}), снизу сильнее, с накалом гриба {@code glow}.
+     */
+    static double burn(double r, double up, double glow, double fireR) {
+        double e = Math.max(fireR, 1e-3);
+        return (1 - smooth(0.92 * e, 1.04 * e, r)) * (0.95 - 0.45 * up) * glow;
+    }
+
+    /** Сила отсвета на дыме ({@link #smoke} и свечение клуба поверх него) при свете неба {@code ambient}. */
+    public static double glowOnSmoke(float ambient) {
+        return GLOW_IN_SMOKE * (1 - 0.5 * ambient) + EMISSIVE;
+    }
+
+    /** Цвет пламени пожаров под стеной, r, g, b в 0..1 — в {@code into}. */
+    public static void fireRgb(float[] into) {
+        for (int i = 0; i < 3; i++) into[i] = ((FIRE >> (16 - 8 * i)) & 0xFF) / 255f;
+    }
+
+    /**
+     * Свет стены пыли для пелены за фронтом в момент t (секунды модели) — {@code fx_pall} светит им пыль так же, как
+     * стена свои клубы ({@link #lit}, {@link #burn}, {@link #wallColor}), и у фронта пелена продолжает её цвет. В
+     * {@code into}: свет шара и шапки сверху, накал гриба, шесть радиусов шара и край зоны пожаров (блоки), цвет накала
+     * (r, g, b в 0..1), высота шара или шапки над землёй под эпицентром (блоки). false — гриба уже нет (в {@code into}
+     * нули): нет и отсвета.
+     */
+    public boolean pallLight(double t, float[] into) {
+        java.util.Arrays.fill(into, 0, 8, 0f);
+        Moment m = moment(t);
+        if (m == null) return false;
+        into[0] = (float) m.overhead;
+        into[1] = (float) m.glow;
+        into[2] = (float) d.blocks(6 * m.rf);
+        into[3] = (float) d.blocks(fireGround);
+        for (int i = 0; i < 3; i++) into[4 + i] = ((m.glowRgb >> (16 - 8 * i)) & 0xFF) / 255f;
+        into[7] = (float) d.blocks(Math.max(m.yc, m.rf));
+        return true;
     }
 
     /**

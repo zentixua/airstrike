@@ -1,5 +1,7 @@
 #version 150
 
+#moj_import <incoming:pall.glsl>
+
 // Слой эффектов (client/fx/layer). Смешивание ONE, ONE_MINUS_SRC_ALPHA: цвет — свет, уже умноженный на
 // непрозрачность, альфа — сколько закрыто того, что за частицей (у искр и ореолов 0 — свет складывается).
 // Текстура листа — тоже с умноженной альфой. Бледное (альфа меньше 0,1) не отбрасывается, как у ванильных шейдеров:
@@ -61,13 +63,16 @@ void main() {
         // на кадре по доле ослабления. Средний свет годится только там, где пелены на кадре почти нет: иначе клуб за
         // густой пеленой выходил бы пятном другого цвета (вдали — светлыми точками на тёмной пелене)
         vec4 frame = texture(Sampler6, gl_FragCoord.xy / ScreenSize);
+        // негодный пиксель пелены (NaN, бесконечность) — пелены перед квадратом нет: NaN дал бы чёрный квадрат
+        if (!pallValid(frame)) frame = vec4(0.0, 0.0, 0.0, 1.0);
         float front = max(pallFront, frame.a);
         vec3 before = mix(PallAmbient.rgb, frame.rgb / max(1.0 - frame.a, 1e-3), smoothstep(0.02, 0.15, 1.0 - frame.a));
         color.rgb = color.rgb * front + color.a * before * (1.0 - front);
     }
     if (FxScene > 0.5 && softness > 0.0) {
         // клуб тает, входя в землю и стены, и пропадает за рельефом (и за LOD Distant Horizons)
-        float scene = texture(Sampler1, gl_FragCoord.xy / ScreenSize).r;
+        // негодное расстояние (NaN, за глазом) — мира за пикселем нет, как у неба
+        float scene = pallScene(texture(Sampler1, gl_FragCoord.xy / ScreenSize).r);
         color *= clamp((scene - viewDistance) / softness, 0.0, 1.0);
     }
     // у самой камеры квадрат не режет экран краем ближней плоскости

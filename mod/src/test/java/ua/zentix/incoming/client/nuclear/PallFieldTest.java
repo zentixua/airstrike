@@ -87,6 +87,34 @@ class PallFieldTest {
         }
     }
 
+    /**
+     * Верх пыли за фронтом растёт со скоростью, а не встаёт сразу: в 400 м от 15 кт сразу ~25 м (пыль, поднятая напором),
+     * через 5 с — ниже 50, через 20 с — до 100, к минуте — выше 120 (камера в 120 м над городом тонет в пыли), а выше
+     * своей высоты с клубами ({@link PallField#topMetres} × 1,35) — никогда; всё время растёт.
+     */
+    @Test
+    void dustTopClimbsBehindTheFront() {
+        PallField p = new PallField(GROUND, NOON);
+        double[] v = new double[4];
+        int i = (int) (400 / p.reach() * PallField.BINS);
+        double r = p.radius(i), arrival = GROUND.arrivalTicks(r), top = PallField.topMetres(r, 1);
+        double prev = 0;
+        for (double age = 0.05; age <= 600; age += 0.25) {
+            p.dust(i, arrival + 20 * age, v);
+            assertTrue(v[1] >= prev - 1e-9, age + " с: верх пыли опустился");
+            assertTrue(v[1] <= top * 1.35 + 1e-9, age + " с: выше своей высоты " + v[1]);
+            prev = v[1];
+        }
+        p.dust(i, arrival + 1, v);
+        assertEquals(PallField.RISE_FROM_M, v[1], 1);
+        p.dust(i, arrival + 20 * 5, v);
+        assertTrue(v[1] > 30 && v[1] < 50, "через 5 с верх на " + v[1] + " м");
+        p.dust(i, arrival + 20 * 20, v);
+        assertTrue(v[1] > 60 && v[1] < 100, "через 20 с верх на " + v[1] + " м");
+        p.dust(i, arrival + 20 * 60, v);
+        assertTrue(v[1] > 120, "через минуту верх на " + v[1] + " м");
+    }
+
     /** У центра в самой густой пыли видно на ~40 м; через 5 минут — в разы дальше, через полчаса пыли нет. */
     @Test
     void denseForMinutesThenSettles() {
