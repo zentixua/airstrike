@@ -26,6 +26,7 @@ import ua.zentix.incoming.client.far.FarRenderer;
 import ua.zentix.incoming.client.screen.RemoteScreen;
 import ua.zentix.incoming.client.sound.ClientSounds;
 import ua.zentix.incoming.entity.StrikeProjectile;
+import ua.zentix.incoming.strike.WeaponSpec;
 import ua.zentix.incoming.strike.WeaponType;
 
 import java.io.IOException;
@@ -2140,11 +2141,10 @@ public final class ClientScenario {
             if (aim == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
             double miss = Math.hypot(at.x - aim.x, at.z - aim.z);
             BlockPos hit = BlockPos.containing(at), target = BlockPos.containing(aim);
-            // неуправляемому (РСЗО) — его рассеивание из паспорта: три СКО по дальности от стреляющего (пакет у него)
             WeaponType weapon = WeaponType.parse(System.getProperty("incoming.mapWeapon", "missile"));
             var shooter = e.getLevel().players().isEmpty() ? null : e.getLevel().players().getFirst();
             double range = shooter == null ? 0 : Math.hypot(shooter.getX() - aim.x, shooter.getZ() - aim.z);
-            double allowed = MAP_MAX_MISS + 3 * (weapon == null ? 0 : weapon.spec().route().sigma(range));
+            double allowed = allowedMiss(weapon, range);
             Incoming.LOG.info("SCENARIO map-target impact {} miss {} (допуск {}) — {}; земля под взрывом {} (с листвой {}), у цели {} (с листвой {})", at,
                     Math.round(miss), Math.round(allowed), miss <= allowed ? "OK" : "FAIL",
                     e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, hit.getX(), hit.getZ()),
@@ -2261,10 +2261,10 @@ public final class ClientScenario {
             Vec3 at = e.getExplosion().center(), aim = mapTarget;
             ua.zentix.incoming.strike.Waypoints via = routeFired;
             if (aim == null || via == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
-            double miss = Math.hypot(at.x - aim.x, at.z - aim.z);
-            boolean ok = miss <= MAP_MAX_MISS && routePassed == via.size();
-            Incoming.LOG.info("SCENARIO route-map impact {} miss {}, точек пройдено {} из {} — {}", xyz(at), Math.round(miss), routePassed, via.size(),
-                    ok ? "OK" : "FAIL");
+            double miss = Math.hypot(at.x - aim.x, at.z - aim.z), allowed = allowedMiss(weapon, 0);
+            boolean ok = miss <= allowed && routePassed == via.size();
+            Incoming.LOG.info("SCENARIO route-map impact {} miss {} (допуск {}), точек пройдено {} из {} — {}", xyz(at), Math.round(miss), Math.round(allowed),
+                    routePassed, via.size(), ok ? "OK" : "FAIL");
             mapImpactTick = tick;
         });
     }
@@ -2555,8 +2555,19 @@ public final class ClientScenario {
 
     /** Сценарий target-map ждёт, пока DH загрузит свои LOD, не дольше этого (тиков), и попадания — не дольше второго. */
     private static final int MAP_DH_WAIT = 6000, MAP_FLIGHT_WAIT = 2100;
-    /** Одна ракета без разброса: взрыв не дальше этого от выбранной точки (по горизонтали), блоков; неуправляемому — ещё три СКО его рассеивания. */
+    /** Оружие без промаха в паспорте: взрыв не дальше этого от выбранной точки (по горизонтали), блоков; с промахом — {@link #allowedMiss}. */
     private static final double MAP_MAX_MISS = 2;
+
+    /**
+     * Допуск промаха по карте: {@link #MAP_MAX_MISS} и три СКО промаха из паспорта — рассеивания неуправляемого (РСЗО) на
+     * {@code range} блоков от стреляющего и промаха пуска (у шахеда σ 3 блока по каждой оси: попадание в 3–4 блоках от
+     * точки — его обычный разброс).
+     */
+    private static double allowedMiss(@org.jetbrains.annotations.Nullable WeaponType weapon, double range) {
+        if (weapon == null) return MAP_MAX_MISS;
+        WeaponSpec.Route route = weapon.spec().route();
+        return MAP_MAX_MISS + 3 * Math.hypot(route.sigma(range), route.error());
+    }
     /** Точка, выбранная на карте (сценарий target-map); её читает и поток сервера. */
     @org.jetbrains.annotations.Nullable
     private volatile Vec3 mapTarget;
