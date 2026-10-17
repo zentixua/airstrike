@@ -345,15 +345,42 @@ class PallFieldTest {
         double[] w = new double[2];
         p.drift(ticks, w);
         int i = 30;
-        double r = p.radius(i);
-        // по ветру от эпицентра, у земли: пыль узла i (мгла сюда тоже дотягивается)
+        double r = p.radius(i), k = p.share(i, ticks);
+        // по ветру от эпицентра, у земли: пыль узла i, снесённая на свою долю (мгла сюда тоже дотягивается)
         double ux = Math.cos(GROUND.windDir()), uz = Math.sin(GROUND.windDir());
+        assertTrue(k > 0.9 && k < 1, "пыль узла i — с прихода фронта: " + k);
+        w[0] *= k;
+        w[1] *= k;
         double s = p.sigma(w[0] + ux * r, w[1] + uz * r, 0, ticks, PallField.Water.DRY);
         assertTrue(s >= row[4 * i] * 0.98, "пыль у земли " + s + " < таблицы " + row[4 * i]);
         assertTrue(s <= row[4 * i] + row[4 * (PallField.BINS + 2)] * 1.01 + 1e-9);
         // выше пелены — ничего
         assertEquals(0, p.sigma(w[0] + ux * r, w[1] + uz * r, row[4 * i + 1] * 2 + 400, ticks, PallField.Water.DRY), 1e-12);
         assertTrue(w[0] > 0 && w[1] > 0, "ветер на 0,5 рад — снос по +x и +z");
+    }
+
+    /**
+     * Ветер несёт пыль с того мига, как её подняло: край пелены — на фронте в любую сторону от эпицентра (там же звук,
+     * тряска, отброс и обломки), а не сдвинут на весь путь ветра с подрыва — по ветру пыль вставала бы до прихода волны,
+     * против ветра — позже.
+     */
+    @Test
+    void dustEdgeStaysOnTheFrontInWind() {
+        PallField p = new PallField(GROUND, NOON);
+        int i = 110;
+        double hob = Math.max(0, GROUND.hobMetres());
+        double a0 = GROUND.arrivalTicks(GROUND.blocks(Math.hypot(GROUND.metres(p.radius(i)), hob)));
+        double a1 = GROUND.arrivalTicks(GROUND.blocks(Math.hypot(GROUND.metres(p.radius(i + 1)), hob)));
+        double ticks = 0.5 * (a0 + a1);
+        double[] w = new double[2];
+        p.drift(ticks, w);
+        assertTrue(Math.hypot(w[0], w[1]) > 2.5 * (p.radius(1) - p.radius(0)), "снос с подрыва — больше двух узлов: " + Math.hypot(w[0], w[1]));
+        double ux = Math.cos(GROUND.windDir()), uz = Math.sin(GROUND.windDir());
+        for (int side : new int[]{1, -1}) {
+            double behind = side * p.radius(i), ahead = side * p.radius(i + 2);
+            assertTrue(p.sigma(ux * behind, uz * behind, 0, ticks, PallField.Water.DRY) > 0, "за фронтом пыль, сторона " + side);
+            assertEquals(0, p.sigma(ux * ahead, uz * ahead, 0, ticks, PallField.Water.DRY), 1e-12, "перед фронтом пыли нет, сторона " + side);
+        }
     }
 
     /** Меньший удар — меньше пелена. */

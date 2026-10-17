@@ -18,6 +18,7 @@ import ua.zentix.incoming.client.far.FarRenderer;
 import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.fx.particle.FxPool;
 import ua.zentix.incoming.client.nuclear.NukePall;
+import ua.zentix.incoming.client.nuclear.NukeWater;
 import ua.zentix.incoming.client.render.DhDepth;
 import ua.zentix.incoming.client.render.FarDraw;
 
@@ -162,6 +163,7 @@ public final class FxLayer {
         FRUSTUM.set(FarDraw.viewProjection(e, view.camera(), VIEW_PROJECTION));
         QUADS.begin(view.left(), view.up());
         WaterDecal.begin(level, e.getCamera());
+        NukeWater.decals(view.partial());
         LIGHTS.begin();
         PROBES.begin();
         QUADS.nearestTexels(true);
@@ -231,6 +233,10 @@ public final class FxLayer {
             s.safeGetUniform("PallGround1").set(g1.x, g1.y, g1.z, g1.w);
             s.safeGetUniform("PallWater0").set(front.water0.x, front.water0.y, front.water0.z, front.water0.w);
             s.safeGetUniform("PallWater1").set(front.water1.x, front.water1.y, front.water1.z, front.water1.w);
+            s.safeGetUniform("PallWall0").set(front.wall0);
+            s.safeGetUniform("PallWall1").set(front.wall1);
+            s.safeGetUniform("PallWilson0").set(front.wilson0.x, front.wilson0.y, front.wilson0.z, front.wilson0.w);
+            s.safeGetUniform("PallWilson1").set(front.wilson1.x, front.wilson1.y, front.wilson1.z, front.wilson1.w);
             RenderSystem.enableBlend();
             RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                     GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);

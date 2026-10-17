@@ -58,29 +58,23 @@ class NukeWaterTest {
         }
     }
 
-    /** Самый дальний передний край клубов гриба и стены в кадре, блоков от эпицентра по горизонтали. */
-    private static double farthestEdge(CloudPuffs puffs, double t) {
-        double[] most = {0};
-        puffs.sprites(t, 1, 1, (x, y, z, size, rot, r, g, b, a, gr, gg, gb, ga, tex) -> {
-            if (a > 0.01) most[0] = Math.max(most[0], Math.hypot(x - SEA.burst().x, z - SEA.burst().z) + 0.3 * size);
-        });
-        return most[0];
-    }
-
     /**
-     * Стена над водой — брызги позади тёмного кольца: её передний край отстаёт от головы стены на путь фронта за
-     * последние {@link WaterModel#SPRAY_LAG} (капли встают не сразу), а стена пыли над сушей идёт с головой.
+     * Голова стены над водой — брызги позади тёмного кольца: её передний край отстаёт от края пыли на путь головы за
+     * последние {@link WaterModel#SPRAY_LAG} (капли встают не сразу; {@link BlastWall#slot}), а пыль над сушей идёт
+     * с головой.
      */
     @Test
     void sprayWallTrailsTheDarkRing() {
+        BlastWall wall = new BlastWall(SEA, false);
+        float[] s = new float[BlastWall.SLOT];
         for (double t : new double[]{3, 6}) {
-            CloudPuffs dry = new CloudPuffs(SEA, 750, false), wet = new CloudPuffs(SEA, 750, false);
-            wet.burst(1, 0);
-            double head = dry.wall(t).head(), lag = head - dry.wall(t - WaterModel.SPRAY_LAG).head();
-            double dryEdge = farthestEdge(dry, t), wetEdge = farthestEdge(wet, t);
-            assertTrue(lag > 30, t + " с: путь фронта за время подъёма брызг " + lag);
-            assertTrue(dryEdge > head - 0.25 * lag, t + " с: пыль с головой: край " + dryEdge + ", голова " + head);
-            assertTrue(wetEdge < head - 0.7 * lag, t + " с: брызги позади кольца: край " + wetEdge + ", голова " + head + ", отставание " + lag);
+            assertTrue(wall.slot(t, s));
+            double head = s[0], lag = s[5], low = 0.1 * s[2] * s[6];
+            assertTrue(lag > 30, t + " с: путь головы за время подъёма брызг " + lag);
+            assertTrue(s[7] > 0, t + " с: брызг нет");
+            assertTrue(BlastWall.sigma(s, head - 0.25 * lag, 0, low, 0) > 0, t + " с: пыли у головы нет");
+            assertEquals(0, BlastWall.sigma(s, head - 0.7 * lag, 0, low, 1), t + " с: брызги впереди, у тёмного кольца");
+            assertTrue(BlastWall.sigma(s, head - lag - 0.5 * s[1] * s[6], 0, low, 1) > 0, t + " с: брызг за кольцом нет");
         }
     }
 
