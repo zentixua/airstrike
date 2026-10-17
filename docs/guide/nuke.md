@@ -32,10 +32,18 @@ fly with the dust. The ground shakes harder and harder as the wall comes closer.
 your view away from the burst, and the wind behind it keeps rocking you. After a ground burst a short jolt comes through
 the ground first, seconds before the wave.
 
+The fireball rises, darkens and rolls into a ring of hot gas: the cap of the mushroom cloud. The cap is a dense cloud of
+round billows, reddish brown at first from the nitrogen oxides in it, then grey-white within about a minute as water
+condenses in it. The sun lights one side of it, and the folds between the billows stay darker. At night the young cap
+glows red only for its first seconds: its edge mixes with cold air and goes dark, and the hot core stays hidden inside.
+A column of dust rises from the ground into the cap, and a skirt of dust spreads around its foot. A burning town lights
+the foot of the column orange from below, and the cap high above only faintly. Far away, and more so in rain, the cloud
+fades into the haze.
+
 Behind the wave a pall of dust climbs over the town for a minute or two, up to about 200 m high at 15 kt and lower
 toward the edge. From a rooftop near the blast you first see the wave cross the town, then the dust swallows you. At
-night the fireball, the glowing cloud and the fires light it orange, as they light the wall of dust; its clumps are
-lighter on the side facing the light and darker in their folds. In the thick of it you see only some 40 m and sounds are
+night the fireball and the fires light it orange, as they light the wall of dust; its clumps are lighter on the side
+facing the light and darker in their folds. In the thick of it you see only some 40 m and sounds are
 muffled. The dust also fills the valleys around the town. It settles over a few minutes and drifts downwind. Where the
 light of the fireball set the town on fire, a firestorm builds up over a few minutes. Columns of smoke rise over the
 burning blocks, lean downwind and merge higher up into a ceiling of smoke over the town. At night the fires light it

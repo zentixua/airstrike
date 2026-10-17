@@ -11,13 +11,13 @@ class PallNoiseTest {
     private static final byte[] VOLUME = VolumeNoise.generate(N, 0x9A11L);
 
     private static double at(int x, int y, int z, int channel) {
-        return (VOLUME[2 * ((Math.floorMod(z, N) * N + Math.floorMod(y, N)) * N + Math.floorMod(x, N)) + channel] & 255) / 255.0;
+        return (VOLUME[VolumeNoise.CHANNELS * ((Math.floorMod(z, N) * N + Math.floorMod(y, N)) * N + Math.floorMod(x, N)) + channel] & 255) / 255.0;
     }
 
     /** Через край плитки соседние вокселы различаются не больше, чем внутри: повтор текстуры шва не даёт. */
     @Test
     void tileHasNoSeams() {
-        for (int c = 0; c < 2; c++) {
+        for (int c = 0; c < VolumeNoise.CHANNELS; c++) {
             double inside = 0, seam = 0;
             for (int z = 0; z < N; z++) {
                 for (int y = 0; y < N; y++) {
@@ -32,11 +32,11 @@ class PallNoiseTest {
     /** Каналы — по рангу: равномерны, среднее — половина. */
     @Test
     void channelsAreUniform() {
-        for (int c = 0; c < 2; c++) {
+        for (int c = 0; c < VolumeNoise.CHANNELS; c++) {
             int[] bins = new int[8];
             double sum = 0;
             for (int i = 0; i < N * N * N; i++) {
-                double v = (VOLUME[2 * i + c] & 255) / 256.0;
+                double v = (VOLUME[VolumeNoise.CHANNELS * i + c] & 255) / 256.0;
                 sum += v;
                 bins[(int) (v * 8)]++;
             }
@@ -56,7 +56,7 @@ class PallNoiseTest {
             int n = N * N * N;
             for (int i = 0; i < n; i++) {
                 int j = (int) (((long) i * 7919 + 12345) % n);
-                double s = VolumeNoise.shape((VOLUME[2 * i] & 255) / 255.0, (VOLUME[2 * j + 1] & 255) / 255.0, fill);
+                double s = VolumeNoise.shape((VOLUME[VolumeNoise.CHANNELS * i] & 255) / 255.0, (VOLUME[VolumeNoise.CHANNELS * j + 1] & 255) / 255.0, fill);
                 sum += s;
                 if (s < 0.05) empty++;
             }
@@ -75,7 +75,7 @@ class PallNoiseTest {
     void detailKeepsMeanDensity() {
         int n = N * N * N;
         double sum = 0;
-        for (int i = 0; i < n; i++) sum += VolumeNoise.detail((VOLUME[2 * i] & 255) / 255.0);
+        for (int i = 0; i < n; i++) sum += VolumeNoise.detail((VOLUME[VolumeNoise.CHANNELS * i] & 255) / 255.0);
         assertEquals(1, sum / n, 0.01);
         double cascade = 0;
         for (int i = 0; i < n; i++) cascade += density(i % N + 0.5, i / N % N + 0.5, i / (N * N) + 0.5, 1, true);

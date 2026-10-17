@@ -38,8 +38,8 @@ final class WaterPuffs {
     private NukeWater.Source source;
 
     /**
-     * Сколько клубов у подрыва: три четверти клубов гриба по настройке качества; у высокого воздушного подрыва — ни
-     * одного (шар воды не касается, {@link WaterModel#wetBurst}).
+     * Сколько клубов у подрыва: три четверти клубов по настройке их качества ({@code nuke_cloud_quality}); у высокого
+     * воздушного подрыва — ни одного (шар воды не касается, {@link WaterModel#wetBurst}).
      */
     static int count(Detonation d) {
         if (WaterModel.wetBurst(d.hobMetres(), d.yieldKt()) <= 0) return 0;

@@ -11,6 +11,7 @@ import org.joml.FrustumIntersection;
 import org.joml.Vector3f;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.far.FarView;
+import ua.zentix.incoming.client.far.Sight;
 import ua.zentix.incoming.client.fx.layer.PallPass;
 import ua.zentix.incoming.nuclear.Detonation;
 
@@ -20,8 +21,9 @@ import java.util.List;
 
 /**
  * Пелена после ударной волны у клиента ({@link PallField}): что рисует слой эффектов ({@link #frame} — до двух самых
- * заметных подрывов, таблица и свет кадра для {@link PallPass}), и что пелена делает у камеры — глушит звук
- * ({@link #muffle}) и сыплет пепел ({@link NukeAsh}). Своего пакета нет: поле — по модели подрыва.
+ * заметных подрывов, таблица и свет кадра для {@link PallPass}, и в тех же лучах — грибы кадра, {@link MushroomField}),
+ * и что пелена делает у камеры — глушит звук ({@link #muffle}) и сыплет пепел ({@link NukeAsh}). Своего пакета нет:
+ * поле — по модели подрыва.
  */
 public final class NukePall {
     /** Плитка шума у 15 кт, блоков на метр масштаба: клубы — по 60 м, мелкие края — по 20. */
@@ -68,7 +70,7 @@ public final class NukePall {
         return quality() != PallPass.Quality.OFF && IncomingConfig.CLIENT.soundMuffling.get();
     }
 
-    /** Тик клиента: пелена у камеры — звук и пепел; шум для объёма — в фоне с первого подрыва. */
+    /** Тик клиента: пелена у камеры — звук и пепел; шум для объёма (пелены и гриба) — в фоне с первого подрыва. */
     static void tick(ClientLevel level, Vec3 cam) {
         List<ClientNuclear.Active> all = ClientNuclear.detonations();
         FireStorms.tick(all);
@@ -77,7 +79,7 @@ public final class NukePall {
             NukeAsh.tick(level, cam, 0, 0, null);
             return;
         }
-        if (quality() != PallPass.Quality.OFF) PallPass.prepare();
+        PallPass.prepare();
         double s = 0, wet = 0, densest = 0, dust = 0;
         // пепел и ветер — от подрыва, чья пелена у камеры гуще всех
         ClientNuclear.Active nearest = null;
@@ -139,20 +141,26 @@ public final class NukePall {
     }
 
     /**
-     * Пелена кадра для слоя эффектов: до двух подрывов, ближайших к камере по краю их пелены, из тех, у кого в таблице
-     * хоть что-то есть (до фронта и после — пусто) и чья рамка в кадре ({@code frustum} — пирамида видимости от глаза,
-     * без дальней плоскости); null — пелены в кадре нет (или выключена): тогда слой не тратит на неё ни одного прохода.
+     * Пелена и грибы кадра для слоя эффектов: пелена — до двух подрывов, ближайших к камере по краю их пелены, из тех, у
+     * кого в таблице хоть что-то есть (до фронта и после — пусто) и чья рамка в кадре ({@code frustum} — пирамида
+     * видимости от глаза, без дальней плоскости); грибы — {@link MushroomField#frame}. Пелена выключена в настройке —
+     * только грибы, на ступени LOW (другого гриба нет). null — ни пелены, ни гриба в кадре: тогда слой не тратит на них ни
+     * одного прохода.
      */
     @Nullable
     public static PallPass.Frame frame(ClientLevel level, Vec3 eye, float partial, FrustumIntersection frustum) {
+        if (!PallPass.available()) return null;
+        List<ClientNuclear.Active> all = ClientNuclear.detonations();
+        if (all.isEmpty()) return null;
         PallPass.Quality q = quality();
-        if (q == PallPass.Quality.OFF || !PallPass.available()) return null;
-        List<ClientNuclear.Active> visible = new ArrayList<>();
-        for (ClientNuclear.Active a : ClientNuclear.detonations()) if (a.pall.visible(a.ticks(partial))) visible.add(a);
-        if (visible.isEmpty()) return null;
-        visible.sort(Comparator.comparingDouble(a -> outside(a, eye, partial)));
         PallPass.Frame f = FRAME;
-        f.quality = q;
+        double air = Sight.KOSCHMIEDER / Sight.range(level.getRainLevel(partial), level.getThunderLevel(partial));
+        f.mushroomCount = MushroomField.frame(all, eye, partial, frustum, air, f.mushrooms);
+        List<ClientNuclear.Active> visible = new ArrayList<>();
+        if (q != PallPass.Quality.OFF) for (ClientNuclear.Active a : all) if (a.pall.visible(a.ticks(partial))) visible.add(a);
+        if (visible.isEmpty() && f.mushroomCount == 0) return null;
+        visible.sort(Comparator.comparingDouble(a -> outside(a, eye, partial)));
+        f.quality = q == PallPass.Quality.OFF ? PallPass.Quality.LOW : q;
         f.slot0.zero();
         f.slot1.zero();
         f.glow0.zero();
@@ -170,11 +178,18 @@ public final class NukePall {
         int k = 0;
         float bottom = (float) (level.getMinBuildHeight() - eye.y);
         for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, f)) SLOTTED[k++] = visible.get(i);
-        if (k == 0) return null;
+        if (k == 0 && f.mushroomCount == 0) return null;
+        // без пелены — рамка нулевая: луч в неё не входит (перевёрнутая рамка вышла бы всем лучом)
+        if (k == 0) {
+            f.min.zero();
+            f.max.zero();
+        }
         light(level, eye, partial, f);
+        MushroomField.fire(partial, f);
         float clouds = level.effects().getCloudHeight();
         FireStorms.frame(SLOTTED, k, eye, partial, frustum, Float.isNaN(clouds) ? 1e6f : (float) (clouds - eye.y), f);
-        float s = sigma;
+        // дальше 12 толщ пыли у глаза луч не идёт; выключенная пелена не рисуется — и гриб за ней не прячет
+        float s = q == PallPass.Quality.OFF ? 0 : sigma;
         f.clip = s > 1e-4f ? 12 / s : 1e6f;
         return f;
     }
@@ -264,6 +279,8 @@ public final class NukePall {
                 sunLight((0.38 + 0.52 * low) / 0.9, f.skyLight.z, day));
         // отсвет стены и зарево пожаров (на экране) прибавляются к свету неба на экране — к этому
         f.base = ambient;
+        // свечение гриба — чёрное тело в настоящей яркости (белая стена в полдень — 1): в кадр — с привыканием глаза к небу
+        f.exposure = (float) Sight.adapted(1, ambient);
         f.glowOnSmoke = (float) CloudPuffs.glowOnSmoke(ambient);
         // зарево пожаров снизу на белой пелене, на экране поверх света неба (fx_pall берёт его разностью, pallLift; пыль
         // и мгла — по своему альбедо): днём его почти не видно,
@@ -333,9 +350,9 @@ public final class NukePall {
         }
         return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks; mist %.4f), muffle %.2f, ash %d, quality %s, "
                         + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), under the pall: %s, surge r %.0f top %.0f sigma %.4f, "
-                        + "frames: %s; firestorm: %s",
+                        + "frames: %s; mushrooms %d (exposure %.0f); firestorm: %s",
                 sigma, sigma > 1e-5f ? 3.912 / sigma : Double.POSITIVE_INFINITY, mist, muffle, NukeAsh.alive(), quality(),
                 f.skyLight.y, f.glowOnSmoke, f.glow0.x, f.glow0.y, f.hot0.x, f.hot0.y, f.hot0.z, under, f.water0.x, f.water0.y, f.water0.z,
-                mc.level == null ? "-" : PallPass.describe(), FireStorms.describe());
+                mc.level == null ? "-" : PallPass.describe(), f.mushroomCount, f.exposure, FireStorms.describe());
     }
 }

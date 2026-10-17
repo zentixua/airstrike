@@ -110,7 +110,7 @@ public final class NukeRenderer {
     // ---------------------------------------------------------------- гриб
 
     /**
-     * Клубы гриба и стены пыли всех подрывов — в кадр слоя эффектов ({@link FarSprites}, из {@code FarRenderer}): там
+     * Клубы стены пыли и брызг всех подрывов — в кадр слоя эффектов ({@link FarSprites}, из {@code FarRenderer}): там
      * они отсортированы вместе с частицами и дальней картинкой, тают, входя в землю (мягкий край по расстоянию до мира —
      * стена пыли лежит на рельефе), и прячутся за LOD Distant Horizons; дальше дальней плоскости — перенесены ближе
      * с тем же угловым размером. Дымка — по настоящей дальности (в метрах модели).
@@ -171,7 +171,7 @@ public final class NukeRenderer {
             Detonation d = a.d;
             double t = a.seconds(partial);
             if (t <= 0) continue;
-            // светится весь объём, пока не остынет; потом его свет — накал шапки и ножки (CloudPuffs)
+            // светится весь объём, пока не остынет; потом его свет — накал шапки в объёме гриба (MushroomField)
             float fade = (float) CloudPuffs.fireballGlow(t, d.yieldKt());
             if (fade <= 0) continue;
             double r = d.blocks(FireballModel.radius(t, d.yieldKt(), d.surface()));

@@ -12,7 +12,8 @@
         { "name": "Sampler7" },
         { "name": "Sampler8" },
         { "name": "Sampler9" },
-        { "name": "Sampler10" }
+        { "name": "Sampler10" },
+        { "name": "Sampler11" }
     ],
     "uniforms": [
         { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },

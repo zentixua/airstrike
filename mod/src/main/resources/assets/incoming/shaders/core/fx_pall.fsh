@@ -1,6 +1,7 @@
 #version 150
 
 #moj_import <incoming:pall.glsl>
+#moj_import <incoming:mushroom.glsl>
 
 // Пелена после ударной волны (client/fx/layer/PallPass): луч из глаза через пиксель кадра пониженного разрешения —
 // до мира за пикселем (SceneDepth, с LOD Distant Horizons; мира нет — до рельефа под пеленой, PallGround) или до выхода
@@ -8,7 +9,7 @@
 // (квадратично), начало сдвинуто синим шумом по кадрам (накопление сглаживает зерно, fx_pall_resolve). Плотность —
 // поле подрыва по таблице × клубы по трёхмерному шуму, снесённому ветром: крупные и в них мелкие — те, что луч здесь
 // различает. Свет (client/nuclear/PallLight): пелена над точкой и под ней — плоский слой, в нём два потока Эддингтона
-// после дельта-Эддингтона: солнце и отсвет шара и шапки — пучками сверху, небо сверху, пожары под пылью (свет стены пыли:
+// после дельта-Эддингтона: солнце и отсвет шара — пучками сверху, небо сверху, пожары под пылью (свет стены пыли:
 // у фронта пелена продолжает её цвет) — снизу, земля под слоем; клубы у точки (выборки шума к главному свету) — её тень
 // или просвет: глубже в слой или ближе к его краю. К глазу точка рассеивает пучки с фазой Хеньи–Гринстейна, рассеянный
 // свет — по Эддингтону; вещество — альбедо ω' и асимметрия g' пыли, дыма, мглы и водяной пыли (pall.glsl): тонкая
@@ -17,9 +18,14 @@
 // вещества (свет, делённый на её непрозрачность) переведён в экран (pallDisplay) и ярче 0,6 — плечом, как у плёнки.
 // Цвета экрана (стена пыли и брызг, сажа, пламя) — в линейные (pallLinear), отсвет стены и зарево пожаров, что на экране
 // прибавлены к свету неба, — разностью переводов (pallLift); свет огня — не ярче самого пламени (pallFlame).
+// Грибы кадра (mushroom.glsl, MushroomField) — в том же луче: шаги пелены и шаги гриба идут вперемежку по расстоянию,
+// и свет каждого шага гасит всё, что за ним. Гриб — поле без таблицы: вещество шапки, ножки и юбки, край — клубами по
+// тому же шуму; свет — те же два потока Эддингтона в двух слоях через точку (вдоль солнца — его пучок; по вертикали — небо
+// сверху, земля и пожары снизу) по толще гриба без шума к свету, и свечение по температуре — чёрное тело
+// (функция источника в глубине — сам свет чёрного тела, у края — с долей ω', которую не досвечивает изнутри).
 // Выход: rgb — цвет пелены на экране, умноженный на её непрозрачность (свет пелены перед миром), a — сколько света мира
 // проходит (только ослабление: его же берут квадраты слоя, fx.fsh, — цвет пелены там rgb / (1 − a); тень пелены на мире
-// — в fx_pall_composite).
+// — в fx_pall_composite). Ярче белого свет уходит к белому (CROSS: раскалённое — бело-жёлтое, не насыщенно-оранжевое).
 
 // расстояние до мира за пикселем по оси взгляда (полное разрешение)
 uniform sampler2D Sampler0;
@@ -45,8 +51,8 @@ uniform vec3 PallFireLight;
 // свет неба кадра на экране (белая стена: днём 1, ночью — как у клубов стены, FarView.ambient): к нему стена пыли на экране
 // прибавляет отсвет, а пелена — его линейную разность (pallLift)
 uniform float PallBase;
-// свет стены пыли на пелене слота (CloudPuffs.pallLight): x — свет шара и шапки сверху, y — накал гриба, z — шесть
-// радиусов шара, w — край зоны пожаров (блоки); Hot — цвет накала (rgb) и высота шара или шапки над землёй (w, блоки)
+// свет стены пыли на пелене слота (CloudPuffs.pallLight): x — свет шара сверху, y — накал гриба, z — шесть
+// радиусов шара, w — край зоны пожаров (блоки); Hot — цвет накала (rgb) и высота шара над землёй (w, блоки)
 uniform vec4 PallGlow0;
 uniform vec4 PallGlow1;
 uniform vec4 PallHot0;
@@ -77,6 +83,10 @@ uniform float PallFloorFrom;
 // вода слотов (pall.glsl): базисная волна и есть ли под пеленой вода
 uniform vec4 PallWater0;
 uniform vec4 PallWater1;
+// грибы кадра (MushroomField): таблица грибов и света чёрного тела (mushroom.glsl)
+uniform sampler2D Sampler7;
+// во сколько раз ярче кажется свет при свете неба кадра (Sight.adapted): свечение гриба — в значениях кадра
+uniform float PallExposure;
 
 out vec4 fragColor;
 
@@ -101,6 +111,14 @@ const float AROUND = 0.6;
 const int FLOOR_STEPS = 24;
 // скорость ветра у ядра смерча, блоков/с (у настоящих — 10–50 м/с; быстрее — на кадре одно размытое вращение)
 const float WHIRL_SPEED = 15.0;
+// ярче белого (по яркости) — эта доля превышения белым во все каналы: как пересвет плёнки и глаза
+const float CROSS = 0.15;
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+// толща гриба к свету — по четырём выборкам на долях пути (середины отрезков) с долями отрезков
+const vec4 MUSH_AT = vec4(0.025, 0.1, 0.275, 0.7);
+const vec4 MUSH_PART = vec4(0.05, 0.1, 0.25, 0.6);
+// излучательная доля края шапки, что светит вниз на ножку и юбку (половина: снизу шапка — край толстого облака)
+const float MUSH_GLOW_DOWN = 0.5;
 
 float hg(float g, float c) {
     float k = 1.0 + g * g - 2.0 * g * c;
@@ -159,13 +177,13 @@ struct Sample {
     vec3 slabAlbedo;
     float slabPhase;
     float water;
-    // свет стены пыли (CloudPuffs.pallLight), линейный: пучок шара и шапки сверху (rgb — что от него на белой стене), Σ силы
+    // свет стены пыли (CloudPuffs.pallLight), линейный: пучок шара сверху (rgb — что от него на белой стене), Σ силы
     // пучка × косинус к вертикали и × косинус к лучу зрения; пожары под пылью — свет снизу (rgb)
     vec3 cap;
     float capUp;
     float capView;
     vec3 burn;
-    // тень своего и соседних клубов — толща против средней к солнцу, к шару и шапке, к небу сверху и к пожарам снизу
+    // тень своего и соседних клубов — толща против средней к солнцу, к шару (shadeCap), к небу сверху и к пожарам снизу
     float shadeSun;
     float shadeCap;
     float shadeUp;
@@ -202,7 +220,7 @@ void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3
     s.slabPhase += (f.slab.x + f.slab.y) * PALL_DUST_G + f.slab.z * PALL_MIST_G;
     // пыль — над водой, если её подняло с воды; водяная пыль — всегда
     s.water += (f.slab.x + f.slab.y) * f.wet + f.slab.z;
-    // Свет стены пыли (CloudPuffs.wallColor): шар и шапка — пучок к верху слоя (свет на верху стены, pallLit), пожары под
+    // Свет стены пыли (CloudPuffs.wallColor): шар — пучок к верху слоя (свет на верху стены, pallLit), пожары под
     // пылью — свет снизу (у низа стены, pallBurn); сила — та, что на клубе стены даёт отсвет (× PallGlowOnSmoke), делённая
     // на цвет пыли, — на экране поверх света неба, в линейный — разностью (pallLift): толстая пыль у фронта отражает его
     // как клубы стены — пелена продолжает её цвет. Свет пожаров — не ярче пламени (pallFlame): ночью над зоной пожаров
@@ -231,8 +249,8 @@ void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3
     float shape = coarse * mix(1.0, detail, fine);
     s.clumps = shape;
     float d = f.sigma.x * shape, h = f.sigma.y * mix(1.0, shape, 0.5), m = f.sigma.z * shape;
-    // главный свет — солнце или, пока он ярче, шар и шапка над эпицентром или пожары под пылью (ночью это весь свет
-    // пыли); светят пожары внизу — к ним, а не к шапке
+    // главный свет — солнце или, пока он ярче, шар над эпицентром или пожары под пылью (ночью это весь свет
+    // пыли); светят пожары внизу — к ним, а не к шару
     float heat = max(lit, burn) * PallGlowOnSmoke;
     float key = clamp(heat / (heat + 0.5 * PallSun.w + 0.02), 0.0, 1.0);
     vec3 keyLight = lightDir;
@@ -278,7 +296,7 @@ float slabGround(Sample s) {
     return mix(PALL_LAND, PALL_SEA, water);
 }
 
-// Рассеянный свет слоя пелены в точке от света сверху (солнце, шар и шапка, небо), I0 + c·I1 по каналам (pallDiffuse;
+// Рассеянный свет слоя пелены в точке от света сверху (солнце, шар, небо), I0 + c·I1 по каналам (pallDiffuse;
 // без альбедо точки) — на глубине, сдвинутой тенью клубов к нему
 vec3 scattered(Sample s, float c) {
     float slab = max(s.slab, s.tau);
@@ -510,6 +528,309 @@ float along(float u, float t0, float fa, float fb, float t1, float a, float b) {
     return fb + (t1 - fb) * (u - a - b) / max(1.0 - a - b, 1e-6);
 }
 
+// Луч этого пикселя и общее для его шагов (main): направление, солнце, косинусы, сажа, самое яркое пламя, ширина пикселя
+vec3 gDir;
+vec3 gSun;
+float gMuS;
+float gC;
+float gMv;
+vec3 gSootK;
+float gSootSun;
+vec3 gFlame;
+float gPixel;
+float gJitter;
+// смерчи: свет и пропускание каждого и где луч в него входит (main)
+mat4 gWhirlLight;
+vec4 gWhirlIn;
+// грибы кадра и отрезок луча в каждом
+Mush gMush[MUSHROOMS];
+vec2 gMushSpan[MUSHROOMS];
+int gMushes;
+// толща грибов от глаза до шага: настоящая, с клубами, — сколько свет неба со стороны глаза теряет до точки
+float gTauEye;
+
+// смерчи, в которые луч вошёл до t, — в свет луча (каждый раз). Пелену и смерчи глаз видит и там, где гриб растаял
+// в дымке (lost): их свет — с долей transmit + lost, и обе доли за ними меньше
+void whirlsBefore(float t, inout vec3 light, inout float transmit, inout float lost) {
+    for (int k = 0; k < 4; k++) {
+        if (gWhirlIn[k] <= t) {
+            light += (transmit + lost) * gWhirlLight[k].rgb;
+            transmit *= gWhirlLight[k].a;
+            lost *= gWhirlLight[k].a;
+            gWhirlIn[k] = 1e9;
+        }
+    }
+}
+
+// Шаг пелены на [ta, ta + ds]: её свет в луч
+void pallStep(float ta, float ds, inout vec3 light, inout float transmit, inout float lost) {
+    whirlsBefore(ta, light, transmit, lost);
+    vec3 dir = gDir, sunDir = gSun;
+    float muS = gMuS, c = gC, mv = gMv;
+    vec3 p = dir * ta;
+    // меньшее, что луч здесь различает: ширина пикселя или треть шага
+    float cone = max(ta * gPixel, 0.35 * ds);
+    Sample s = emptySample();
+    slot(PallSlot0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, p, sunDir, dir, cone, s);
+    slot(PallSlot1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, p, sunDir, dir, cone, s);
+    vec3 f0 = vec3(0.0), f1 = vec3(0.0);
+    vec2 around0 = vec2(0.0), around1 = vec2(0.0);
+    if (all(greaterThanEqual(p, PallFireMin)) && all(lessThanEqual(p, PallFireMax))) {
+        f0 = storm(Sampler3, PallSlot0, PallFire0, p, cone, s.clumps);
+        f1 = storm(Sampler4, PallSlot1, PallFire1, p, cone, s.clumps);
+        around0 = fireAround(Sampler3, PallSlot0, PallFire0, p, dir, s.sigma);
+        around1 = fireAround(Sampler4, PallSlot1, PallFire1, p, dir, s.sigma);
+    }
+    float soot = f0.x + f1.x;
+    float st = s.sigma + soot;
+    if (st <= 1e-7) return;
+    // вещество в точке: альбедо и асимметрия пелены (здесь её нет, а есть дым шторма — как у пыли)
+    vec3 w = PALL_DUST_W;
+    float g = PALL_DUST_G;
+    if (s.sigma > 1e-7) {
+        w = s.albedo / s.sigma;
+        g = s.phase / s.sigma;
+    }
+    // рассеянный свет слоя и пучки: солнце и шар — по Бугеру–Ламберту сквозь столб над точкой и тень клубов,
+    // с фазой Хеньи–Гринстейна (её среднее по сфере — 1, пучок на белой стене — его сила: отсюда ¼)
+    vec3 field = scattered(s, g * mv);
+    vec3 beams = PallSunLight * (0.25 * hg(g, c) * exp(-max(s.tau / muS + s.shadeSun, 0.0)));
+    float capI = s.cap.r + s.cap.g + s.cap.b;
+    if (capI > 1e-5) {
+        float muC = clamp(s.capUp / capI, 0.12, 1.0);
+        beams += s.cap * (0.25 * hg(g, clamp(s.capView / capI, -1.0, 1.0)) * exp(-max(s.tau / muC + s.shadeCap, 0.0)));
+    }
+    // Свет снизу — пожары под мглой, зарево шторма — рассеянный поток вверх: по Эддингтону точка рассеивает его к
+    // глазу как ω'·(1/2 + 3/4·g'·μ) (вниз, к огню, ярче), в тени клубов под точкой — как e^(−kτ) рассеянного света;
+    // зарево округи — сбоку, со своей фазой (fireAround): половина, как от светлого полупространства
+    vec3 kd = vec3(pallK(w.r, g), pallK(w.g, g), pallK(w.b, g));
+    vec3 under = (0.5 + 0.75 * g * mv) * exp(-kd * s.shadeDown);
+    // зарево шторма и округи — на экране поверх света неба (как у частиц, fx.vsh), в линейный — разностью, не ярче
+    // пламени (pallFlame)
+    vec3 glow = vec3(0.0), around = vec3(0.0);
+    if (f0.y + f1.y > 0.0) {
+        vec3 strongest = f0.y >= f1.y ? PallFire0[3].rgb : PallFire1[3].rgb;
+        glow = pallFlame(PallBase, f0.y * PallFire0[3].rgb + f1.y * PallFire1[3].rgb, strongest);
+    }
+    if (around0.x > 0.0) around += pallFlame(PallBase, 0.5 * around0.x * PallFire0[3].rgb, PallFire0[3].rgb) * exp(-kd * around0.y);
+    if (around1.x > 0.0) around += pallFlame(PallBase, 0.5 * around1.x * PallFire1[3].rgb, PallFire1[3].rgb) * exp(-kd * around1.y);
+    // огонь в точке — все огни вместе, не ярче пламени (flame): пожары под пылью через слой, зарево снизу,
+    // пожары под мглой (s.fire — их свет × вещество; свет — делением на вещество) и зарево округи
+    vec3 below = burnt(s, g * mv);
+    vec3 fire = min(below + under * (glow + s.fire / max(s.albedo, vec3(1e-7))) + around, gFlame);
+    vec3 emit = s.albedo * (field + beams + fire);
+    // огненный шторм: дым столбов (сажа) — в том же свете и в своей тени: прямой свет гаснет в столбе по его толще к
+    // солнцу, рассеянный — как e^(−kτ) сажи (сторона к солнцу и верх клубов светлые, другая сторона и низ — тёмные:
+    // столб объёмный, а не плоская серая полоса); снизу — зарево пожаров
+    if (soot > 0.0) {
+        float self = (f0.z + f1.z) / soot;
+        vec3 sootLit = field * exp(-gSootK * self) + PallSunLight * (gSootSun * exp(-max(s.tau / muS + s.shadeSun, 0.0) - self))
+                + min(below * exp(-gSootK * self) + (0.5 + 0.75 * PALL_SOOT_G * mv) * glow + around, gFlame);
+        emit += soot * PALL_SOOT_W * sootLit;
+    }
+    float tr = exp(-st * ds);
+    light += (transmit + lost) * emit * (1.0 - tr) / st;
+    transmit *= tr;
+    lost *= tr;
+}
+
+// Толща гриба m без шума от места p (от глаза) по направлению v на длину len — четыре выборки (MUSH_AT)
+float mushTau(Mush m, vec3 p, vec3 v, float len) {
+    float tau = 0.0;
+    for (int i = 0; i < 4; i++) {
+        vec3 s = mushMean(m, mushLocal(m, p + v * (len * MUSH_AT[i])));
+        tau += (s.x + s.y + s.z) * MUSH_PART[i];
+    }
+    return tau * len;
+}
+
+// Сдвиг края клубами в месте c (от середины части гриба, блоки), в долях размаха, до ±0,68: канал шума ch (VolumeNoise:
+// R — пятна Перлина-Ворлей, B — купола Ворлей) — крупные клубы по четверти плитки tile, в них мельче, и ещё вчетверо
+// мельче, пока луч их различает (cone — меньшее, что луч здесь различает); k — сдвиг плитки: у каждой части и гриба
+// свой рисунок
+// каналы шума клубов: купола шапки и юбки (клубы турбулентного облака), пятна ножки (её растягивают в струи подъёма:
+// купола, растянутые по высоте, у тонкой ножки — сетка из ячеек)
+const vec3 MUSH_DOMES = vec3(0.0, 0.0, 1.0);
+const vec3 MUSH_STREAKS = vec3(1.0, 0.0, 0.0);
+
+float mushLobes(vec3 c, float tile, float cone, float k, vec3 ch) {
+    vec3 u = c / tile + vec3(0.37, 0.11, 0.73) * k;
+    float n = dot(texture(PallNoise, u).rgb, ch);
+    float fine = 1.0 - smoothstep(0.5, 1.0, cone * 16.0 / tile);
+    float f = 0.5;
+    if (fine > 0.0) f = dot(textureLod(PallNoise, u * 4.0 + vec3(0.53, 0.29, 0.17), 0.0).rgb, ch);
+    return (n - 0.5) + 0.35 * fine * (f - 0.5);
+}
+
+// Ослабление шапки, ножки и юбки гриба m в месте q тела с клубами, 1/блок; lobes — сдвиг края шапки клубами (доля
+// размаха), depth — глубина под краем шапки без клубов в её единицах (0 у края), near — сколько до края с клубами
+// у ближайшей части, блоки (оценка: клубы меняются не круче своей плитки — шагу луча вполовину её). Клубы шапки и юбки
+// — круглые купола (сдвиг края в блоках одинаков во все стороны); ножки — струи вдоль подъёма (шум вдвое растянут
+// по высоте)
+vec3 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float depth, out float near) {
+    lobes = 0.0;
+    depth = 0.0;
+    near = 1e9;
+    vec3 sigma = vec3(0.0);
+    vec3 d = mushDist(m, q);
+    float uc = mushCapUnit(m);
+    if (m.capSigma > 0.0 && d.x < MUSH_CAP_REACH * uc) {
+        lobes = mushLobes(vec3(q.x, q.y - m.capY, q.z), m.capTile, cone, k, MUSH_DOMES);
+        float shifted = d.x - MUSH_CAP_LOBES * uc * lobes;
+        sigma.x = m.capSigma * mushEdge(shifted, MUSH_CAP_EDGE * uc);
+        near = shifted - MUSH_CAP_EDGE * uc;
+        depth = clamp(-d.x / max(uc, 1.0), 0.0, 1.0);
+    }
+    if (m.stemTau > 0.0) {
+        float r = mushStemAt(m, q.y);
+        if (d.y < MUSH_STEM_REACH * r) {
+            float stem = mushStemSigma(m, q.y);
+            if (stem > 0.0) {
+                // струи поднимаются с воздухом, который тянет кольцо: пятна вдвое вытянуты по высоте, мелких нет —
+                // их вытягивает подъём (мелкие пятна, вытянутые в нитки, у тонкой ножки — кружево)
+                float l = mushLobes(vec3(q.x, 0.5 * (q.y - m.stemRise), q.z), m.stemTile, max(cone, m.stemTile), k + 4.0, MUSH_STREAKS);
+                float shifted = d.y - MUSH_STEM_LOBES * r * l;
+                sigma.y = stem * mushEdge(shifted, MUSH_STEM_EDGE * r);
+                near = min(near, shifted - MUSH_STEM_EDGE * r);
+            }
+        }
+    }
+    float uk = mushSkirtUnit(m);
+    if (m.skirtSigma > 0.0 && d.z < MUSH_SKIRT_REACH * uk) {
+        float l = mushLobes(q, max(2.0 * m.skirtH, 1.0), cone, k + 8.0, MUSH_DOMES);
+        float shifted = d.z - MUSH_SKIRT_LOBES * uk * l;
+        sigma.z = m.skirtSigma * mushEdge(shifted, MUSH_SKIRT_EDGE * uk);
+        near = min(near, shifted - MUSH_SKIRT_EDGE * uk);
+    }
+    return sigma;
+}
+
+// Толща гриба m от места p (от глаза) к солнцу. Ближние 0,75 плитки клубов — по самим клубам, пятью отрезками, каждый
+// вдвое длиннее прежнего, выборка в отрезке — со сдвигом кадра (сторона клуба к солнцу и тень соседних — то, чем шапка
+// «цветная капуста»); дальше — средним полем: за слоем клубов они в среднем и есть оно. Среднее поле с самого места
+// закрывало бы и открытый солнцу клуб толщей мягкого края вдоль поверхности (сбоку от солнца — десятки)
+float mushSunTau(Mush m, vec3 p, float k) {
+    float reach = 0.75 * m.capTile, len = reach / 31.0, t = 0.0, tau = 0.0;
+    for (int i = 0; i < 5; i++) {
+        float lobes, depth, near;
+        vec3 s = mushDense(m, mushLocal(m, p + gSun * (t + gJitter * len)), len, k, lobes, depth, near);
+        tau += (s.x + s.y + s.z) * len;
+        t += len;
+        len *= 2.0;
+    }
+    return tau + mushTau(m, p + gSun * reach, gSun, 2.0 * m.boundR);
+}
+
+// Гриб k в точке p (от глаза) с местом q: ослабление (w, 1/блок) и свет к глазу на единицу пути (rgb, Σ ослабление ×
+// функция источника). cone — меньшее, что луч здесь различает
+vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
+    Mush m = gMush[k];
+    float lobes, depth;
+    float kk = float(k) * 13.0;
+    vec3 sig = mushDense(m, q, cone, kk, lobes, depth, near);
+    float st = sig.x + sig.y + sig.z;
+    if (st <= 1e-7) return vec4(0.0);
+    vec3 w = (sig.x * m.capMat.rgb + sig.y * m.stemMat.rgb + sig.z * m.skirtMat.rgb) / st;
+    float g = (sig.x * m.capMat.a + sig.y * m.stemMat.a + sig.z * m.skirtMat.a) / st;
+    vec3 kd = vec3(pallK(w.r, g), pallK(w.g, g), pallK(w.b, g));
+    // толща без шума: вверх до верха рамки, вниз до земли, к глазу и от него; днём — ещё к солнцу и от него
+    float up = mushTau(m, p, vec3(0.0, 1.0, 0.0), max(m.boundTop - q.y, 1.0));
+    float down = mushTau(m, p, vec3(0.0, -1.0, 0.0), max(q.y, 1.0));
+    float across = 2.0 * m.boundR;
+    // к глазу — толща, пройденная лучом (с клубами: точка в ложбине между клубами открыта к глазу, а среднее поле
+    // без шума закрывало бы её толщей несуществующих клубов перед ней); от глаза — среднее поле
+    float toEye = gTauEye, beyond = mushTau(m, p, gDir, across);
+    vec3 light = vec3(0.0);
+    // откуда свечение уходит из глубины: кратчайшая из толщ
+    float escape = min(min(up, down), toEye);
+    if (PallSun.w > 0.0) {
+        float toSun = mushSunTau(m, p, kk), away = mushTau(m, p, -gSun, across);
+        escape = min(escape, min(toSun, away));
+        // солнце — пучок вдоль слоя через точку по оси солнца (косинус 1): рассеянный им свет и прямой пучок
+        float cs = g * dot(-gDir, gSun);
+        light += vec3(pallDiffuse(w.r, g, toSun, toSun + away, 0.0, 1.0, PallSunLight.r, 1.0, 0.0, 0.0, 0.0, cs),
+                pallDiffuse(w.g, g, toSun, toSun + away, 0.0, 1.0, PallSunLight.g, 1.0, 0.0, 0.0, 0.0, cs),
+                pallDiffuse(w.b, g, toSun, toSun + away, 0.0, 1.0, PallSunLight.b, 1.0, 0.0, 0.0, 0.0, cs));
+        light += PallSunLight * (0.25 * hg(g, gC) * exp(-toSun));
+    }
+    // Рассеянный свет неба и земли. Гриб — тело, а не слой: точку у его бока небо освещает сбоку, а не сквозь всю шапку
+    // над ней. Два слоя через точку — по вертикали (сверху небо, под шапкой — и её свечение; снизу — солнце, отражённое
+    // землёй в тени гриба, и пожары) и по лучу зрения (с обеих сторон — небо у горизонта: полнеба и свет земли); свет
+    // в точке — от того, что светит сильнее: свет, пришедший кратчайшим путём, другой путь не убавляет
+    // Небо из ложбины между клубами шапки видно щелью над ней (глубина под вершинами клубов h, до соседних — полклуба c:
+    // доля освещённости c/√(c² + h²)), остальное закрыто стенками соседних клубов, а они светят отражённым: ложбина —
+    // полость с диффузными стенками, свет в ней — доля щели / (1 − R∞·(1 − доля)), R∞ — отражение толстого слоя этого
+    // вещества (два потока). Без этого теневая сторона шапки — ровная заливка: вершины и ложбины видят одно небо
+    float hc = MUSH_CAP_LOBES * mushCapUnit(m) * max(0.68 - lobes, 0.0), cc = 0.125 * m.capTile;
+    float slot = cc / sqrt(hc * hc + cc * cc);
+    vec3 ru = 2.0 * kd / (3.0 * max(1.0 - w * g, 1e-4)), rinf = (1.0 - ru) / (1.0 + ru);
+    vec3 open = mix(vec3(1.0), slot / (1.0 - rinf * (1.0 - slot)), sig.x / st);
+    vec3 sky = PallSkyLight * open;
+    float edgeK = m.tAmb + m.dT * MUSH_EDGE_HEAT;
+    if (m.capSigma > 0.0 && q.y < m.capBot) {
+        float h = m.capY - q.y, r2 = m.capR * m.capR;
+        sky += (MUSH_GLOW_DOWN * PallExposure) * mushBlackBody(Sampler7, edgeK) * (r2 / (r2 + h * h));
+    }
+    vec3 land = PallSunLight * (PALL_LAND * max(PallSun.y, 0.0));
+    vec3 bottom = land * exp(-min((up + down) / gMuS, 30.0));
+    // пожары снизу — как зарево шторма под пеленой (storm): свет у земли (m.fire, на экране), выше — доля диска пожаров,
+    // видная с высоты (R²/(R² + h²), как свет со всей площади шириной ~2h у пелены) и дым шторма под точкой (выше его
+    // верха — весь): над водой и днём его нет, ножку у земли ночью горящий город красит, а шапку в километрах — едва
+    if (m.fire.r > 0.0) {
+        float h = max(q.y, 0.0), hs = min(h, m.fireTop), r2 = m.fireR * m.fireR;
+        float through = 0.75 * exp(-hs / (0.2 * m.fireTop)) + 0.25 * exp(-hs / m.fireTop);
+        bottom += pallFlame(PallBase, m.fire * (through * r2 / max(r2 + h * h, 1.0)), m.fire / m.fire.r);
+    }
+    float cv = g * gMv;
+    vec3 vertical = vec3(pallDiffuse(w.r, g, up, up + down, PALL_LAND, 1.0, 0.0, 1.0, 0.0, sky.r, bottom.r, cv),
+            pallDiffuse(w.g, g, up, up + down, PALL_LAND, 1.0, 0.0, 1.0, 0.0, sky.g, bottom.g, cv),
+            pallDiffuse(w.b, g, up, up + down, PALL_LAND, 1.0, 0.0, 1.0, 0.0, sky.b, bottom.b, cv));
+    vec3 side = 0.5 * open * (PallSkyLight + PALL_LAND * PallSkyLight + land);
+    vec3 sideways = vec3(pallDiffuse(w.r, g, toEye, toEye + beyond, 0.0, 1.0, 0.0, 1.0, 0.0, side.r, side.r, g),
+            pallDiffuse(w.g, g, toEye, toEye + beyond, 0.0, 1.0, 0.0, 1.0, 0.0, side.g, side.g, g),
+            pallDiffuse(w.b, g, toEye, toEye + beyond, 0.0, 1.0, 0.0, 1.0, 0.0, side.b, side.b, g));
+    light += max(max(vertical, sideways), vec3(0.0));
+    // свечение: доля перепада температуры — шапка горячее к ядру кольца (край смешан с подхваченным воздухом — треть
+    // перепада, языки клубов ±6%), ножка горяча только у шапки (снизу кольцо тянет в неё воздух с пылью), юбка холодная
+    float hw = clamp(q.y / max(m.capBot, 1.0), 0.0, 1.0);
+    float heat = (sig.x * (MUSH_EDGE_HEAT + (1.0 - MUSH_EDGE_HEAT) * smoothstep(0.0, 1.0, depth) + 0.09 * lobes) + sig.y * 0.6 * hw * hw) / st;
+    vec3 bb = mushBlackBody(Sampler7, m.tAmb + m.dT * heat) * PallExposure;
+    // функция источника свечения: в глубине — свет чёрного тела (рассеянное изнутри его и досвечивает), у края — доля ω'
+    // уходит наружу без замены (двумя потоками: недосвет гаснет вглубь как e^(−kτ))
+    vec3 thermal = bb * (1.0 - w * 0.6 * exp(-kd * escape));
+    return vec4(st * (w * light + thermal), st);
+}
+
+// Шаг грибов в месте t луча: ослабление (w) и свет на единицу пути (rgb); gap — сколько до вещества (0 — оно здесь)
+vec4 mushStep(float t, float cone, out float gap) {
+    vec4 sum = vec4(0.0);
+    gap = 1e9;
+    vec3 p = gDir * t;
+    for (int k = 0; k < gMushes; k++) {
+        vec2 span = gMushSpan[k];
+        if (span.y <= span.x || t > span.y) continue;
+        if (t < span.x) {
+            // до рамки гриба — шагом до неё
+            gap = min(gap, span.x - t);
+            continue;
+        }
+        Mush m = gMush[k];
+        vec3 q = mushLocal(m, p);
+        float g = mushGap(m, q);
+        if (g > 0.0) {
+            gap = min(gap, g);
+            continue;
+        }
+        // у края: вещества нет — шагом до края с клубами (вполовину оценки), иначе луч шёл бы полосу клубов шагом
+        // в пиксель и на краю кончались бы шаги
+        float near;
+        vec4 r = mushAt(k, p, q, cone, near);
+        gap = min(gap, r.w > 1e-7 ? 0.0 : 0.5 * max(near, 0.0));
+        sum += r;
+    }
+    return sum;
+}
+
 void main() {
     vec2 low = gl_FragCoord.xy;
     ivec2 full = ivec2((floor(low) + 0.5) * PallFrame.z);
@@ -520,11 +841,12 @@ void main() {
     vec3 dir = normalize(farPoint.xyz / farPoint.w);
     // ширина пикселя кадра лучей на расстоянии 1
     vec4 nextPoint = InvViewProj * vec4(ndc + vec2(0.0, 2.0 * PallFrame.z / float(size.y)), 1.0, 1.0);
-    float pixel = length(normalize(nextPoint.xyz / nextPoint.w) - dir);
+    gPixel = length(normalize(nextPoint.xyz / nextPoint.w) - dir);
     float axis = max(dot(dir, PallForward), 1e-3);
     float scene = pallScene(depth);
     vec2 span = pallBox(dir, PallMin, PallMax);
     float jitter = fract(texelFetch(Sampler2, ivec2(mod(low, 64.0)), 0).r + PallFrame.x * 0.618034);
+    gJitter = jitter;
     if (scene < 1e8) {
         scene /= axis;
     } else if (span.y > span.x) {
@@ -537,23 +859,28 @@ void main() {
     }
     float t0 = span.x, t1 = min(min(span.y, scene), t0 + PallFrame.w);
     vec3 sunDir = PallSun.xyz;
-    float muS = max(sunDir.y, 0.12);
-    float c = dot(dir, sunDir);
+    gDir = dir;
+    gSun = sunDir;
+    gMuS = max(sunDir.y, 0.12);
+    gC = dot(dir, sunDir);
     // путь света к глазу — против луча: его косинус к вертикали
-    float mv = -dir.y;
-    vec3 sootK = vec3(pallK(PALL_SOOT_W.r, PALL_SOOT_G), pallK(PALL_SOOT_W.g, PALL_SOOT_G), pallK(PALL_SOOT_W.b, PALL_SOOT_G));
-    float sootSun = 0.25 * hg(PALL_SOOT_G, c);
+    gMv = -dir.y;
+    gSootK = vec3(pallK(PALL_SOOT_W.r, PALL_SOOT_G), pallK(PALL_SOOT_W.g, PALL_SOOT_G), pallK(PALL_SOOT_W.b, PALL_SOOT_G));
+    gSootSun = 0.25 * hg(PALL_SOOT_G, gC);
     // Самое яркое пламя кадра, линейное: пожары под стеной, пламя шторма слотов, пожары под мглой (цвет их света). Огонь
     // в точке — сумма всех огней: у каждого свой предел (pallFlame), а вместе они — ещё раз не ярче него: точка, со всех
     // сторон окружённая пламенем, светит им, а не ярче
     vec3 flame = max(pallLinear3(FIRE), max(pallLinear3(PallFire0[3].rgb), pallLinear3(PallFire1[3].rgb)));
-    flame = max(flame, pallLinear3(PallFireLight / max(PallFireLight.r, 1e-4)));
-    vec3 whirlFlame = max(flame, WHIRL_FIRE_LINEAR);
+    gFlame = max(flame, pallLinear3(PallFireLight / max(PallFireLight.r, 1e-4)));
+    vec3 whirlFlame = max(gFlame, WHIRL_FIRE_LINEAR);
     vec3 light = vec3(0.0);
     float transmit = 1.0;
+    // доля, которую закрыл бы гриб, но съела дымка воздуха до него (mushAir): там видно то, что за всем лучом (небо, мир
+    // вдали), а не глубина самого гриба — пропускание по лучу остаётся настоящим, и задние клубы за передними не видны
+    float lost = 0.0;
     // смерчи: отрезок луча и свет каждого — заранее, в луч пелены — когда шаг дойдёт до входа (до мира за пикселем)
-    mat4 whirlLight = mat4(0.0);
-    vec4 whirlIn = vec4(1e9);
+    gWhirlLight = mat4(0.0);
+    gWhirlIn = vec4(1e9);
     for (int i = 0; i < 4; i++) {
         vec2 sp = whirlSpan(i, dir);
         sp.y = min(sp.y, scene);
@@ -563,18 +890,32 @@ void main() {
         Sample m = emptySample();
         slot(PallSlot0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, mid, sunDir, dir, 1e9, m);
         slot(PallSlot1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, mid, sunDir, dir, 1e9, m);
-        vec3 lit = scattered(m, PALL_SOOT_G * mv) + PallSunLight * (sootSun * exp(-m.tau / muS));
+        vec3 lit = scattered(m, PALL_SOOT_G * gMv) + PallSunLight * (gSootSun * exp(-m.tau / gMuS));
         float g0 = storm(Sampler3, PallSlot0, PallFire0, mid, 0.0, 1.0).y, g1 = storm(Sampler4, PallSlot1, PallFire1, mid, 0.0, 1.0).y;
         vec3 strongest = g0 >= g1 ? PallFire0[3].rgb : PallFire1[3].rgb;
         vec3 glow = pallFlame(PallBase, g0 * PallFire0[3].rgb + g1 * PallFire1[3].rgb, strongest);
-        whirlLight[i] = whirl(i, dir, sp.x, sp.y, jitter, lit, burnt(m, PALL_SOOT_G * mv) + glow, whirlFlame);
-        whirlIn[i] = sp.x;
+        gWhirlLight[i] = whirl(i, dir, sp.x, sp.y, jitter, lit, burnt(m, PALL_SOOT_G * gMv) + glow, whirlFlame);
+        gWhirlIn[i] = sp.x;
     }
+    // грибы: их отрезки луча (до мира за пикселем и не дальше, чем видно в пыли у глаза) и общий
+    float m0 = 1e9, m1 = -1.0;
+    gMushes = 0;
+    for (int k = 0; k < MUSHROOMS; k++) {
+        if (!mushOn(Sampler7, k)) break;
+        gMush[k] = mushLoad(Sampler7, k);
+        vec2 sp = mushSpan(gMush[k], dir);
+        sp.y = min(sp.y, min(scene, PallFrame.w));
+        gMushSpan[k] = sp;
+        gMushes += 1;
+        if (sp.y <= sp.x) continue;
+        m0 = min(m0, sp.x);
+        m1 = max(m1, sp.y);
+    }
+    int steps = int(PallFrame.y);
+    float n = float(steps);
+    // пелена: шаги гуще у глаза; рамка шторма на луче — туда половина шагов (столбы мельче шага по всей пелене)
+    float fa = t1, fb = t1, a = 1.0, b = 0.0;
     if (t1 > t0) {
-        int steps = int(PallFrame.y);
-        float n = float(steps);
-        // рамка шторма на луче: туда — половина шагов (столбы мельче шага по всей пелене)
-        float fa = t1, fb = t1, a = 1.0, b = 0.0;
         vec2 fs = pallBox(dir, PallFireMin, PallFireMax);
         if (PallFireMax.x > PallFireMin.x && min(fs.y, t1) - max(fs.x, t0) > 1.0) {
             fa = max(fs.x, t0);
@@ -583,102 +924,72 @@ void main() {
             float after = t1 - fb > 1.0 ? 0.2 : 0.0;
             b = 1.0 - a - after;
         }
-        for (int i = 0; i < steps; i++) {
-            float u0 = (float(i) + jitter) / n, u1 = (float(i) + 1.0 + jitter) / n;
-            float ta = along(u0, t0, fa, fb, t1, a, b);
-            if (ta >= t1) break;
-            float ds = min(along(u1, t0, fa, fb, t1, a, b), t1) - ta;
-            for (int k = 0; k < 4; k++) {
-                if (whirlIn[k] <= ta) {
-                    light += transmit * whirlLight[k].rgb;
-                    transmit *= whirlLight[k].a;
-                    whirlIn[k] = 1e9;
-                }
+    }
+    int i = 0;
+    float ta = 1e9;
+    if (t1 > t0) ta = along(jitter / n, t0, fa, fb, t1, a, b);
+    // гриб: по пустому — шагом до вещества, в нём — на полтолщи, не мельче пикселя и четверти шага пелены по его отрезку
+    int mk = 0, mSteps = steps + 16;
+    float tauEye = 0.0;
+    float dsMin = 1.0, dsMax = 1.0, tm = 1e9;
+    // по пустому шаг — до вещества, но не дальше шестой части отрезка: рамку оценка зазора видит с запасом
+    if (m1 > m0) {
+        dsMin = max(0.35 * m0 * gPixel, (m1 - m0) / float(4 * mSteps));
+        dsMax = max((m1 - m0) / 6.0, dsMin);
+        tm = m0 + jitter * dsMin;
+    }
+    for (int it = 0; it < steps + mSteps; it++) {
+        bool pallLeft = i < steps && ta < t1;
+        // гриб за почти непрозрачным для себя же лучом не виден и в дымке (его свет — с долей transmit)
+        bool mushLeft = mk < mSteps && tm < m1 && transmit >= 0.005;
+        if (!pallLeft && !mushLeft) break;
+        if (pallLeft && (!mushLeft || ta <= tm)) {
+            float next = min(along((float(i) + 1.0 + jitter) / n, t0, fa, fb, t1, a, b), t1);
+            pallStep(ta, next - ta, light, transmit, lost);
+            i += 1;
+            ta = next;
+            if (i >= steps) ta = 1e9;
+        } else {
+            float cone = max(tm * gPixel, 0.35 * dsMin);
+            float gap;
+            gTauEye = tauEye;
+            vec4 r = mushStep(tm, cone, gap);
+            // по пустому — до вещества и ещё на долю шага по сдвигу кадра: иначе шаг до рамки и до края сводил бы лучи
+            // всех кадров в одни и те же места, и накопление не сглаживало бы их
+            float ds = clamp(gap + jitter * dsMin, dsMin, dsMax);
+            if (r.w > 1e-7) {
+                ds = clamp(0.5 / r.w, dsMin, dsMax);
+                ds = min(ds, m1 - tm);
+                whirlsBefore(tm, light, transmit, lost);
+                // дымка воздуха до шага (mushAir; погода и масштаб — одни на все грибы): свет и непрозрачность гриба вдали тают в
+                // небе за ним
+                float tr = exp(-r.w * ds), air = mushAir(gMush[0], tm);
+                light += transmit * air * r.rgb * (1.0 - tr) / r.w;
+                lost += transmit * (1.0 - air) * (1.0 - tr);
+                transmit *= tr;
+                tauEye += r.w * ds;
             }
-            vec3 p = dir * ta;
-            // меньшее, что луч здесь различает: ширина пикселя или треть шага
-            float cone = max(ta * pixel, 0.35 * ds);
-            Sample s = emptySample();
-            slot(PallSlot0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, p, sunDir, dir, cone, s);
-            slot(PallSlot1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, p, sunDir, dir, cone, s);
-            vec3 f0 = vec3(0.0), f1 = vec3(0.0);
-            vec2 around0 = vec2(0.0), around1 = vec2(0.0);
-            if (all(greaterThanEqual(p, PallFireMin)) && all(lessThanEqual(p, PallFireMax))) {
-                f0 = storm(Sampler3, PallSlot0, PallFire0, p, cone, s.clumps);
-                f1 = storm(Sampler4, PallSlot1, PallFire1, p, cone, s.clumps);
-                around0 = fireAround(Sampler3, PallSlot0, PallFire0, p, dir, s.sigma);
-                around1 = fireAround(Sampler4, PallSlot1, PallFire1, p, dir, s.sigma);
-            }
-            float soot = f0.x + f1.x;
-            float st = s.sigma + soot;
-            if (st <= 1e-7) continue;
-            // вещество в точке: альбедо и асимметрия пелены (здесь её нет, а есть дым шторма — как у пыли)
-            vec3 w = PALL_DUST_W;
-            float g = PALL_DUST_G;
-            if (s.sigma > 1e-7) {
-                w = s.albedo / s.sigma;
-                g = s.phase / s.sigma;
-            }
-            // рассеянный свет слоя и пучки: солнце, шар и шапка — по Бугеру–Ламберту сквозь столб над точкой и тень клубов,
-            // с фазой Хеньи–Гринстейна (её среднее по сфере — 1, пучок на белой стене — его сила: отсюда ¼)
-            vec3 field = scattered(s, g * mv);
-            vec3 beams = PallSunLight * (0.25 * hg(g, c) * exp(-max(s.tau / muS + s.shadeSun, 0.0)));
-            float capI = s.cap.r + s.cap.g + s.cap.b;
-            if (capI > 1e-5) {
-                float muC = clamp(s.capUp / capI, 0.12, 1.0);
-                beams += s.cap * (0.25 * hg(g, clamp(s.capView / capI, -1.0, 1.0)) * exp(-max(s.tau / muC + s.shadeCap, 0.0)));
-            }
-            // Свет снизу — пожары под мглой, зарево шторма — рассеянный поток вверх: по Эддингтону точка рассеивает его к
-            // глазу как ω'·(1/2 + 3/4·g'·μ) (вниз, к огню, ярче), в тени клубов под точкой — как e^(−kτ) рассеянного света;
-            // зарево округи — сбоку, со своей фазой (fireAround): половина, как от светлого полупространства
-            vec3 kd = vec3(pallK(w.r, g), pallK(w.g, g), pallK(w.b, g));
-            vec3 under = (0.5 + 0.75 * g * mv) * exp(-kd * s.shadeDown);
-            // зарево шторма и округи — на экране поверх света неба (как у частиц, fx.vsh), в линейный — разностью, не ярче
-            // пламени (pallFlame)
-            vec3 glow = vec3(0.0), around = vec3(0.0);
-            if (f0.y + f1.y > 0.0) {
-                vec3 strongest = f0.y >= f1.y ? PallFire0[3].rgb : PallFire1[3].rgb;
-                glow = pallFlame(PallBase, f0.y * PallFire0[3].rgb + f1.y * PallFire1[3].rgb, strongest);
-            }
-            if (around0.x > 0.0) around += pallFlame(PallBase, 0.5 * around0.x * PallFire0[3].rgb, PallFire0[3].rgb) * exp(-kd * around0.y);
-            if (around1.x > 0.0) around += pallFlame(PallBase, 0.5 * around1.x * PallFire1[3].rgb, PallFire1[3].rgb) * exp(-kd * around1.y);
-            // огонь в точке — все огни вместе, не ярче пламени (flame): пожары под пылью через слой, зарево снизу,
-            // пожары под мглой (s.fire — их свет × вещество; свет — делением на вещество) и зарево округи
-            vec3 below = burnt(s, g * mv);
-            vec3 fire = min(below + under * (glow + s.fire / max(s.albedo, vec3(1e-7))) + around, flame);
-            vec3 emit = s.albedo * (field + beams + fire);
-            // огненный шторм: дым столбов (сажа) — в том же свете и в своей тени: прямой свет гаснет в столбе по его толще к
-            // солнцу, рассеянный — как e^(−kτ) сажи (сторона к солнцу и верх клубов светлые, другая сторона и низ — тёмные:
-            // столб объёмный, а не плоская серая полоса); снизу — зарево пожаров
-            if (soot > 0.0) {
-                float self = (f0.z + f1.z) / soot;
-                vec3 sootLit = field * exp(-sootK * self) + PallSunLight * (sootSun * exp(-max(s.tau / muS + s.shadeSun, 0.0) - self))
-                        + min(below * exp(-sootK * self) + (0.5 + 0.75 * PALL_SOOT_G * mv) * glow + around, flame);
-                emit += soot * PALL_SOOT_W * sootLit;
-            }
-            float tr = exp(-st * ds);
-            light += transmit * emit * (1.0 - tr) / st;
-            transmit *= tr;
-            if (transmit < 0.005) {
-                transmit = 0.0;
-                break;
-            }
+            tm += ds;
+            mk += 1;
+        }
+        if (transmit + lost < 0.005) {
+            transmit = 0.0;
+            lost = 0.0;
+            break;
         }
     }
     // смерчи за последним шагом (до мира)
-    for (int k = 0; k < 4; k++) {
-        if (whirlIn[k] < 1e8) {
-            light += transmit * whirlLight[k].rgb;
-            transmit *= whirlLight[k].a;
-        }
-    }
+    whirlsBefore(1e8, light, transmit, lost);
     // на экран: цвет пелены как вещества — свет, делённый на непрозрачность (в однородной — её функция источника), в
-    // значения экрана, умноженный на непрозрачность; с миром смешивается, как всё полупрозрачное в кадре
-    float cover = 1.0 - transmit;
+    // значения экрана, умноженный на непрозрачность; с миром смешивается, как всё полупрозрачное в кадре. Ярче белого —
+    // к белому (CROSS)
+    float cover = 1.0 - transmit - lost;
     vec3 medium = light / max(cover, 1e-4);
+    medium += vec3(CROSS * max(dot(medium, LUMA) - 1.0, 0.0));
     vec3 shown = shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * cover;
     // негодный итог (NaN, бесконечность — из глубины, матриц или поля) — пропускание −1: накопление возьмёт прошлое
     // этого места, а без него пиксель — без пелены (fx_pall_resolve)
-    vec4 res = vec4(shown, transmit);
+    // сумма долей в float32 бывает на ulp больше 1 — pallValid счёл бы пиксель негодным
+    vec4 res = vec4(shown, min(transmit + lost, 1.0));
     fragColor = pallValid(res) ? res : vec4(0.0, 0.0, 0.0, -1.0);
 }

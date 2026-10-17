@@ -118,6 +118,14 @@ final class FireStorms {
     }
 
     /**
+     * Зарево пожаров снизу на единицу среднего пламени под точкой, у земли (на экране, {@link #GLOW_NIGHT}): доверие
+     * модели огня {@code gate}, ночь {@code night} 0..1. Пелене ({@code storm}) и грибам ({@code MushroomField#fire}).
+     */
+    static double glow(double gate, double night) {
+        return gate * GLOW_NIGHT * (GLOW_DAY + (1 - GLOW_DAY) * night);
+    }
+
+    /**
      * Слот огня {@code k}: числа шторма подрыва ({@code pall.glsl}), карта огня, рамка. {@code clouds} — облака Minecraft
      * от глаза по y (их нет — очень высоко): пламя на поверхностях ниже них — облака в расстоянии до мира тоже есть.
      */
@@ -136,7 +144,7 @@ final class FireStorms {
         PallPass.Fire fire = k == 0 ? f.fire0 : f.fire1;
         Matrix4f m = fire.params;
         m.m00((float) half).m01((float) cell).m02((float) top).m03((float) hb);
-        m.m10((float) bx).m11((float) bz).m12((float) w).m13((float) (gate * GLOW_NIGHT * (GLOW_DAY + (1 - GLOW_DAY) * night)));
+        m.m10((float) bx).m11((float) bz).m12((float) w).m13((float) glow(gate, night));
         m.m20((float) (gate * (FLAME_DAY + (FLAME_NIGHT - FLAME_DAY) * night))).m21((float) (SMOKE_SIGMA_M / d.scale()))
                 .m22((float) (ticks / 20.0)).m23(FLAME_NEAR);
         m.m30(FIRE_R).m31(FIRE_G).m32(FIRE_B).m33(clouds);

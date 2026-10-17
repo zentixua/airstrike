@@ -461,6 +461,11 @@ public final class PallField {
         return smooth(5, 60, ageS) * (1 - smooth(end - HAZE_FADE_TICKS, end, ticks));
     }
 
+    /** Свет пожаров под грибом 0..1 (у эпицентра; {@link #fireLight}): зоны пожаров нет — 0. */
+    double fireBelow(double ticks) {
+        return fireReach > 0 ? fireLight(age(0, ticks), ticks) : 0;
+    }
+
     /**
      * Есть ли в момент {@code ticks} хоть что-то от пелены: мгла (только над пожарами), пыль — пока фронт идёт по
      * таблице и пока не осела у края (туда фронт пришёл позже всего; брызги оседают раньше пыли), базисная волна.
