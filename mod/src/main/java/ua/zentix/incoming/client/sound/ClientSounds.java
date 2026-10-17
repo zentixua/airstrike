@@ -281,12 +281,22 @@ public final class ClientSounds {
         atEar(event, source, volume, pitch, SoundSource.MASTER);
     }
 
+    /** Как {@link #atEarLoud(SoundEvent, Vec3, float, float)}, но вариант записи выбирает зерно (эхо от рельефа повторяет ту же запись). */
+    public static void atEarLoud(SoundEvent event, Vec3 source, float volume, float pitch, long seed) {
+        play(loudShot(event, source, volume, pitch, seed));
+    }
+
     /**
-     * Как {@link #atEarLoud(SoundEvent, Vec3, float, float)}, но вариант записи выбирает зерно (эхо от рельефа повторяет ту
-     * же запись); звук — тот, что отдан движку (эхо ждёт его настоящего начала).
+     * Звук {@link #atEarLoud(SoundEvent, Vec3, float, float, long)}, ещё не отданный движку ({@link #start}): кто ждёт
+     * его начала, заводит ожидание до {@code play} (эхо от рельефа).
      */
-    public static SoundInstance atEarLoud(SoundEvent event, Vec3 source, float volume, float pitch, long seed) {
-        return atEar(event, source, volume, pitch, SoundSource.MASTER, RandomSource.create(seed));
+    public static SoundInstance loudShot(SoundEvent event, Vec3 source, float volume, float pitch, long seed) {
+        return shot(event, source, volume, pitch, SoundSource.MASTER, RandomSource.create(seed));
+    }
+
+    /** Отдать звук движку. */
+    public static void start(SoundInstance sound) {
+        play(sound);
     }
 
     private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category) {
@@ -301,14 +311,16 @@ public final class ClientSounds {
         atEar(event, source, volume, pitch, SoundSource.AMBIENT, RandomSource.create(seed));
     }
 
-    private static SoundInstance atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category, RandomSource random) {
+    private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category, RandomSource random) {
+        play(shot(event, source, volume, pitch, category, random));
+    }
+
+    private static SoundInstance shot(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category, RandomSource random) {
         Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         float open = SoundFilters.open(ear, source.add(0, 1.5, 0));
         float highs = farAir(ear.distanceTo(source)) * SoundFilters.blockedHighs(open);
-        SoundInstance shot = new Shot(event.getLocation(), category, volume, pitch, random, SoundInstance.Attenuation.NONE, toward(ear, source), false,
+        return new Shot(event.getLocation(), category, volume, pitch, random, SoundInstance.Attenuation.NONE, toward(ear, source), false,
                 SoundFilters.blockedGain(open), highs);
-        play(shot);
-        return shot;
     }
 
     /**

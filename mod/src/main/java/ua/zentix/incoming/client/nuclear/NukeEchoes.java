@@ -32,11 +32,15 @@ import java.util.concurrent.CompletableFuture;
  * Эхо подрыва от рельефа у этого слушателя (DESIGN-nuke §5): пока фронт идёт, лучи из уха по карте высот
  * ({@link TerrainEcho}, по {@link #RAYS_PER_TICK} за тик) находят склоны, которые вернут удар; запись прямого удара
  * читается в фоне. Когда фронт дошёл и лучи готовы — в фоне же сводятся дорожки по сторонам ({@link EchoMix}), и они
- * встают в очередь своих источников OpenAL ({@link OwnSources}) от настоящего начала прямого удара. Только вживую.
+ * встают в очередь своих источников OpenAL ({@link OwnSources}) от настоящего начала прямого удара. Лучей не хватило
+ * (слушатель вошёл или перенёсся к самому приходу фронта) — они доводятся по {@link #ARRIVAL_RAYS} за тик, и эхо
+ * начинается позже (начало дорожек, что уже прошло, пропускается). Только вживую.
  */
 final class NukeEchoes {
     /** Лучей за тик, пока фронт идёт (все {@link TerrainEcho#RAYS} — за 6 тиков). */
     static final int RAYS_PER_TICK = 12;
+    /** Лучей за тик, когда фронт уже у слушателя, а лучи не готовы. */
+    static final int ARRIVAL_RAYS = 24;
     /** Слушатель ушёл дальше этого от места, откуда пущены лучи, — лучи заново. */
     private static final double MOVED = 64;
     /** Зерно — столько секунд начала записи прямого удара. */
@@ -59,8 +63,17 @@ final class NukeEchoes {
     private EchoMix.Mix done;
     @Nullable
     private OwnSources.Anchor anchor;
-    private float volume;
+    /** Прямой удар, от начала которого ждёт эхо (для строки сценария: какая запись). */
+    @Nullable
+    private SoundInstance direct;
+    /** Самая долгая порция лучей за тик, нс (для строки сценария). */
+    private long traceSlowest;
+    /** Где слушателя застал фронт (лучи доводятся отсюда); null — фронт ещё не дошёл. */
+    @Nullable
+    private Vec3 heard;
+    private float volume, pitch;
     private int queued;
+    private boolean stopped;
 
     NukeEchoes(ClientNuclear.Active a) {
         this.a = a;
@@ -79,23 +92,49 @@ final class NukeEchoes {
     }
 
     /**
-     * Фронт у слушателя: недосчитанные лучи — сразу, дальше сведение в фоне.
+     * Прямой удар вот-вот уйдёт движку: эхо — от его настоящего начала. До {@code play}: с буфером, который движок уже
+     * держит (второй подрыв за игру), звук стартует в потоке звука раньше, чем {@code play} вернётся.
      *
-     * @param tick   тик подрыва, когда зазвучал прямой удар
-     * @param direct прямой удар, отданный движку (эхо — от его настоящего начала)
+     * @param tick   тик подрыва, когда прямой удар отдают движку
+     * @param direct прямой удар (null — начало по тику)
+     */
+    void expect(long tick, @Nullable SoundInstance direct) {
+        if (stopped) return;
+        this.direct = direct;
+        this.anchor = OwnSources.anchor(this, direct, a::ticks, tick);
+    }
+
+    /**
+     * Фронт у слушателя: недосчитанные лучи — по {@link #ARRIVAL_RAYS} за тик, дальше сведение в фоне.
+     *
      * @param volume громкость прямого удара (эхо — доля её)
      * @param pitch  высота тона прямого удара (эхо — того же звука)
      */
-    void arrive(Vec3 ear, long tick, @Nullable SoundInstance direct, float volume, float pitch) {
-        trace(ear, TerrainEcho.RAYS);
-        this.anchor = OwnSources.anchor(this, direct, a::ticks, tick);
+    void arrive(Vec3 ear, float volume, float pitch) {
+        if (stopped) return;
+        this.heard = ear;
         this.volume = volume;
-        List<TerrainEcho.Reflection> list = List.copyOf(found);
-        mix = grain.thenApplyAsync(g -> EchoMix.render(EchoMix.pitch(g, pitch), list), Util.backgroundExecutor());
+        this.pitch = pitch;
+        finish();
     }
 
-    /** Каждый тик после удара: готовые дорожки — в очередь своих источников. */
+    /** Лучи из места прихода фронта — ещё порция; все готовы — сведение в фоне. */
+    private void finish() {
+        Vec3 ear = heard;
+        if (ear == null || mix != null) return;
+        trace(ear, ARRIVAL_RAYS);
+        // в измерении с потолком лучей нет
+        ClientLevel level = Minecraft.getInstance().level;
+        if (nextRay < TerrainEcho.RAYS && level != null && !level.dimensionType().hasCeiling()) return;
+        List<TerrainEcho.Reflection> list = List.copyOf(found);
+        float p = pitch;
+        mix = grain.thenApplyAsync(g -> EchoMix.render(EchoMix.pitch(g, p), list), Util.backgroundExecutor());
+    }
+
+    /** Каждый тик после удара: лучи, которых не хватило, и готовые дорожки — в очередь своих источников. */
     void tick() {
+        if (stopped) return;
+        if (mix == null) finish();
         if (mix == null || anchor == null || done != null || !mix.isDone()) return;
         done = mix.getNow(EchoMix.Mix.NONE);
         if (done.tracks().isEmpty()) return;
@@ -105,8 +144,9 @@ final class NukeEchoes {
         }
     }
 
-    /** Подрыв убран или стал прошлым. */
+    /** Подрыв убран или стал прошлым: голоса и ожидание начала — прочь, новых нет. */
     void stop() {
+        stopped = true;
         OwnSources.stop(this);
     }
 
@@ -119,12 +159,14 @@ final class NukeEchoes {
             found.clear();
         }
         if (nextRay >= TerrainEcho.RAYS) return;
+        long t0 = System.nanoTime();
         Sightline.Heights heights = ground(level);
         Vec3 b = d.burst();
         TerrainEcho.Blast blast = blast(d);
         for (int i = 0; i < rays && nextRay < TerrainEcho.RAYS; i++, nextRay++) {
             TerrainEcho.ray(heights, nextRay, TerrainEcho.RAYS, TerrainEcho.RANGE, from.x, from.y, from.z, b.x, b.y, b.z, blast, found);
         }
+        traceSlowest = Math.max(traceSlowest, System.nanoTime() - t0);
     }
 
     /** Карта высот без пустоты под миром (у неё верх — дно мира). */
@@ -191,14 +233,18 @@ final class NukeEchoes {
 
     /** Строка {@code SCENARIO}: лучи, отражения и сильнейшие из них (задержка, сторона, уровень). */
     String describe() {
-        StringBuilder sb = new StringBuilder(String.format(Locale.ROOT, "echo rays %d/%d taps %d", nextRay, TerrainEcho.RAYS, found.size()));
+        StringBuilder sb = new StringBuilder(String.format(Locale.ROOT, "echo rays %d/%d (slowest tick %.2f ms) taps %d", nextRay, TerrainEcho.RAYS,
+                traceSlowest / 1e6, found.size()));
         EchoMix.Mix m = done;
         if (m != null) {
             Vec3 e = from, bu = d.burst();
             if (e != null) sb.append(String.format(Locale.ROOT, " ear %.0f,%.0f,%.0f burst %.0f,%.0f,%.0f", e.x, e.y, e.z, bu.x, bu.y, bu.z));
             double sum = found.stream().mapToDouble(TerrainEcho.Reflection::energy).sum();
-            sb.append(String.format(Locale.ROOT, " sum %.1fdB tracks %d queued %d t60 %.1f vol %.2f start +%.2fs", 10 * Math.log10(Math.max(1e-9, sum)),
-                    m.tracks().size(), queued, m.t60(), volume, anchor == null ? Double.NaN : anchor.lateSeconds()));
+            // начало: по старту прямого удара в движке (sound) или по тику (tick — движок его не запустил за срок)
+            var sound = direct == null ? null : direct.getSound();
+            sb.append(String.format(Locale.ROOT, " sum %.1fdB tracks %d queued %d t60 %.1f vol %.2f start +%.2fs by %s of %s", 10 * Math.log10(Math.max(1e-9, sum)),
+                    m.tracks().size(), queued, m.t60(), volume, anchor == null ? Double.NaN : anchor.lateSeconds(),
+                    anchor == null ? "-" : anchor.heard() ? "sound" : "tick", sound == null ? "-" : sound.getLocation().getPath()));
             for (EchoMix.Track t : m.tracks()) {
                 sb.append(String.format(Locale.ROOT, " [az %.0f start %.2fs len %.1fs x%.2f]", Math.toDegrees(t.azimuth()), t.start() / 20, t.seconds(), t.gain()));
             }

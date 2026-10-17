@@ -70,8 +70,8 @@ public final class NukeSounds {
         if (burning && mc.level != null) {
             Vec3 eye = mc.gameRenderer.getMainCamera().getPosition();
             FireWatch.tick(mc.level, (int) Math.floor(eye.x) >> 4, (int) Math.floor(eye.z) >> 4, mc.options.getEffectiveRenderDistance());
-        } else if (FireWatch.total() > 0) {
-            FireWatch.reset();
+        } else {
+            FireWatch.idle();
         }
     }
 
@@ -83,7 +83,7 @@ public final class NukeSounds {
             if (a.sounds.echoes != null) sb.append(a.sounds.echoes.describe()).append("; ");
             sb.append(a.sounds.after.describe()).append(" | ");
         }
-        return sb.isEmpty() ? "" : sb + ua.zentix.incoming.client.sound.OwnSources.describe();
+        return sb.isEmpty() ? "" : sb + ua.zentix.incoming.client.sound.OwnSources.describe() + " " + FireWatch.describe();
     }
 
     /**
@@ -161,6 +161,12 @@ public final class NukeSounds {
             java.util.Arrays.sort(rumbles);
             this.echoes = live ? new NukeEchoes(a) : null;
             this.after = new NukeAfter(a);
+        }
+
+        /** Подрыв убран (смена измерения, возрождение, перемотка повтора, срок): эхо и петли горящего города — прочь. */
+        void stop() {
+            if (echoes != null) echoes.stop();
+            after.end();
         }
 
         /** Сервер снёс блоки в чанке рядом: места руин — для поздних обрушений. */
@@ -250,26 +256,23 @@ public final class NukeSounds {
             Vec3 b = d.burst();
             Vec3 side = new Vec3(b.z - ear.z, 0, ear.x - b.x).normalize().scale(40);
             long boom = echoes == null ? d.seed() : echoes.seed;
-            float echo, tone;
-            SoundInstance direct;
+            float echo = psi >= 1 ? 1 : (float) Mth.clamp(0.35 + psi, 0.35, 1), tone = psi >= 1 ? 0.75f : 1;
+            // эхо ждёт настоящего начала прямого удара: ожидание — до play (с готовым буфером звук стартует сразу)
+            SoundInstance direct = ClientSounds.loudShot(ModSounds.NUKE_BOOM_FAR.get(), b, echo, tone, boom);
+            if (echoes != null) echoes.expect(arrivalTick, direct);
             if (psi >= 1) {
                 ClientSounds.atEarLoud(ModSounds.NUKE_CRACK.get(), b, 1, 1);
                 ClientSounds.atEarLoud(ModSounds.NUKE_CRACK.get(), b.add(side), 1, 0.92f);
                 ClientSounds.atEarLoud(ModSounds.NUKE_CRACK.get(), b.subtract(side), 1, 0.85f);
-                tone = 0.75f;
-                direct = ClientSounds.atEarLoud(ModSounds.NUKE_BOOM_FAR.get(), b, 1, tone, boom);
+                ClientSounds.start(direct);
                 ClientSounds.atEarLoud(ModSounds.BLAST_NEAR.get(), b, 1, 0.55f);
-                echo = 1;
             } else {
-                float v = (float) Mth.clamp(0.35 + psi, 0.35, 1);
-                ClientSounds.atEarLoud(ModSounds.NUKE_CRACK_FAR.get(), b, v, 1, boom);
-                direct = ClientSounds.atEarLoud(ModSounds.NUKE_BOOM_FAR.get(), b, v, 1, boom);
-                ClientSounds.atEarLoud(ModSounds.NUKE_BOOM_FAR.get(), b.add(side), v * 0.8f, 0.85f);
-                ClientSounds.atEarLoud(ModSounds.BLAST_FAR.get(), b, v, 0.6f);
-                echo = v;
-                tone = 1;
+                ClientSounds.atEarLoud(ModSounds.NUKE_CRACK_FAR.get(), b, echo, 1, boom);
+                ClientSounds.start(direct);
+                ClientSounds.atEarLoud(ModSounds.NUKE_BOOM_FAR.get(), b.add(side), echo * 0.8f, 0.85f);
+                ClientSounds.atEarLoud(ModSounds.BLAST_FAR.get(), b, echo, 0.6f);
             }
-            if (echoes != null) echoes.arrive(ear, arrivalTick, direct, echo, tone);
+            if (echoes != null) echoes.arrive(ear, echo, tone);
             CameraShake.nuke(psi);
             CameraShake.quake((int) Mth.clamp(20 + psi * 8, 20, 120));
             NukeDust.arrive(psi);

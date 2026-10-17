@@ -3,6 +3,7 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
@@ -62,12 +63,13 @@ final class NukeAfter {
     private final AmbientLoop[] roar = new AmbientLoop[QUADRANTS];
     @Nullable
     private AmbientLoop wind;
+    /** Тиков до новой попытки запустить петлю (гул по сторонам, ветер — последняя). */
+    private final int[] retry = new int[QUADRANTS + 1];
     private final float[] roarVolume = new float[QUADRANTS];
     private final double[] roarDistance = new double[QUADRANTS];
     private float windVolume;
     private Vec3 windToward = Vec3.ZERO;
     private double windDistance;
-    private int retry;
     /** Доверие модели: сколько горит в своих чанках против модели там же (1 — как в модели, 0 — пожаров нет). */
     private double trust = 1;
     private double modelLoaded, seenLoaded, modelRest = 1;
@@ -197,28 +199,37 @@ final class NukeAfter {
         }
     }
 
-    /** Петли гула и ветра: ведутся каждый тик; не звучит (движок не взял, перезапуск) — заново. */
+    /**
+     * Петли гула и ветра: ведутся каждый тик. Петлю, которой движок не держит (не дал канал, снял при перезапуске звука
+     * или смене устройства, ползунок «Окружение» был в нуле), — запустить заново, каждую сама по себе; пока ползунок в
+     * нуле — не запускать (как сирены, {@link NukeSounds}).
+     */
     private void sound(Vec3 ear) {
-        Minecraft mc = Minecraft.getInstance();
-        if (retry > 0) retry--;
+        boolean ambient = Minecraft.getInstance().options.getSoundSourceVolume(SoundSource.AMBIENT) > 0;
         for (int q = 0; q < QUADRANTS; q++) {
             double az = 2 * Math.PI * q / QUADRANTS;
             Vec3 toward = ear.add(Math.cos(az) * 10, 0, Math.sin(az) * 10);
-            if (roar[q] != null && !roar[q].isStopped()) roar[q].set(ear, toward, roarVolume[q], roarDistance[q]);
-            else if (roarVolume[q] > 0 && retry == 0) {
-                roar[q] = new AmbientLoop(ModSounds.NUKE_FIRE.get(), SoundSource.AMBIENT, 0.9f + 0.07f * q, d.seed() + q);
-                roar[q].set(ear, toward, roarVolume[q], roarDistance[q]);
-                mc.getSoundManager().play(roar[q]);
-                retry = 20;
-            }
+            roar[q] = loop(q, roar[q], ambient, ear, toward, roarVolume[q], roarDistance[q], ModSounds.NUKE_FIRE.get(), 0.9f + 0.07f * q, d.seed() + q);
         }
-        if (wind != null && !wind.isStopped()) wind.set(ear, windToward, windVolume, windDistance);
-        else if (windVolume > 0 && retry == 0) {
-            wind = new AmbientLoop(ModSounds.NUKE_FIRE_WIND.get(), SoundSource.AMBIENT, 0.75f, d.seed() ^ 0x3D);
-            wind.set(ear, windToward, windVolume, windDistance);
-            mc.getSoundManager().play(wind);
-            retry = 20;
+        wind = loop(QUADRANTS, wind, ambient, ear, windToward, windVolume, windDistance, ModSounds.NUKE_FIRE_WIND.get(), 0.75f, d.seed() ^ 0x3D);
+    }
+
+    /** Одна петля: звучит — вести; нет — запустить, если есть что и можно. */
+    @Nullable
+    private AmbientLoop loop(int i, @Nullable AmbientLoop l, boolean ambient, Vec3 ear, Vec3 toward, float volume, double distance,
+                             SoundEvent event, float pitch, long seed) {
+        if (retry[i] > 0) retry[i]--;
+        if (l != null && l.playing()) {
+            l.set(ear, toward, volume, distance);
+            return l;
         }
+        if (l != null) l.end();
+        if (volume <= 0 || !ambient || retry[i] > 0) return null;
+        AmbientLoop fresh = new AmbientLoop(event, SoundSource.AMBIENT, pitch, seed);
+        fresh.set(ear, toward, volume, distance);
+        Minecraft.getInstance().getSoundManager().play(fresh);
+        retry[i] = 20;
+        return fresh;
     }
 
     /** Вторичные взрывы, чей час настал: наш взрыв — картинка и звук с фронтом, без разрушений. */
