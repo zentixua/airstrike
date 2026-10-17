@@ -398,6 +398,13 @@ final class Newisle {
         volatile boolean over;
         /** Тиков записи плана с открытой картой пульта и из них — со строкой «Distant Horizons ещё грузит» (n07 16.10). */
         int mapTicks, mapPending;
+        /**
+         * Карта в кадре: сколько раз на ней вставала новая конечная точка и сколько самое большее было точек маршрута
+         * (Артём 17.10 о n07: курсор щёлкал каждые полсекунды, маршрут прыгал — нужна одна точка, поставленная плавно).
+         */
+        int mapMarks, mapRoute;
+        @Nullable
+        MapTarget.Place mapAt;
         long startTick = -1;
         // тот же старт по часам сервера: клиентские штампы под нагрузкой ударов отстают от него (T21, ночь 15.10)
         volatile long startServer = -1;
@@ -633,9 +640,12 @@ final class Newisle {
             o.add("mspt", mspt);
         }
         if (run.mapTicks > 0) {
-            // карта пульта в кадре: сколько тиков на ней строка ожидания DH (take_checks.map_loading — провал записи)
+            // карта пульта в кадре: сколько тиков на ней строка ожидания DH (take_checks.map_loading — провал записи),
+            // сколько конечных точек на ней встало и точек маршрута (take_checks.map_aim — одна точка, без маршрута)
             o.addProperty("map_ticks", run.mapTicks);
             o.addProperty("map_pending", run.mapPending);
+            o.addProperty("map_marks", run.mapMarks);
+            o.addProperty("map_route", run.mapRoute);
         }
         if (run.shot.has("cover")) o.add("cover", run.shot.get("cover"));
         shotsOut.add(o);
@@ -890,6 +900,10 @@ final class Newisle {
         if (r != null && mc.screen instanceof MapScreen) {
             r.mapTicks++;
             if (TerrainTiles.farPending()) r.mapPending++;
+            MapTarget.Place at = MapTarget.get(mc.level).orElse(null);
+            if (at != null && !at.equals(r.mapAt)) r.mapMarks++;
+            r.mapAt = at;
+            r.mapRoute = Math.max(r.mapRoute, MapTarget.route(mc.level).size());
         }
         for (Launched l : launched) l.tick();
         if (!enterSeen && !hints.isEmpty() && mc.screen == null
@@ -1145,15 +1159,23 @@ final class Newisle {
                 war.salvo(a.get("weapon").getAsString(), count, spread, to, from);
             };
             case "scope" -> () -> mc.options.keyUse.setDown(a.get("on").getAsBoolean());
+            // карта пульта открывается на цели без метки (карта открывается на выбранном месте — его и убираю после
+            // открытия): конечную точку ставит щелчок курсора (map.aim) у всех на глазах
             case "map.open" -> () -> {
                 Vec3 t = at(a.get("target"), 0);
                 MapTarget.set(mc.level, new MapTarget.Place(t.x, t.z));
-                MapTarget.clearRoute();
                 MapScreen.reset();
                 mc.setScreen(new MapScreen(new RemoteScreen()));
+                MapTarget.reset();
                 Cursor.show(new double[]{mc.getWindow().getGuiScaledWidth() * 0.7, mc.getWindow().getGuiScaledHeight() * 0.75});
             };
-            case "map.route" -> () -> mapRoute(a.get("route").getAsString());
+            // курсор плавно идёт к цели на карте за {@code ticks} тиков, задерживается на ней и один раз щёлкает:
+            // конечная точка — щелчком экрана карты, как у игрока
+            case "map.aim" -> () -> {
+                int ticks = a.get("ticks").getAsInt();
+                Cursor.moveTo(war.mapPoint(at(a.get("target"), 0)), ticks);
+                war.later(ticks + 4, () -> Cursor.click(mc));
+            };
             // знак Артёму в живом дубле — новая строка подсказки поверх игры (в повтор не пишется); на слепом прогоне бот
             // на его месте сам делает то, что строка просит: бежит к {@code to}
             case "artem.cue" -> () -> {
@@ -1169,7 +1191,6 @@ final class Newisle {
             case "map.close" -> () -> {
                 Cursor.hide();
                 mc.setScreen(null);
-                MapTarget.clearRoute();
             };
             case "retarget" -> () -> {
                 WeaponType w = WeaponType.parse(a.get("weapon").getAsString());
@@ -1183,22 +1204,6 @@ final class Newisle {
             };
             default -> throw new IllegalArgumentException("нет действия " + what);
         };
-    }
-
-    /** Путь залпа на открытой карте пульта: курсор идёт по точкам, каждая встаёт в маршрут. */
-    private void mapRoute(String name) {
-        JsonObject r = data.scenario.getAsJsonObject("routes").getAsJsonObject(name);
-        MapTarget.clearRoute();
-        JsonArray via = r.getAsJsonArray("via");
-        int gap = 6;
-        for (int i = 0; i < via.size(); i++) {
-            JsonArray v = via.get(i).getAsJsonArray();
-            Vec3 p = new Vec3(v.get(0).getAsDouble(), 0, v.get(1).getAsDouble());
-            war.later(i * gap, () -> Cursor.moveTo(war.mapPoint(p), gap - 1));
-            war.later(i * gap + gap - 1, () -> {
-                if (mc.level != null) MapTarget.add(mc.level, new MapTarget.Place(p.x, p.z));
-            });
-        }
     }
 
     private Crowd group(JsonObject a) {

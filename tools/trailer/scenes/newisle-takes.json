@@ -86,17 +86,12 @@
    "after": [{"do": "crowd.remove", "group": "cafe"}]
   },
   {
-   "id": "T05", "title": "Волков прокладывает залп", "from": "chain", "clock": "night", "siren": true, "minutes": 5,
+   "id": "T05", "title": "Волков ставит цель залпа", "from": "chain", "clock": "night", "siren": true, "minutes": 5,
    "stage": [{"do": "player", "at": "camera:n07", "look": "c1_core", "item": "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:4,spread:0}]"}],
    "shots": [
     {"plans": ["n07"], "seconds": 6, "camera": "player", "hud": true,
      "ready": [{"do": "map.open", "target": "c1_core"}], "when": {"kind": "map"},
-     "cues": [
-      {"at": 0.2, "do": "map.route", "route": "desert_hook"},
-      {"at": 0.6, "do": "map.route", "route": "gorge"},
-      {"at": 1.0, "do": "map.route", "route": "bridge"},
-      {"at": 1.4, "do": "map.route", "route": "east_lake"}
-     ],
+     "cues": [{"at": 0.0, "do": "map.aim", "target": "c1_core", "ticks": 20}],
      "end": [{"do": "map.close"}]}
    ]
   },

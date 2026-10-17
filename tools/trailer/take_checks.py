@@ -466,10 +466,27 @@ def map_loading(result):
     return out
 
 
+def map_aim(result):
+    """Карта пульта в кадре ставит одну конечную точку, без маршрута (Артём 17.10 о n07: курсор щёлкал каждые полсекунды
+    и маршрут прыгал): result.json пишет у плана, сколько раз на карте вставала новая точка (`map_marks`) и сколько самое
+    большее было точек маршрута (`map_route`). Ни одной точки — щелчок не попал в карту; больше одной или маршрут —
+    месиво. Запись без этих полей (до 17.10) не проверяется."""
+    out = []
+    for s in (result or {}).get("shots", []):
+        if "map_marks" not in s:
+            continue
+        plan = (s.get("plans") or [s.get("replay", "?")])[0]
+        if s["map_marks"] != 1:
+            out.append(f"{plan}: на карте пульта конечных точек {s['map_marks']}, нужна одна")
+        if s.get("map_route", 0):
+            out.append(f"{plan}: на карте пульта точек маршрута {s['map_route']}, маршрут прыгает")
+    return out
+
+
 def record_problems(rec, take, result):
     """Проверки записи, провал которых лечит пересъёмка: список причин для attempt() конвейера."""
     return (same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take) + crowd_gaze(rec, take)
-            + map_loading(result))
+            + map_loading(result) + map_aim(result))
 
 
 def record_warnings(rec, take, result):

@@ -414,6 +414,23 @@ class MapLoadingTest(unittest.TestCase):
         self.assertEqual([], T.map_loading(None))
 
 
+class MapAimTest(unittest.TestCase):
+    def test_one_mark_without_route_passes(self):
+        self.assertEqual([], T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 1, "map_route": 0}]}))
+
+    def test_jumping_route_and_missed_click_fail(self):
+        out = T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 1, "map_route": 4}]})
+        self.assertEqual(["n07: на карте пульта точек маршрута 4, маршрут прыгает"], out)
+        out = T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 0, "map_route": 0}]})
+        self.assertEqual(["n07: на карте пульта конечных точек 0, нужна одна"], out)
+        result = {"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 3, "map_route": 0}]}
+        self.assertEqual(T.map_aim(result), T.record_problems(tempfile.mkdtemp(), {"shots": []}, result))
+
+    def test_recording_before_the_counters_is_not_checked(self):
+        self.assertEqual([], T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_pending": 0}]}))
+        self.assertEqual([], T.map_aim(None))
+
+
 class RecordProblemsTest(unittest.TestCase):
     def test_old_recording_without_new_data_is_not_a_failure(self):
         self.assertEqual([], T.record_problems(tempfile.mkdtemp(), {"siren": True, "shots": []}, {}))
