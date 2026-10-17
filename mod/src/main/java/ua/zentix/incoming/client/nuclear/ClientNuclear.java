@@ -6,7 +6,6 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.client.far.FarTerrain;
 import ua.zentix.incoming.client.far.Sightline;
-import ua.zentix.incoming.client.fx.layer.PallPass;
 import ua.zentix.incoming.net.S2C;
 import ua.zentix.incoming.nuclear.NuclearStrikes;
 import ua.zentix.incoming.nuclear.Detonation;
@@ -159,8 +158,6 @@ public final class ClientNuclear {
 
     /** Пуск МБР; {@code live} — не из перемотки повтора ({@link ua.zentix.incoming.client.replay.Replay#event}): рёв пуска только вживую. */
     public static void warning(S2C.NukeWarning w, boolean live) {
-        // шум объёма — в фоне с пуска: огненный шар — объём гриба с первого мига, а шум готовится около секунды
-        PallPass.prepare();
         boolean fresh = !WARNINGS.containsKey(w.strikeId());
         WARNINGS.put(w.strikeId(), w);
         if (fresh && live) NukeSounds.warning(w);

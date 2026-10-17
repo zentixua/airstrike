@@ -417,7 +417,7 @@ public final class PallPass {
         return !failed && march != null && resolve != null && composite != null;
     }
 
-    /** Шум готовится в фоне (первый подрыв): до готовности пелены нет. */
+    /** Шум готовится в фоне со входа в мир ({@code IncomingClient}; и с первого подрыва): до готовности пелены и гриба нет. */
     public static void prepare() {
         if (textures == null) {
             textures = CompletableFuture.supplyAsync(() -> new byte[][]{

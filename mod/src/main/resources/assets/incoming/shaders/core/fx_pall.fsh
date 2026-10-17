@@ -1228,13 +1228,24 @@ void main() {
     // на экран: цвет пелены как вещества — свет, делённый на непрозрачность (в однородной — её функция источника), в
     // значения экрана, умноженный на непрозрачность; с миром смешивается, как всё полупрозрачное в кадре. Ярче белого —
     // к белому (CROSS)
-    float cover = 1.0 - transmit - lost;
+    float cover = 1.0 - transmit - lost, behind = min(transmit + lost, 1.0);
     vec3 medium = light / max(cover, 1e-4);
+    // Ярче белого (огненный шар, накал, зарево ночью): свет вещества и то, что за ним, складываются линейно, и пересвет
+    // закрывает фон — яркость сверх белого уходит в долю пикселя (cover·L, не больше всего пикселя), вещество там —
+    // белое. Иначе шар вдали, где дымка оставила ему долю cover (10 км в ясную погоду — 0,14), был бы бледным пятном
+    // на небе, сколько бы ни светил: на экране вещество не ярче белого
+    float lum = dot(medium, LUMA);
+    if (lum > 1.0 && cover > 1e-4) {
+        float wider = min(cover * lum, 1.0);
+        medium *= cover / wider;
+        cover = wider;
+        behind = 1.0 - wider;
+    }
     medium += vec3(CROSS * max(dot(medium, LUMA) - 1.0, 0.0));
     vec3 shown = shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * cover;
     // негодный итог (NaN, бесконечность — из глубины, матриц или поля) — пропускание −1: накопление возьмёт прошлое
     // этого места, а без него пиксель — без пелены (fx_pall_resolve)
     // сумма долей в float32 бывает на ulp больше 1 — pallValid счёл бы пиксель негодным
-    vec4 res = vec4(shown, min(transmit + lost, 1.0));
+    vec4 res = vec4(shown, behind);
     fragColor = pallValid(res) ? res : vec4(0.0, 0.0, 0.0, -1.0);
 }

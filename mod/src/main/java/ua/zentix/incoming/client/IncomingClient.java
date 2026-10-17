@@ -37,6 +37,7 @@ import ua.zentix.incoming.client.fx.Fragments;
 import ua.zentix.incoming.client.fx.GridEffects;
 import ua.zentix.incoming.client.fx.layer.FxAtlas;
 import ua.zentix.incoming.client.fx.layer.FxLayer;
+import ua.zentix.incoming.client.fx.layer.PallPass;
 import ua.zentix.incoming.client.fx.particle.Fx;
 import ua.zentix.incoming.client.fx.particle.FxPool;
 import ua.zentix.incoming.client.hud.Alerts;
@@ -115,6 +116,7 @@ public final class IncomingClient {
         NeoForge.EVENT_BUS.addListener(Designator::hideHand);
         NeoForge.EVENT_BUS.addListener(IncomingClient::scroll);
         NeoForge.EVENT_BUS.addListener(IncomingClient::hideCrosshair);
+        NeoForge.EVENT_BUS.addListener(IncomingClient::login);
         NeoForge.EVENT_BUS.addListener(IncomingClient::logout);
         NeoForge.EVENT_BUS.addListener(ClientFlights::onJoin);
         NeoForge.EVENT_BUS.addListener(ClientFlights::onLeave);
@@ -266,6 +268,15 @@ public final class IncomingClient {
     /** В бинокле своё перекрестие. */
     private static void hideCrosshair(RenderGuiLayerEvent.Pre e) {
         if (e.getName().equals(VanillaGuiLayers.CROSSHAIR) && (Designator.isScoping() || ProjectileCamera.isActive())) e.setCanceled(true);
+    }
+
+    /**
+     * Шум объёма ядерного гриба — в фоне со входа в мир (около секунды одного ядра, раз за запуск игры): огненный шар —
+     * объём гриба с первого мига, и подрыв без предупреждения о пуске ({@code /incoming nuke now}) иначе первую секунду
+     * был бы без тела.
+     */
+    private static void login(ClientPlayerNetworkEvent.LoggingIn e) {
+        PallPass.prepare();
     }
 
     private static void logout(ClientPlayerNetworkEvent.LoggingOut e) {
