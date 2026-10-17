@@ -897,7 +897,7 @@ public final class ScarQueue {
         else st[5] = Math.max(st[5], lag);
         if (plan != null) {
             long t0 = System.nanoTime();
-            if (plan.apply(level, chunk, budget)) {
+            if (plan.apply(level, chunk, d, budget)) {
                 long took = System.nanoTime() - t0;
                 thrown(level, d, chunk, plan);
                 diagSource = "prepared";
@@ -949,7 +949,7 @@ public final class ScarQueue {
             diagSource = "server thread";
             server = true;
         }
-        if (!plan.apply(level, chunk, budget) && !server) {
+        if (!plan.apply(level, chunk, d, budget) && !server) {
             // блоки на местах плана сменились, пока его строили фоновые потоки: заново — в потоке сервера, по чанку как есть
             // (без этого чанк остался бы целым с отметкой руин). План потока сервера построен в этом же тике — он верен
             stalePlans++;

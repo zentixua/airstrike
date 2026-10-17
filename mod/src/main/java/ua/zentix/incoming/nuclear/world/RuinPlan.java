@@ -34,6 +34,7 @@ import ua.zentix.incoming.compat.DhUpdates;
 import ua.zentix.incoming.compat.SableTerrain;
 import ua.zentix.incoming.grid.GridLights;
 import ua.zentix.incoming.net.S2C;
+import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.util.Terrain;
 
 import java.util.List;
@@ -480,9 +481,12 @@ public final class RuinPlan {
     /**
      * Поставить руины в чанк (он и соседи загружены целиком — проверяет вызывающий). Устаревший план не ставится.
      *
+     * @param d подрыв, чьи это руины: гарь вспышки встаёт его слоем. Не {@code ctx.d}: руины, подготовленные заранее,
+     *          строятся по месту подрыва без номера и времени ({@code NuclearWarhead.geometry}), а слой гари должен быть
+     *          тем же, что у силуэтов подрыва, и со временем вспышки
      * @return false — план устарел, ничего не изменено
      */
-    public boolean apply(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget) {
+    public boolean apply(ServerLevel level, LevelChunk chunk, Detonation d, ColumnScar.Budget budget) {
         if (this == EMPTY) return true;
         long t = System.nanoTime();
         if (!current(chunk)) return false;
@@ -498,7 +502,7 @@ public final class RuinPlan {
         }
         if (ctx != null) ctx.applied(chunk, this, motion);
         // гарь вспышки — с руинами; следы прежних вспышек на сменившихся блоках уходят
-        if (ctx != null) ua.zentix.incoming.nuclear.flash.FlashSync.chars(level, chunk, ctx.d, flash());
+        if (ctx != null) ua.zentix.incoming.nuclear.flash.FlashSync.chars(level, chunk, d, flash());
         return true;
     }
 

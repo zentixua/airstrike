@@ -116,6 +116,8 @@ public final class FlashChar {
     }
 
     public static final int KEY_MASK = (1 << 23) - 1;
+    /** Место грани в ключе — без стороны: x, z и y (20 бит). */
+    public static final int PLACE_MASK = (1 << 20) - 1;
 
     /** Метка: ключ, ступень (3 бита) и хеш блока (6 бит). */
     public static int mark(int key, int level, int hash) {
@@ -149,6 +151,14 @@ public final class FlashChar {
     /** Короткий хеш блока (не состояния: дверь открыли — метка её): по имени в реестре, одинаковый на сервере и клиенте. */
     public static int hash(Block block) {
         return Mth.murmurHash3Mixer(BuiltInRegistries.BLOCK.getKey(block).hashCode()) >>> 7 & 63;
+    }
+
+    /**
+     * На месте метки всё ещё её блок: материал гари (полный куб с тегом — иначе блок сломан или сменился на другой) и тот
+     * же хеш блока.
+     */
+    public static boolean holds(BlockState st, int mark) {
+        return material(st) != NONE && hash(st.getBlock()) == hashOf(mark);
     }
 
     /** Место грани в мире по метке чанка {@code cx, cz}. */

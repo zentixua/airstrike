@@ -40,6 +40,10 @@ public final class ModAttachments {
             () -> AttachmentType.builder(() -> ua.zentix.incoming.nuclear.flash.FlashMarks.EMPTY)
                     .serialize(ua.zentix.incoming.nuclear.flash.FlashMarks.CODEC, m -> !m.isEmpty()).build());
 
+    /** Чанки, чьи следы вспышки ушли со сменившимися блоками, — игрокам в конце тика мира ({@code FlashSync}); не сохраняется. */
+    public static final Supplier<AttachmentType<ua.zentix.incoming.nuclear.flash.FlashSync.Pending>> FLASH_PENDING = REGISTER.register("flash_pending",
+            () -> AttachmentType.builder(ua.zentix.incoming.nuclear.flash.FlashSync.Pending::new).build());
+
     /**
      * Чанк: в нём стоят погашенные блэкаутом лампы (отметка, по которой загрузка чанка возвращает в него свет, когда
      * отключение кончилось); нет отметки — нет и погашенных ламп.

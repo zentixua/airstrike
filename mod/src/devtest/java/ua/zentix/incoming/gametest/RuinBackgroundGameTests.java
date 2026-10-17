@@ -60,7 +60,7 @@ public final class RuinBackgroundGameTests {
         Block shaft = BuiltInRegistries.BLOCK.get(ResourceLocation.fromNamespaceAndPath("create", "shaft"));
         if (shaft != Blocks.AIR) h.setBlock(new BlockPos(24, 6, 18), shaft);
         Detonation d = NuclearGameTests.atPsi(h, new BlockPos(-600, 0, 32), true, new BlockPos(32, 1, 32), 12);
-        int compared = 0, cells = 0;
+        int compared = 0, cells = 0, charred = 0;
         for (int rx : new int[]{24, 40}) {
             for (int rz : new int[]{24, 40}) {
                 ChunkPos c = new ChunkPos(h.absolutePos(new BlockPos(rx, 1, rz)));
@@ -71,12 +71,16 @@ public final class RuinBackgroundGameTests {
                 RuinPlan server = RuinPlanner.planFresh(level, d, chunk, false), background = RuinPlanner.planFresh(level, d, chunk, true);
                 String diff = server.differs(background);
                 h.assertTrue(diff == null, "фоновый план чанка " + c + " не такой, как в потоке сервера:" + diff);
+                diff = flashDiffers(server, background);
+                h.assertTrue(diff == null, "гарь вспышки фонового плана чанка " + c + " не та, что в потоке сервера:" + diff);
                 compared++;
                 cells += server.changedBlocks();
+                charred += server.flash().length;
             }
         }
         h.assertTrue(cells > 0, "город не разрушен: сравнивать нечего");
-        Incoming.LOG.info("Руины в фоне: {} планов совпали, {} мест", compared, cells);
+        h.assertTrue(charred > 0, "гари вспышки в городе нет: сравнивать нечего");
+        Incoming.LOG.info("Руины в фоне: {} планов совпали, {} мест, {} обугленных граней", compared, cells, charred);
         h.succeed();
     }
 
@@ -218,7 +222,7 @@ public final class RuinBackgroundGameTests {
         RuinCostGameTests.city(h);
         ServerLevel level = h.getLevel();
         Detonation d = NuclearGameTests.atPsi(h, new BlockPos(-600, 0, 32), true, new BlockPos(32, 1, 32), 12);
-        int compared = 0, cells = 0;
+        int compared = 0, cells = 0, charred = 0;
         for (int rx : new int[]{24, 40}) {
             for (int rz : new int[]{24, 40}) {
                 ChunkPos c = new ChunkPos(h.absolutePos(new BlockPos(rx, 1, rz)));
@@ -229,21 +233,29 @@ public final class RuinBackgroundGameTests {
                 RuinPlan memory = RuinPlanner.planFresh(level, d, chunk, true), disk = RuinPlanner.planFromDisk(level, d, chunk);
                 String diff = memory.differs(disk);
                 h.assertTrue(diff == null, "план чанка " + c + " с диска не такой, как по чанку в памяти:" + diff);
+                diff = flashDiffers(memory, disk);
+                h.assertTrue(diff == null, "гарь вспышки плана чанка " + c + " с диска не та, что по чанку в памяти:" + diff);
                 // мир 1.17 после обновления: блоки на месте, низ мира догенерируется при загрузке — план тот же
-                diff = memory.differs(RuinPlanner.planFromDisk(level, d, chunk, RuinBackgroundGameTests::asRetrogen));
+                RuinPlan retrogen = RuinPlanner.planFromDisk(level, d, chunk, RuinBackgroundGameTests::asRetrogen);
+                diff = memory.differs(retrogen);
+                if (diff == null) diff = flashDiffers(memory, retrogen);
                 h.assertTrue(diff == null, "план чанка " + c + " с догенерацией под нулём не такой, как по чанку в памяти:" + diff);
                 // карта из редактора: карт высот на диске нет — досчитываются по блокам, как у ванили при загрузке
-                diff = memory.differs(RuinPlanner.planFromDisk(level, d, chunk, tag -> {
+                RuinPlan noHeights = RuinPlanner.planFromDisk(level, d, chunk, tag -> {
                     tag.remove("Heightmaps");
                     return tag;
-                }));
+                });
+                diff = memory.differs(noHeights);
+                if (diff == null) diff = flashDiffers(memory, noHeights);
                 h.assertTrue(diff == null, "план чанка " + c + " без карт высот на диске не такой, как по чанку в памяти:" + diff);
                 compared++;
                 cells += memory.changedBlocks();
+                charred += memory.flash().length;
             }
         }
         h.assertTrue(cells > 0, "город не разрушен: сравнивать нечего");
-        Incoming.LOG.info("Руины с диска: {} планов совпали, {} мест", compared, cells);
+        h.assertTrue(charred > 0, "гари вспышки в городе нет: сравнивать нечего");
+        Incoming.LOG.info("Руины с диска: {} планов совпали, {} мест, {} обугленных граней", compared, cells, charred);
         h.succeed();
     }
 
@@ -500,6 +512,7 @@ public final class RuinBackgroundGameTests {
         ChunkPos x = new ChunkPos(pad.x + 40, pad.z);
         boolean fires = ua.zentix.incoming.IncomingConfig.SERVER.nukeFires.get();
         RuinPlan[] plan = new RuinPlan[1];
+        Detonation[] boom = new Detonation[1];
         int[][] before = new int[1][], afterAlone = new int[1][];
         Runnable done = () -> {
             chunks.removeRegionTicket(NuclearGameTests.HOLD, x, 0, x);
@@ -530,6 +543,7 @@ public final class RuinBackgroundGameTests {
                     }
                     ua.zentix.incoming.IncomingConfig.SERVER.nukeFires.set(false);
                     Detonation d = NuclearGameTests.atPsi(h, NuclearGameTests.CENTER, true, h.relativePos(base.offset(8, 8, 8)), 6);
+                    boom[0] = d;
                     for (int dx = -1; dx <= 1; dx++) {
                         for (int dz = -1; dz <= 1; dz++) {
                             if ((dx != 0 || dz != 0) && chunks.getChunkNow(x.x + dx, x.z + dz) != null) {
@@ -543,7 +557,7 @@ public final class RuinBackgroundGameTests {
                     h.assertFalse(plan[0].needsNeighbours(level, chunk), "плану X нужны соседи — случай не тот");
                     h.assertTrue(plan[0].waitsNeighbours(level, chunk) == 0, "очередь ждала бы соседей X");
                     before[0] = blocks(chunk);
-                    h.assertTrue(plan[0].apply(level, chunk, new ua.zentix.incoming.nuclear.world.ColumnScar.Budget(false)), "план X устарел");
+                    h.assertTrue(plan[0].apply(level, chunk, d, new ua.zentix.incoming.nuclear.world.ColumnScar.Budget(false)), "план X устарел");
                     for (int dx = -1; dx <= 1; dx++) {
                         for (int dz = -1; dz <= 1; dz++) {
                             if ((dx != 0 || dz != 0) && chunks.getChunkNow(x.x + dx, x.z + dz) != null) {
@@ -562,7 +576,7 @@ public final class RuinBackgroundGameTests {
                 .thenWaitUntil(() -> h.assertTrue(ua.zentix.incoming.nuclear.world.NuclearTickets.neighbourhoodLoaded(level, x, 1), "соседи X не полные"))
                 .thenExecute(() -> {
                     LevelChunk chunk = chunks.getChunkNow(x.x, x.z);
-                    h.assertTrue(plan[0].apply(level, chunk, new ua.zentix.incoming.nuclear.world.ColumnScar.Budget(false)), "план X устарел во второй раз");
+                    h.assertTrue(plan[0].apply(level, chunk, boom[0], new ua.zentix.incoming.nuclear.world.ColumnScar.Budget(false)), "план X устарел во второй раз");
                     String diff = firstDifference(chunk, afterAlone[0], blocks(chunk));
                     h.assertTrue(diff == null, "руины X без соседей и с соседями разные: " + diff);
                     Incoming.LOG.info("Руины у края: {} мест, без соседей и с соседями — одно и то же", plan[0].changedBlocks());
@@ -597,7 +611,7 @@ public final class RuinBackgroundGameTests {
         level.setBlock(spot, Blocks.CHEST.defaultBlockState(), 3);
         RuinPlan withChest = RuinPlanner.planWithWindow(level, d, chunk, new int[2]);
         h.assertTrue(withChest.neighbourRadius(level, chunk) == 0, "сундук в середине чанка: подмена ждёт соседей радиуса " + withChest.neighbourRadius(level, chunk));
-        h.assertTrue(withChest.apply(level, chunk, new ua.zentix.incoming.nuclear.world.ColumnScar.Budget(false)), "план устарел");
+        h.assertTrue(withChest.apply(level, chunk, d, new ua.zentix.incoming.nuclear.world.ColumnScar.Budget(false)), "план устарел");
         h.assertFalse(level.getBlockState(spot).is(Blocks.CHEST), "сундук не снят: случай не тот");
         h.succeed();
     }
@@ -1380,6 +1394,40 @@ public final class RuinBackgroundGameTests {
         long deadline = tickAt[0] + 50_000_000L, left;
         while ((left = deadline - System.nanoTime()) > 0) java.util.concurrent.locks.LockSupport.parkNanos(left);
         tickAt[0] = System.nanoTime();
+    }
+
+    /**
+     * Гарь вспышки двух планов ({@link RuinPlan#flash}: метки граней — место, сторона, ступень, хеш блока) — одна и та же,
+     * в любом порядке меток; null — та же, иначе — сколько и какие расходятся.
+     */
+    static String flashDiffers(RuinPlan a, RuinPlan b) {
+        int[] x = a.flash().clone(), y = b.flash().clone();
+        java.util.Arrays.sort(x);
+        java.util.Arrays.sort(y);
+        if (java.util.Arrays.equals(x, y)) return null;
+        java.util.Set<Integer> onlyA = new java.util.TreeSet<>(), onlyB = new java.util.TreeSet<>();
+        for (int m : x) onlyA.add(m);
+        for (int m : y) onlyB.add(m);
+        java.util.Set<Integer> common = new java.util.HashSet<>(onlyA);
+        common.retainAll(onlyB);
+        onlyA.removeAll(common);
+        onlyB.removeAll(common);
+        StringBuilder out = new StringBuilder(" flash " + x.length + " | " + y.length + ", only left " + onlyA.size() + ", only right " + onlyB.size());
+        int n = 0;
+        for (int m : onlyA) {
+            if (n++ >= 4) break;
+            out.append(String.format(java.util.Locale.ROOT, " [left x %d y %d z %d %s level %d]", ua.zentix.incoming.nuclear.flash.FlashChar.lx(m),
+                    ua.zentix.incoming.nuclear.flash.FlashChar.y(m), ua.zentix.incoming.nuclear.flash.FlashChar.lz(m),
+                    ua.zentix.incoming.nuclear.flash.FlashChar.face(m), ua.zentix.incoming.nuclear.flash.FlashChar.level(m)));
+        }
+        n = 0;
+        for (int m : onlyB) {
+            if (n++ >= 4) break;
+            out.append(String.format(java.util.Locale.ROOT, " [right x %d y %d z %d %s level %d]", ua.zentix.incoming.nuclear.flash.FlashChar.lx(m),
+                    ua.zentix.incoming.nuclear.flash.FlashChar.y(m), ua.zentix.incoming.nuclear.flash.FlashChar.lz(m),
+                    ua.zentix.incoming.nuclear.flash.FlashChar.face(m), ua.zentix.incoming.nuclear.flash.FlashChar.level(m)));
+        }
+        return out.toString();
     }
 
     /** Ни одного чанка из списка нет в памяти (и в очереди выгрузки): записанное ими уже видно чтению с диска. */

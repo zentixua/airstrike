@@ -55,9 +55,9 @@ public final class FlashMarksMesh {
         BlockPos o = e.getSectionOrigin();
         int cx = o.getX() >> 4, cz = o.getZ() >> 4;
         long now = mc.level.getGameTime();
-        List<FlashMarks.Layer> layers = FlashMarksClient.visible(ChunkPos.asLong(cx, cz), now);
-        if (layers == null) return;
-        Section s = Section.of(layers, cx, o.getY(), cz, now);
+        List<FlashMarksClient.Slice> slices = FlashMarksClient.section(ChunkPos.asLong(cx, cz), o.getY() >> 4, now);
+        if (slices == null) return;
+        Section s = Section.of(slices, cx, o.getY(), cz, now);
         if (s != null) e.addRenderer(s::render);
     }
 
@@ -99,20 +99,21 @@ public final class FlashMarksMesh {
 
     /** Снимок следов секции для потока сборки. */
     private record Section(int cx, int sy, int cz, List<Face> faces, Neighbours neighbours) {
+        /** @param slices метки секции по видимым слоям ({@link FlashMarksClient#section}) */
         @Nullable
-        static Section of(List<FlashMarks.Layer> layers, int cx, int y0, int cz, long now) {
+        static Section of(List<FlashMarksClient.Slice> slices, int cx, int y0, int cz, long now) {
             Int2ObjectOpenHashMap<Face> faces = new Int2ObjectOpenHashMap<>();
-            for (FlashMarks.Layer l : layers) {
+            for (FlashMarksClient.Slice l : slices) {
                 // силуэт подрыва заменяет его же гарь этой грани
                 Int2ObjectOpenHashMap<long[]> masks = new Int2ObjectOpenHashMap<>();
                 for (int k = 0; k < l.shadows().length; k++) {
                     int m = l.shadows()[k];
-                    if (FlashChar.y(m) >> 4 != y0 >> 4) continue;
-                    masks.put(m & FlashChar.KEY_MASK, java.util.Arrays.copyOfRange(l.masks(), k * FlashMarks.MASK_LONGS, (k + 1) * FlashMarks.MASK_LONGS));
-                    add(faces, m, masks.get(m & FlashChar.KEY_MASK));
+                    long[] mask = java.util.Arrays.copyOfRange(l.masks(), k * FlashMarks.MASK_LONGS, (k + 1) * FlashMarks.MASK_LONGS);
+                    masks.put(m & FlashChar.KEY_MASK, mask);
+                    add(faces, m, mask);
                 }
                 for (int m : l.chars()) {
-                    if (FlashChar.y(m) >> 4 != y0 >> 4 || masks.containsKey(m & FlashChar.KEY_MASK)) continue;
+                    if (masks.containsKey(m & FlashChar.KEY_MASK)) continue;
                     add(faces, m, null);
                 }
             }

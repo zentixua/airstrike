@@ -7,14 +7,18 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.function.IntPredicate;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
@@ -27,13 +31,16 @@ import java.util.stream.LongStream;
  * Мало данных: метка грани — одно {@code int} ({@link FlashChar#mark}), силуэт — ещё 16×16 клеток по 2 бита (тень
  * 0, ⅓, ⅔, целиком) — 8 {@code long}. Не больше {@link #MAX_CHARS} обугленных граней и {@link #MAX_SHADOWS} граней
  * с силуэтом на чанк (во всех слоях): сверх — самые слабые уходят. Чанк города — сотни, у стены к шару — до пары
- * тысяч граней: 16 КБ и 6 КБ в худшем случае.
+ * тысяч граней: 16 КБ и 6 КБ в худшем случае. Слоёв — не больше {@link #MAX_LAYERS}: каждый удар заново ставит руины
+ * чанков в своём радиусе, и без предела чанк под частыми ударами копил бы слои, а клиент не принял бы пакет.
  */
 public record FlashMarks(List<Layer> layers) {
     /** Обугленных граней на чанк, не больше. */
     public static final int MAX_CHARS = 4096;
     /** Граней с силуэтом на чанк, не больше. */
     public static final int MAX_SHADOWS = 96;
+    /** Слоёв (подрывов) на чанк, не больше: сверх — самые старые уходят. Больше пакет не разбирает. */
+    public static final int MAX_LAYERS = 16;
     /** Клеток силуэта по стороне грани (как пикселей у текстуры блока) и {@code long} на маску (2 бита на клетку). */
     public static final int CELLS = 16, MASK_LONGS = CELLS * CELLS * 2 / 64;
 
@@ -61,6 +68,25 @@ public record FlashMarks(List<Layer> layers) {
             return chars.length == 0 && shadows.length == 0;
         }
 
+        /** Слой без меток {@code stale}; ничего не убрано — тот же объект. */
+        Layer without(IntPredicate stale) {
+            int goneChars = 0, goneShadows = 0;
+            for (int c : chars) if (stale.test(c)) goneChars++;
+            for (int c : shadows) if (stale.test(c)) goneShadows++;
+            if (goneChars == 0 && goneShadows == 0) return this;
+            int[] keptChars = new int[chars.length - goneChars], keptShadows = new int[shadows.length - goneShadows];
+            long[] keptMasks = new long[keptShadows.length * MASK_LONGS];
+            int n = 0;
+            for (int c : chars) if (!stale.test(c)) keptChars[n++] = c;
+            n = 0;
+            for (int k = 0; k < shadows.length; k++) {
+                if (stale.test(shadows[k])) continue;
+                System.arraycopy(masks, k * MASK_LONGS, keptMasks, n * MASK_LONGS, MASK_LONGS);
+                keptShadows[n++] = shadows[k];
+            }
+            return new Layer(detonation, time, keptChars, keptShadows, keptMasks);
+        }
+
         /** Тень клетки силуэта {@code k}: 0 — свет, 3 — тень целиком. */
         public int shade(int k, int u, int v) {
             int bit = 2 * (v * CELLS + u);
@@ -68,13 +94,14 @@ public record FlashMarks(List<Layer> layers) {
         }
     }
 
-    public static final Codec<FlashMarks> CODEC = Layer.CODEC.listOf().xmap(FlashMarks::new, FlashMarks::layers);
+    /** Запись с чанком: слои по порядку подрывов и в пределах (запись прежней сборки могла их превышать). */
+    public static final Codec<FlashMarks> CODEC = Layer.CODEC.listOf().xmap(FlashMarks::of, FlashMarks::layers);
 
     public static final StreamCodec<ByteBuf, FlashMarks> STREAM_CODEC = new StreamCodec<>() {
         @Override
         public FlashMarks decode(ByteBuf b) {
             int n = ByteBufCodecs.VAR_INT.decode(b);
-            if (n > 16) throw new IllegalArgumentException("flash marks: " + n + " layers");
+            if (n < 0 || n > MAX_LAYERS) throw new IllegalArgumentException("flash marks: " + n + " layers");
             List<Layer> layers = new ArrayList<>(n);
             for (int i = 0; i < n; i++) {
                 int det = ByteBufCodecs.VAR_INT.decode(b);
@@ -134,16 +161,20 @@ public record FlashMarks(List<Layer> layers) {
         return with(new Layer(detonation, time, chars, old == null ? new int[0] : old.shadows, old == null ? new long[0] : old.masks));
     }
 
-    /** Силуэты подрыва {@code detonation} добавлены к прежним (одна грань — у кого тень больше, та и есть). */
+    /**
+     * Силуэты подрыва {@code detonation} добавлены к прежним; одна грань — одна запись (два тела перед гранью, в том
+     * числе в одной пачке {@code shadows}: тень клетки — наибольшая из их теней).
+     */
     public FlashMarks withShadows(int detonation, long time, int[] shadows, long[] masks) {
         Layer old = layer(detonation);
-        if (old == null) return with(new Layer(detonation, time, new int[0], shadows, masks));
+        int[] oldShadows = old == null ? NO_MARKS : old.shadows;
         Int2IntOpenHashMap at = new Int2IntOpenHashMap();
-        IntArrayList keys = new IntArrayList(old.shadows);
-        LongArrayList all = new LongArrayList(old.masks);
-        for (int k = 0; k < old.shadows.length; k++) at.put(old.shadows[k] & FlashChar.KEY_MASK, k);
+        at.defaultReturnValue(-1);
+        IntArrayList keys = new IntArrayList(oldShadows);
+        LongArrayList all = new LongArrayList(old == null ? NO_MASKS : old.masks);
+        for (int k = 0; k < oldShadows.length; k++) at.put(oldShadows[k] & FlashChar.KEY_MASK, k);
         for (int k = 0; k < shadows.length; k++) {
-            int was = at.getOrDefault(shadows[k] & FlashChar.KEY_MASK, -1);
+            int was = at.get(shadows[k] & FlashChar.KEY_MASK);
             if (was < 0) {
                 at.put(shadows[k] & FlashChar.KEY_MASK, keys.size());
                 keys.add(shadows[k]);
@@ -153,8 +184,11 @@ public record FlashMarks(List<Layer> layers) {
             // два тела перед одной гранью: тень — где тень от любого
             for (int w = 0; w < MASK_LONGS; w++) all.set(was * MASK_LONGS + w, maxShade(all.getLong(was * MASK_LONGS + w), masks[k * MASK_LONGS + w]));
         }
-        return with(new Layer(detonation, time, old.chars, keys.toIntArray(), all.toLongArray()));
+        return with(new Layer(detonation, time, old == null ? NO_MARKS : old.chars, keys.toIntArray(), all.toLongArray()));
     }
+
+    private static final int[] NO_MARKS = new int[0];
+    private static final long[] NO_MASKS = new long[0];
 
     /** Поклеточный максимум двух масок по 2 бита. */
     static long maxShade(long a, long b) {
@@ -168,12 +202,22 @@ public record FlashMarks(List<Layer> layers) {
         return null;
     }
 
-    /** Слой подрыва вместо прежнего его же; пределы граней — по всем слоям (сверх — самые слабые, раньше — старые слои). */
+    /** Слой подрыва вместо прежнего его же; пределы — по всем слоям ({@link #of}). */
     private FlashMarks with(Layer layer) {
         List<Layer> out = new ArrayList<>(layers.size() + 1);
         for (Layer l : layers) if (l.detonation != layer.detonation) out.add(l);
         out.add(layer);
-        out.sort(java.util.Comparator.comparingInt(Layer::detonation));
+        return of(out);
+    }
+
+    /**
+     * Следы из слоёв: по порядку подрывов (номера растут со временем), не больше {@link #MAX_LAYERS} самых новых слоёв,
+     * граней — в пределах (сверх — самые слабые, раньше — из старых слоёв).
+     */
+    static FlashMarks of(List<Layer> layers) {
+        List<Layer> out = new ArrayList<>(layers);
+        out.sort(Comparator.comparingInt(Layer::detonation));
+        if (out.size() > MAX_LAYERS) out.subList(0, out.size() - MAX_LAYERS).clear();
         return new FlashMarks(List.copyOf(capped(out)));
     }
 
@@ -214,37 +258,32 @@ public record FlashMarks(List<Layer> layers) {
     }
 
     /**
-     * Без граней, чей блок сменился (руины, игрок): хеш блока метки не тот, что сейчас в чанке. Ничего не убрано —
+     * Без граней, чей блок сменился (руины, игрок): на месте не их блок ({@link FlashChar#holds}). Ничего не убрано —
      * тот же объект.
      */
     public FlashMarks pruned(LevelChunk chunk) {
         int cx = chunk.getPos().x, cz = chunk.getPos().z;
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        boolean changed = false;
-        List<Layer> out = new ArrayList<>(layers.size());
-        for (Layer l : layers) {
-            IntArrayList chars = new IntArrayList(l.chars.length);
-            for (int c : l.chars) if (same(chunk, c, cx, cz, m)) chars.add(c);
-            IntArrayList shadows = new IntArrayList(l.shadows.length);
-            LongArrayList masks = new LongArrayList(l.masks.length);
-            for (int k = 0; k < l.shadows.length; k++) {
-                if (!same(chunk, l.shadows[k], cx, cz, m)) continue;
-                shadows.add(l.shadows[k]);
-                for (int w = 0; w < MASK_LONGS; w++) masks.add(l.masks[k * MASK_LONGS + w]);
-            }
-            if (chars.size() == l.chars.length && shadows.size() == l.shadows.length) {
-                out.add(l);
-                continue;
-            }
-            changed = true;
-            Layer kept = new Layer(l.detonation, l.time, chars.toIntArray(), shadows.toIntArray(), masks.toLongArray());
-            if (!kept.isEmpty()) out.add(kept);
-        }
-        return changed ? new FlashMarks(List.copyOf(out)) : this;
+        return without(c -> !FlashChar.holds(chunk.getBlockState(m.set(cx << 4 | FlashChar.lx(c), FlashChar.y(c), cz << 4 | FlashChar.lz(c))), c));
     }
 
-    private static boolean same(LevelChunk chunk, int mark, int cx, int cz, BlockPos.MutableBlockPos m) {
-        m.set(cx << 4 | FlashChar.lx(mark), FlashChar.y(mark), cz << 4 | FlashChar.lz(mark));
-        return FlashChar.hash(chunk.getBlockState(m).getBlock()) == FlashChar.hashOf(mark);
+    /**
+     * Без граней блока {@code (lx, y, lz)} чанка, если там теперь не их блок: {@code state} — то, что стоит на месте
+     * сейчас. Ничего не убрано — тот же объект.
+     */
+    public FlashMarks prunedAt(int lx, int y, int lz, BlockState state) {
+        int place = FlashChar.key(lx, y, lz, Direction.DOWN) & FlashChar.PLACE_MASK;
+        return without(c -> (c & FlashChar.PLACE_MASK) == place && !FlashChar.holds(state, c));
+    }
+
+    /** Без меток {@code stale}; пустые слои уходят. Ничего не убрано — тот же объект. */
+    private FlashMarks without(IntPredicate stale) {
+        List<Layer> out = null;
+        for (int i = 0; i < layers.size(); i++) {
+            Layer l = layers.get(i), kept = l.without(stale);
+            if (kept != l && out == null) out = new ArrayList<>(layers.subList(0, i));
+            if (out != null && !kept.isEmpty()) out.add(kept);
+        }
+        return out == null ? this : new FlashMarks(List.copyOf(out));
     }
 }

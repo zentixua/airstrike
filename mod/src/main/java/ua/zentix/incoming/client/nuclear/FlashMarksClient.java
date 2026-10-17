@@ -1,7 +1,11 @@
 package ua.zentix.incoming.client.nuclear;
 
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -39,48 +43,74 @@ public final class FlashMarksClient {
     /** Пакет сервера (поток клиента): следы чанка целиком. */
     public static void receive(S2C.NukeFlashMarks p) {
         FlashMarks old = p.marks().isEmpty() ? CHUNKS.remove(p.chunk()) : CHUNKS.put(p.chunk(), p.marks());
-        LEVELS.remove(p.chunk());
+        INDEX.remove(p.chunk());
         dirty(p.chunk(), old);
         dirty(p.chunk(), p.marks());
         SHOWN.put(p.chunk(), shown(p.marks(), now()));
     }
 
-    /** Следы чанка, видимые сейчас: слои, до вспышки которых дошли часы; null — нет. */
+    /** Метки одного видимого слоя в одной секции: гарь, силуэты и их маски ({@link FlashMarks.Layer}). */
+    record Slice(int[] chars, int[] shadows, long[] masks) {}
+
+    /** Метки видимых слоёв чанка в секции {@code sy} (номер секции в мире), по порядку слоёв; null — нет. */
     @Nullable
-    static List<FlashMarks.Layer> visible(long chunk, long now) {
-        FlashMarks m = CHUNKS.get(chunk);
-        if (m == null) return null;
-        List<FlashMarks.Layer> out = null;
-        for (FlashMarks.Layer l : m.layers()) {
-            if (l.time() > now + CLOCK_SLACK) continue;
-            if (out == null) out = new ArrayList<>(m.layers().size());
-            out.add(l);
-        }
-        return out;
+    static List<Slice> section(long chunk, int sy, long now) {
+        Index i = index(chunk, now);
+        return i == null ? null : i.sections.get(sy);
     }
 
     /** Ступени граней видимых слоёв чанка (ключ {@link FlashChar#key} → наибольшая ступень); null — следов нет. */
     @Nullable
     static Int2IntOpenHashMap levels(long chunk, long now) {
+        Index i = index(chunk, now);
+        return i == null ? null : i.levels;
+    }
+
+    /**
+     * Видимые слои чанка, разобранные для меша один раз на эти следы и это число видимых слоёв: ступени граней и метки по
+     * секциям (секция строится заново — без прохода по всем меткам чанка). Только читаются.
+     */
+    private record Index(FlashMarks marks, int shown, Int2IntOpenHashMap levels, Int2ObjectOpenHashMap<List<Slice>> sections) {}
+
+    private static final Map<Long, Index> INDEX = new ConcurrentHashMap<>();
+
+    @Nullable
+    private static Index index(long chunk, long now) {
         FlashMarks m = CHUNKS.get(chunk);
         if (m == null) return null;
         int shown = shown(m, now);
-        Levels cached = LEVELS.get(chunk);
-        if (cached != null && cached.marks == m && cached.shown == shown) return cached.map;
-        Int2IntOpenHashMap map = new Int2IntOpenHashMap();
+        Index cached = INDEX.get(chunk);
+        if (cached != null && cached.marks == m && cached.shown == shown) return cached;
+        Int2IntOpenHashMap levels = new Int2IntOpenHashMap();
+        Int2ObjectOpenHashMap<List<Slice>> sections = new Int2ObjectOpenHashMap<>();
         for (FlashMarks.Layer l : m.layers()) {
             if (l.time() > now + CLOCK_SLACK) continue;
-            for (int c : l.chars()) map.mergeInt(c & FlashChar.KEY_MASK, FlashChar.level(c), Math::max);
-            for (int c : l.shadows()) map.mergeInt(c & FlashChar.KEY_MASK, FlashChar.level(c), Math::max);
+            Int2ObjectOpenHashMap<IntArrayList> chars = new Int2ObjectOpenHashMap<>(), shadows = new Int2ObjectOpenHashMap<>();
+            Int2ObjectOpenHashMap<LongArrayList> masks = new Int2ObjectOpenHashMap<>();
+            for (int c : l.chars()) {
+                levels.mergeInt(c & FlashChar.KEY_MASK, FlashChar.level(c), Math::max);
+                chars.computeIfAbsent(FlashChar.y(c) >> 4, k -> new IntArrayList()).add(c);
+            }
+            for (int k = 0; k < l.shadows().length; k++) {
+                int c = l.shadows()[k], sy = FlashChar.y(c) >> 4;
+                levels.mergeInt(c & FlashChar.KEY_MASK, FlashChar.level(c), Math::max);
+                shadows.computeIfAbsent(sy, y -> new IntArrayList()).add(c);
+                LongArrayList ms = masks.computeIfAbsent(sy, y -> new LongArrayList());
+                ms.addElements(ms.size(), l.masks(), k * FlashMarks.MASK_LONGS, FlashMarks.MASK_LONGS);
+            }
+            IntOpenHashSet ys = new IntOpenHashSet(chars.keySet());
+            ys.addAll(shadows.keySet());
+            for (int sy : ys) {
+                IntArrayList c = chars.get(sy), sh = shadows.get(sy);
+                LongArrayList ms = masks.get(sy);
+                sections.computeIfAbsent(sy, y -> new ArrayList<>()).add(new Slice(c == null ? new int[0] : c.toIntArray(),
+                        sh == null ? new int[0] : sh.toIntArray(), ms == null ? new long[0] : ms.toLongArray()));
+            }
         }
-        LEVELS.put(chunk, new Levels(m, shown, map));
-        return map;
+        Index built = new Index(m, shown, levels, sections);
+        INDEX.put(chunk, built);
+        return built;
     }
-
-    /** Ступени граней чанка, посчитанные для этих следов и этого числа видимых слоёв (только читаются). */
-    private record Levels(FlashMarks marks, int shown, Int2IntOpenHashMap map) {}
-
-    private static final Map<Long, Levels> LEVELS = new ConcurrentHashMap<>();
 
     /** Следы чанка как есть (проверки, сценарий). */
     @Nullable
@@ -155,7 +185,7 @@ public final class FlashMarksClient {
         long key = e.getChunk().getPos().toLong();
         CHUNKS.remove(key);
         SHOWN.remove(key);
-        LEVELS.remove(key);
+        INDEX.remove(key);
     }
 
     /** Мир клиента сменился (измерение, выход). */
@@ -166,6 +196,6 @@ public final class FlashMarksClient {
     public static void reset() {
         CHUNKS.clear();
         SHOWN.clear();
-        LEVELS.clear();
+        INDEX.clear();
     }
 }

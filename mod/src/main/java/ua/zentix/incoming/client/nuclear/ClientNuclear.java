@@ -146,7 +146,7 @@ public final class ClientNuclear {
         DETONATIONS.put(d.id(), a);
         if (live) {
             NukeFlash.detonation(a);
-            FlashAftermath.detonation(d);
+            FlashAftermath.detonation(d, p.blackout());
         }
     }
 

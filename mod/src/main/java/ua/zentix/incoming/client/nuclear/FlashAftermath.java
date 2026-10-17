@@ -1,5 +1,7 @@
 package ua.zentix.incoming.client.nuclear;
 
+import it.unimi.dsi.fastutil.floats.FloatArrayList;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -18,11 +20,15 @@ import ua.zentix.incoming.client.fx.Effects;
 import ua.zentix.incoming.client.fx.particle.Fx;
 import ua.zentix.incoming.client.fx.particle.FxBudget;
 import ua.zentix.incoming.client.fx.particle.FxPool;
+import org.jetbrains.annotations.Nullable;
+import ua.zentix.incoming.grid.Districts;
 import ua.zentix.incoming.grid.GridLights;
+import ua.zentix.incoming.grid.Outage;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.flash.FlashChar;
 import ua.zentix.incoming.nuclear.model.Fragility;
 import ua.zentix.incoming.nuclear.world.ThermalShadow;
+import ua.zentix.incoming.util.Palettes;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -31,12 +37,13 @@ import java.util.List;
 /**
  * Что вспышка делает с округой в первые секунды, до волны (только вживую — из перемотки повтора не рождается):
  * <ul>
- *     <li>ЭМИ — фонари и лампы сети (те, что гасит блэкаут, {@link GridLights}) в радиусе отключения коротят: голубая
- *     дуга, ломаная разряда и искры, вразнобой, чаще сразу, до прихода волны к лампе и не позже {@link #ARC_WINDOW}
- *     тиков; дуга трещит — 2–4 разряда через 1–3 тика, у части ламп потом ещё раз. Клиент сам ищет их в своих чанках
- *     по палитрам секций, не больше {@link #SECTIONS_PER_TICK} секций за тик; дуг — не больше {@link #MAX_ARCS} ближних
- *     к камере. Подстанции здесь нет: удар выбивает их на сервере ({@code Blackouts.nuke}), и у каждой — своя дуга
- *     выхода из строя ({@code GridEffects.failure}), вторая была бы лишней;</li>
+ *     <li>ЭМИ — фонари и лампы сети (те, что гасит блэкаут, {@link GridLights}) в кварталах, которые гасит удар (радиус
+ *     с сервера: по настройкам сети), коротят: голубая дуга, ломаная разряда и искры, вразнобой, чаще сразу, до прихода
+ *     волны к лампе и не позже {@link #ARC_WINDOW} тиков; дуга трещит — 2–4 разряда через 1–3 тика, у части ламп потом
+ *     ещё раз. Клиент сам ищет их в своих чанках по палитрам секций, не больше {@link #SECTIONS_PER_TICK} секций за тик,
+ *     ближние первыми; дуг — не больше {@link #MAX_ARCS}. Подстанции здесь нет: удар выбивает их на сервере
+ *     ({@code Blackouts.nuke}), и у каждой — своя дуга выхода из строя ({@code GridEffects.failure}), вторая была бы
+ *     лишней;</li>
  *     <li>дымки с того, что свет поджёг: крыши, земля с травой, листва и деревянные стены лицом к шару курятся тонкими
  *     струйками, пока до них не дойдёт волна. Места — случайные точки перед камерой (в кадре, до {@link #SMOKE_RANGE}
  *     блоков), свет — как у гари ({@link FlashChar}): импульс × угол × тень по картам высот клиента; частицы — своей
@@ -73,43 +80,47 @@ public final class FlashAftermath {
         return "emp arcs " + lastArcs + ", scorch smoke " + pool.live(FxBudget.SCORCH) + " live, " + pool.refused(FxBudget.SCORCH) + " refused";
     }
 
-    /** Живой подрыв: ЭМИ и дымки. */
-    static void detonation(Detonation d) {
+    /**
+     * Живой подрыв: ЭМИ и дымки. {@code blackout} — радиус, где сервер гасит сеть ({@code Blackouts.nukeRadius}); 0 —
+     * не гасит (блэкаут выключен настройкой), и лампы не коротят: иначе они «сгорали» бы и оставались гореть.
+     */
+    static void detonation(Detonation d, double blackout) {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) return;
-        lastArcs = -1;
-        Effects.add(new Emp(d, level));
+        lastArcs = 0;
+        if (blackout > 0) Effects.add(new Emp(d, blackout, level));
         Effects.add(new Smoke(d));
     }
 
     // ---------------------------------------------------------------- ЭМИ
 
-    /** Поиск ламп по секциям у камеры, потом дуги по расписанию. */
+    /**
+     * Поиск ламп по секциям у камеры, ближние первыми, и дуги: найденная лампа сразу получает свои разряды. Поиск по
+     * всей прорисовке идёт дольше волны (глобальная палитра секции на «есть ли лампа» отвечает «может быть» всегда), и
+     * лампа, найденная, когда волна у неё уже прошла или вышло {@link #ARC_WINDOW}, не коротит.
+     */
     private static final class Emp implements Effects.Effect {
         private final Detonation d;
         private final RandomSource rnd;
         private final List<long[]> sections = new ArrayList<>();
-        private final List<Arc> found = new ArrayList<>();
-        private List<Arc> arcs;
+        private final List<Arc> arcs = new ArrayList<>();
         private int next;
 
-        Emp(Detonation d, ClientLevel level) {
+        Emp(Detonation d, double radius, ClientLevel level) {
             this.d = d;
             this.rnd = RandomSource.create(d.seed() ^ 0x5EED);
-            // секции в радиусе отключения у камеры: ближние первыми
+            // секции у камеры в кварталах, которые гасит сервер (квартал — по чанку, как у блэкаута): ближние первыми
             Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-            double radius = d.radiusMax();
             int view = Minecraft.getInstance().options.getEffectiveRenderDistance();
             int ccx = Mth.floor(cam.x) >> 4, ccz = Mth.floor(cam.z) >> 4;
             for (int cz = ccz - view; cz <= ccz + view; cz++) {
                 for (int cx = ccx - view; cx <= ccx + view; cx++) {
-                    double x = (cx << 4) + 8, z = (cz << 4) + 8;
-                    if (Math.hypot(x - d.burst().x, z - d.burst().z) > radius + 12) continue;
+                    if (!Outage.covers(d.burst().x, d.burst().z, radius, Districts.of(cx, cz))) continue;
                     LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
                     if (chunk == null) continue;
                     LevelChunkSection[] secs = chunk.getSections();
                     for (int i = 0; i < secs.length; i++) {
-                        if (secs[i].hasOnlyAir() || !secs[i].getStates().maybeHas(FlashAftermath::arcs)) continue;
+                        if (secs[i].hasOnlyAir() || !secs[i].getStates().maybeHas(FlashAftermath::lit)) continue;
                         sections.add(new long[]{cx, i, cz});
                     }
                 }
@@ -119,64 +130,74 @@ public final class FlashAftermath {
 
         @Override
         public boolean tick(ClientLevel level, int t) {
-            if (arcs == null) {
-                scan(level);
-                if (next < sections.size()) return true;
-                Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-                found.sort(Comparator.comparingDouble(a -> a.pos.distSqr(BlockPos.containing(cam))));
-                arcs = new ArrayList<>(found.subList(0, Math.min(MAX_ARCS, found.size())));
-                // короткое замыкание — вразнобой, чаще сразу, до прихода волны к лампе: после неё лампа в пыли и обломках
-                // (в малом масштабе удара волна — за тики, тогда — только первый разряд). Дуга не гаснет сразу: разряд
-                // проскакивает снова, пока цепь не разомкнётся (2–4 раза через 1–3 тика); у части ламп замыкание
-                // повторяется позже, слабее
-                for (Arc a : arcs) {
-                    double dist = Math.hypot(a.pos.getX() + 0.5 - d.burst().x, a.pos.getZ() + 0.5 - d.burst().z);
-                    int wave = (int) d.arrivalTicks(dist);
-                    int window = Mth.clamp(wave - t, 3, ARC_WINDOW);
-                    float r = rnd.nextFloat();
-                    int at = t + (int) (r * r * window);
-                    int again = rnd.nextFloat() < 0.4f ? at + 8 + rnd.nextInt(16) : -1;
-                    int first = 2 + rnd.nextInt(3), second = again < 0 ? 0 : 1 + rnd.nextInt(2);
-                    a.strikes = new int[first + second];
-                    a.strength = new float[first + second];
-                    for (int i = 0, when = at; i < a.strikes.length; i++) {
-                        boolean late = i >= first;
-                        when = i == 0 ? at : i == first ? again : when + 1 + rnd.nextInt(3);
-                        a.strikes[i] = i > 0 && when >= wave ? -1 : when;
-                        a.strength[i] = (late ? 0.6f : 1) * (i == 0 || i == first ? 1 : 0.55f + 0.35f * rnd.nextFloat());
-                    }
-                }
-                lastArcs = arcs.size();
-            }
-            boolean left = false;
+            boolean searching = next < sections.size() && arcs.size() < MAX_ARCS && t < ARC_WINDOW;
+            if (searching) scan(level, t);
+            boolean left = searching;
             for (Arc a : arcs) {
                 for (int i = 0; i < a.strikes.length; i++) {
-                    if (a.strikes[i] == t) arc(level, a, a.strength[i]);
+                    // лампа ещё на месте (горит или уже погашена блэкаутом — это её и выбило), а не снесена
+                    if (a.strikes[i] == t && lamp(level.getBlockState(a.pos))) arc(level, a, a.strength[i]);
                     if (a.strikes[i] > t) left = true;
                 }
             }
             return left;
         }
 
-        private void scan(ClientLevel level) {
+        /** Секции за тик: горящие лампы в них — дуги, ближние к камере первыми, не больше {@link #MAX_ARCS} всего. */
+        private void scan(ClientLevel level, int t) {
+            List<BlockPos> found = new ArrayList<>();
             for (int n = 0; n < SECTIONS_PER_TICK && next < sections.size(); n++) {
                 long[] s = sections.get(next++);
                 LevelChunk chunk = level.getChunkSource().getChunkNow((int) s[0], (int) s[2]);
                 if (chunk == null) continue;
                 LevelChunkSection sec = chunk.getSections()[(int) s[1]];
+                // точный подсчёт по палитре дешевле прохода по местам: без ламп секция дальше не смотрится
+                if (!Palettes.contains(sec.getStates(), FlashAftermath::lit)) continue;
                 int y0 = chunk.getMinBuildHeight() + ((int) s[1] << 4);
                 for (int y = 0; y < 16; y++) {
                     for (int z = 0; z < 16; z++) {
                         for (int x = 0; x < 16; x++) {
-                            BlockState st = sec.getBlockState(x, y, z);
-                            if (!arcs(st)) continue;
-                            BlockPos pos = new BlockPos(((int) s[0] << 4) + x, y0 + y, ((int) s[2] << 4) + z);
-                            if (Math.hypot(pos.getX() + 0.5 - d.burst().x, pos.getZ() + 0.5 - d.burst().z) > d.radiusMax()) continue;
-                            found.add(new Arc(pos));
+                            if (lit(sec.getBlockState(x, y, z))) found.add(new BlockPos(((int) s[0] << 4) + x, y0 + y, ((int) s[2] << 4) + z));
                         }
                     }
                 }
             }
+            Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+            found.sort(Comparator.comparingDouble(p -> p.distToCenterSqr(cam)));
+            for (BlockPos pos : found) {
+                if (arcs.size() >= MAX_ARCS) break;
+                Arc a = schedule(pos, t);
+                if (a != null) arcs.add(a);
+            }
+            lastArcs = arcs.size();
+        }
+
+        /**
+         * Разряды лампы, найденной в тик {@code t}. Короткое замыкание — вразнобой, чаще сразу, до прихода волны к лампе
+         * (после неё лампа в пыли и обломках) и не позже {@link #ARC_WINDOW}; в малом масштабе удара волна — за тики, и
+         * лампе достаётся меньше разрядов или ни одного. Дуга не гаснет сразу: разряд проскакивает снова, пока цепь не
+         * разомкнётся (2–4 раза через 1–3 тика); у части ламп замыкание повторяется позже, слабее. Null — уже поздно.
+         */
+        @Nullable
+        private Arc schedule(BlockPos pos, int t) {
+            int wave = (int) d.arrivalTicks(Math.hypot(pos.getX() + 0.5 - d.burst().x, pos.getZ() + 0.5 - d.burst().z));
+            int last = Math.min(wave, ARC_WINDOW);
+            if (t >= last) return null;
+            float r = rnd.nextFloat();
+            int at = t + (int) (r * r * (last - t));
+            int again = rnd.nextFloat() < 0.4f ? at + 8 + rnd.nextInt(16) : -1;
+            int first = 2 + rnd.nextInt(3), second = again < 0 ? 0 : 1 + rnd.nextInt(2);
+            IntArrayList strikes = new IntArrayList(first + second);
+            FloatArrayList strength = new FloatArrayList(first + second);
+            for (int i = 0, when = at; i < first + second; i++) {
+                boolean late = i >= first;
+                when = i == 0 ? at : i == first ? again : when + 1 + rnd.nextInt(3);
+                float s = (late ? 0.6f : 1) * (i == 0 || i == first ? 1 : 0.55f + 0.35f * rnd.nextFloat());
+                if (when >= wave) continue;
+                strikes.add(when);
+                strength.add(s);
+            }
+            return new Arc(pos, strikes.toIntArray(), strength.toFloatArray());
         }
 
         private void arc(ClientLevel level, Arc a, float strength) {
@@ -207,17 +228,24 @@ public final class FlashAftermath {
     /** Лампа сети: тики разрядов дуги и их сила. */
     private static final class Arc {
         final BlockPos pos;
-        int[] strikes = new int[0];
-        float[] strength = new float[0];
+        final int[] strikes;
+        final float[] strength;
 
-        Arc(BlockPos pos) {
+        Arc(BlockPos pos, int[] strikes, float[] strength) {
             this.pos = pos;
+            this.strikes = strikes;
+            this.strength = strength;
         }
     }
 
-    /** Коротит ли блок от ЭМИ: видимая лампа сети. */
-    private static boolean arcs(BlockState st) {
+    /** Горящая видимая лампа сети: её ЭМИ замыкает. */
+    private static boolean lit(BlockState st) {
         return GridLights.isLit(st) && st.getRenderShape() == RenderShape.MODEL;
+    }
+
+    /** Видимая лампа сети, горящая или погашенная блэкаутом (её двойник): на месте, не снесена. */
+    private static boolean lamp(BlockState st) {
+        return (GridLights.isLit(st) || GridLights.isUnlit(st)) && st.getRenderShape() == RenderShape.MODEL;
     }
 
     // ---------------------------------------------------------------- дымки
