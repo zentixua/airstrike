@@ -12,6 +12,8 @@ import ua.zentix.incoming.nuclear.model.MushroomModel;
 import ua.zentix.incoming.nuclear.model.WaterModel;
 
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Грибы кадра для объёма ({@code mushroom.glsl}, проходы {@code PallPass}): до {@link #MUSHROOMS} самых крупных на экране
@@ -77,6 +79,7 @@ public final class MushroomField {
     private static final double[] RGB = new double[3], DRIFT = new double[2];
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f();
     private static final int[] ORDER = new int[MUSHROOMS];
+    private static final Map<Detonation, MushroomModel.Churn> CHURN = new WeakHashMap<>();
     /** Подрывы строк кадра ({@link #frame}): свет пожаров под ними пишет {@link #fire} после света кадра. */
     private static final ClientNuclear.Active[] ROW = new ClientNuclear.Active[MUSHROOMS];
     private static final double[] SIZE = new double[MUSHROOMS];
@@ -146,10 +149,10 @@ public final class MushroomField {
 
     /**
      * Свет пожаров под грибами кадра (после {@link #frame} и света кадра: {@code f.sun}, {@code f.fireLight}) — тексель
-     * 12, у земли, на экране, как зарево снизу у пелены: зарево шторма ({@link FireStorms#glow}: доверие модели огня,
-     * день и ночь) на среднее пламя зоны пожаров по карте огня (вода и не сгоревшее не светят), а пока карте не доверяют —
-     * зарево мглы по таблице, как её строка у слота пелены ({@code FireStorms.slot}: × (1 − доверие)). Выше — свет диска
-     * пожаров и дым шторма под точкой ({@code mushAt}).
+     * 12 (rgb, часы кипения в нём остаются), у земли, на экране, как зарево снизу у пелены: зарево шторма
+     * ({@link FireStorms#glow}: доверие модели огня, день и ночь) на среднее пламя зоны пожаров по карте огня (вода и не
+     * сгоревшее не светят), а пока карте не доверяют — зарево мглы по таблице, как её строка у слота пелены
+     * ({@code FireStorms.slot}: × (1 − доверие)). Выше — свет диска пожаров и дым шторма под точкой ({@code mushAt}).
      */
     static void fire(float partial, PallPass.Frame f) {
         double night = 1 - f.sun.w;
@@ -160,8 +163,11 @@ public final class MushroomField {
             a.storm.refresh(a.ticks(partial));
             double gate = a.storm.gate(), storm = FireStorms.glow(gate, night) * a.storm.meanFlame();
             double table = (1 - gate) * a.pall.fireBelow(a.ticks(partial));
-            put(f.mushrooms, k * WIDTH * 4, 12, storm * FireStorms.FIRE_R + table * f.fireLight.x, storm * FireStorms.FIRE_G + table * f.fireLight.y,
-                    storm * FireStorms.FIRE_B + table * f.fireLight.z, 0);
+            // w текселя — часы кипения шапки (write): их не трогать, иначе шапка встанет
+            int o = k * WIDTH * 4;
+            float churn = f.mushrooms[o + 4 * 12 + 3];
+            put(f.mushrooms, o, 12, storm * FireStorms.FIRE_R + table * f.fireLight.x, storm * FireStorms.FIRE_G + table * f.fireLight.y,
+                    storm * FireStorms.FIRE_B + table * f.fireLight.z, churn);
         }
     }
 
@@ -302,6 +308,8 @@ public final class MushroomField {
         // пожары под грибом: верх дыма шторма и радиус зоны пожаров (свет — fire, после света кадра); дымка воздуха —
         // по настоящей дальности, как у дальнего (в блоках гриб меньше в effects_scale раз)
         put(into, o, 11, d.blocks(0.3 * FireballModel.riseSpeed(y) * t), a.pall.hazeTop(), a.pall.fireReach(), airSigma / d.scale());
+        // часы кипения шапки (свет пожаров под грибом — fire, после света кадра)
+        put(into, o, 12, 0, 0, 0, churn(d).at(t));
         // столб воды: ослабление стенки — её толща поперёк на её толщину, × вода, что ещё не упала и уже не пар, × насколько
         // подрыв «водяной»; струи стенки идут с водой — шум по высоте сдвинут на верх столба (вверх, пока растёт, вниз,
         // когда падает)
@@ -311,6 +319,11 @@ public final class MushroomField {
             matter(into, o, 14, CloudPuffs.SPRAY, G_WATER);
             put(into, o, 15, d.blocks(c.crownR()), d.blocks(c.crownH()), d.blocks(c.top()), d.blocks(COLUMN_TILE * WaterModel.columnRadius(y)));
         }
+    }
+
+    /** Часы кипения шапки подрыва ({@link MushroomModel#churn}): таблица — одна на подрыв, пока он жив. */
+    static MushroomModel.Churn churn(Detonation d) {
+        return CHURN.computeIfAbsent(d, k -> MushroomModel.churn(k.yieldKt(), k.hobMetres(), k.surface()));
     }
 
     /** Вещество по цвету толстого слоя (на экране): альбедо ω' по каналам и асимметрия g' — как у пелены ({@link PallLight}). */

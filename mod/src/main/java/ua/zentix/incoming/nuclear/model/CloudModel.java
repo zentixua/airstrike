@@ -50,6 +50,13 @@ public final class CloudModel {
         return start + (end - start) * (1 - Math.exp(-Math.max(0, t) / riseTau(yieldKt)));
     }
 
+    /** Скорость подъёма верха облака в момент t, м/с: производная {@link #top}, к стабилизации падает до нуля. */
+    public static double riseSpeed(double t, double hobM, double yieldKt) {
+        double start = hobM + FireballModel.maxRadius(yieldKt, false);
+        double end = Math.max(start, stabilizedTop(yieldKt)), tau = riseTau(yieldKt);
+        return (end - start) / tau * Math.exp(-Math.max(0, t) / tau);
+    }
+
     /** Нижняя кромка шапки в момент t, м (~0.6 от верха после стабилизации). */
     public static double capBottom(double t, double hobM, double yieldKt) {
         double base = Math.max(0, hobM);

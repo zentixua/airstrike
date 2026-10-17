@@ -175,6 +175,71 @@ public final class MushroomModel {
     }
 
     /**
+     * Скорость обращения вещества шапки по её сечению, рад/с: вещество вихревого кольца обходит сечение со скоростью
+     * подъёма облака (Turner 1957: жидкость кольца движется со скоростью порядка его подъёма), путь — эллипс сечения
+     * a × b, длиной около 2π·√((a² + b²)/2). У 15 кт оборот — около 25 с на 20-й секунде и около трёх минут ко второй
+     * минуте, к стабилизации шапка стоит. Пока шар не свернулся в кольцо, оси обращения ещё нет: шейдер поворачивает узор
+     * на долю сворачивания, а клубы кипят уже по этим часам (пузырь шара перемешивается так же быстро).
+     */
+    public static double churnRate(Shape s, double riseSpeed) {
+        double mean = Math.sqrt(0.5 * (s.ringA() * s.ringA() + s.ringB() * s.ringB()));
+        return riseSpeed / Math.max(mean, 1);
+    }
+
+    /**
+     * Часы кипения шапки: ψ(t) — интеграл {@link #churnRate} от подрыва, рад (сколько радиан своего сечения прошло
+     * вещество шапки). Функция возраста подрыва: перемотка повтора и вход позже дают ту же шапку. Таблица — по сетке
+     * t = T·(i/N)² (гуще в начале, где подъём быстрее), T — три стабилизации: дальше подъём слабее начального в 10⁴ раз,
+     * и часы стоят.
+     */
+    public static Churn churn(double yieldKt, double hobM, boolean surface) {
+        double end = 3 * CloudModel.stabilizationSeconds(yieldKt), hob = Math.max(0, hobM);
+        double[] turns = new double[CHURN_NODES + 1];
+        double last = 0, prev = 0;
+        for (int i = 1; i <= CHURN_NODES; i++) {
+            double t = end * i * i / ((double) CHURN_NODES * CHURN_NODES);
+            Shape s = shape(t, yieldKt, hob, surface, 0);
+            double rate = s == null ? 0 : churnRate(s, CloudModel.riseSpeed(t, hob, yieldKt));
+            // у подрыва (t = 0) шапки ещё нет, обращение — как в первом узле
+            if (i == 1) last = rate;
+            turns[i] = turns[i - 1] + 0.5 * (last + rate) * (t - prev);
+            last = rate;
+            prev = t;
+        }
+        return new Churn(end, turns);
+    }
+
+    /** Узлов таблицы часов кипения. */
+    static final int CHURN_NODES = 256;
+
+    /** Часы кипения одного подрыва ({@link #churn}): {@code turns[i]} — в момент end·(i/N)². */
+    public static final class Churn {
+        private final double end;
+        private final double[] turns;
+
+        Churn(double end, double[] turns) {
+            this.end = end;
+            this.turns = turns;
+        }
+
+        /** Конец таблицы, с: дальше часы стоят. */
+        public double end() {
+            return end;
+        }
+
+        /** Часы в момент t, рад: между узлами — линейно, после конца таблицы стоят. */
+        public double at(double t) {
+            int n = turns.length - 1;
+            if (t <= 0) return 0;
+            if (t >= end) return turns[n];
+            double x = n * Math.sqrt(t / end);
+            int i = Math.min((int) x, n - 1);
+            double t0 = end * i * i / ((double) n * n), t1 = end * (i + 1) * (i + 1) / ((double) n * n);
+            return turns[i] + (turns[i + 1] - turns[i]) * (t - t0) / (t1 - t0);
+        }
+    }
+
+    /**
      * Радиус ножки на доле её высоты w (0 — земля, 1 — низ шапки): шире у шапки (её тянет кольцо) и у земли — раструб пыли,
      * который оседает с {@code lowDust}. {@code mushStemR} в {@code mushroom.glsl} — то же.
      */

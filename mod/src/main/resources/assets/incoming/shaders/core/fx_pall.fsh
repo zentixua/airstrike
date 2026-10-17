@@ -823,6 +823,32 @@ float mushLobes(vec3 c, float tile, float cone, float k, vec3 ch) {
     return (n - 0.5) + 0.35 * fine * (f - 0.5);
 }
 
+// Клубы слоя j узора шапки гриба m в месте q тела на часах кипения churn, опущенные в шапку на MUSH_SINK × (1 − доля
+// слоя): узор слоя повёрнут обращением сечения от рождения слоя (roll — доля обращения, пока шар сворачивается в
+// кольцо), у каждой жизни слоя — свой
+float mushCapLayer(Mush m, vec3 q, float cone, float k, float churn, float roll, float j) {
+    float age = mushLayerAge(churn, j);
+    vec3 c = mushFlow(m, q, age * MUSH_CYCLE * roll);
+    vec3 shift = m.capTile * fract(mushLayerSeed(churn, j) * vec3(0.618034, 0.414214, 0.732051));
+    return mushLobes(c + shift, m.capTile, cone, k, MUSH_DOMES) - MUSH_SINK * (1.0 - mushLayerWeight(age));
+}
+
+// Клубы шапки гриба m в месте q тела: вещество шапки обращается вокруг оси кольца (вихрь Тёрнера: внутри вверх, по
+// верху от оси наружу, снаружи вниз) со скоростью подъёма верха, и клубы идут с ним (mushFlow); турбулентность в нём
+// живёт и умирает — два слоя узора со сдвигом на полжизни (Нейре 2003), каждый уносится вращением от своего рождения
+// и тонет в шапку к концу жизни, а следующий узор поднимается из неё; край — верхний из двух с поправкой на среднее
+// (mushRise). Часы — свои у пятен шапки (mushPhase). Пока шар не свернулся в кольцо (roll < 1), обращение — его доля.
+// Слабый слой выйти наверх не может, если сильный выше его самого высокого клуба: тогда его не берём
+float mushCapLobes(Mush m, vec3 q, float cone, float k) {
+    float roll = clamp(m.ringR / max(MUSH_RING * m.capR, 1.0), 0.0, 1.0);
+    float churn = m.churn + MUSH_CYCLE * mushPhase(m, q, k);
+    float strong = mushLayerWeight(mushLayerAge(churn, 0.0)) >= 0.5 ? 0.0 : 1.0;
+    float w = mushLayerWeight(mushLayerAge(churn, strong));
+    float best = mushCapLayer(m, q, cone, k, churn, roll, strong);
+    if (best < MUSH_LOBES_TOP - MUSH_SINK * w) best = max(best, mushCapLayer(m, q, cone, k, churn, roll, 1.0 - strong));
+    return best + mushRise(1.0 - w);
+}
+
 // Ослабление шапки, ножки, юбки и столба воды гриба m в месте q тела с клубами, 1/блок; lobes — сдвиг края шапки
 // клубами (доля размаха), depth — глубина под краем шапки без клубов в её единицах (0 у края), near — сколько до края
 // с клубами у ближайшей части, блоки (оценка: клубы меняются не круче своей плитки — шагу луча вполовину её). Клубы
@@ -836,7 +862,8 @@ vec4 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float d
     vec4 d = mushDist(m, q);
     float uc = mushCapUnit(m);
     if (m.capSigma > 0.0 && d.x < MUSH_CAP_REACH * uc) {
-        lobes = mushLobes(vec3(q.x, q.y - m.capY, q.z), m.capTile, cone, k, MUSH_DOMES);
+        // глубже самой глубокой ложбины клубов шапка густа целиком: клубы там не нужны (лучу к солнцу из тени — каждый шаг)
+        if (d.x + (MUSH_LOBES_DEEP * MUSH_CAP_LOBES + MUSH_CAP_EDGE) * uc > 0.0) lobes = mushCapLobes(m, q, cone, k);
         float shifted = d.x - MUSH_CAP_LOBES * uc * lobes;
         sigma.x = m.capSigma * mushEdge(shifted, MUSH_CAP_EDGE * uc);
         near = shifted - MUSH_CAP_EDGE * uc;
