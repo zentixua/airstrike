@@ -17,14 +17,19 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.BlastModel;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Стена пыли ударной волны вблизи. Пока голова стены ближе {@link #NEAR} к камере — по её дуге у камеры встают клубы
- * пыли во всю высоту стены и катятся от эпицентра, с ними летят клочья мусора и куски верха земли. Блоки, которые снесла
- * волна (сервер называет их, {@code S2C.NukeDebris}), разлетаются кусками, когда до них доходит фронт. В миг прихода
- * головы стены к игроку, пока пелена выключена, — пелена на весь экран (накрывает за несколько тиков, гаснет за
- * несколько секунд), а пока стена проходит мимо — клубы пыли и дыма и сорванное с земли, которые ветер несёт от эпицентра.
+ * Стена пыли ударной волны вблизи. Пока голова стены ближе {@link #NEAR} к камере — по её дуге у камеры летят клочья
+ * мусора и куски верха земли. Блоки, которые снесла волна (сервер называет их, {@code S2C.NukeDebris}), разлетаются
+ * кусками, когда до них доходит фронт; пока стена проходит мимо игрока — сорванное с земли, которое ветер несёт от
+ * эпицентра. Саму пыль у камеры рисует пелена объёмом ({@link NukePall#drawsHead}), как голову стены вдали: одна среда —
+ * один рисунок. Квадраты клубов в шаге-двух от глаза и шире кадра ложились бы на неё второй пылью — пиксели картинки
+ * лестницей во весь экран, тёмные шары над верхом стены. Только когда пелена не рисуется (качество OFF, сломался шум),
+ * пыль у камеры — запасная: клубы по дуге головы во всю её высоту, пыль из проломов, клубы вокруг игрока, пока голова
+ * стены у него (не выше её верха), и пелена на весь экран (накрывает за несколько тиков, гаснет за несколько секунд).
  */
 public final class NukeDust {
     private static final RandomSource RANDOM = RandomSource.create();
@@ -61,6 +66,8 @@ public final class NukeDust {
     /** Цвет пелены над водой — серо-белые брызги; над сушей — цвет стены у глаза. */
     private static final float[] VEIL_SPRAY = {0xAE / 255f, 0xB8 / 255f, 0xBE / 255f};
     private static final float[] veilRgb = new float[3];
+    /** Числа слота стены для запасных клубов вокруг игрока ({@link #gust}). */
+    private static final float[] GUST_WALL = new float[BlastWall.SLOT];
     /** Проломы, до которых фронт ещё не дошёл: пыль из них встаёт в его тик ({@link #tick}). */
     private static final List<Breach> BREACHES = new ArrayList<>();
 
@@ -130,6 +137,7 @@ public final class NukeDust {
         NukePall.Sky sky = new NukePall.Sky();
         NukePall.sky(level, eye, 0, sky);
         float[] from = new float[3], to = new float[3];
+        boolean puffs = !NukePall.drawsHead(a, eye);
         for (int i = 0; i < n; i++) {
             double ang = toward + (RANDOM.nextDouble() * 2 - 1) * half;
             double cos = Math.cos(ang), sin = Math.sin(ang);
@@ -144,18 +152,20 @@ public final class NukeDust {
             int top = ceiling ? floor : chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15) + 1;
             boolean surface = top > floor;
             if (!surface) top = Mth.floor(d.groundY());
-            // гуще у земли; клуб выше — крупнее, у земли — поднимается, наверху — уходит назад со стеной
-            double up = Math.pow(RANDOM.nextDouble(), 1.6), h = w.height() * 0.8 * up;
-            double v = speed * (0.25 + 0.45 * RANDOM.nextDouble());
-            boolean dark = RANDOM.nextFloat() < 0.35f;
-            // цвет головы стены в месте клуба; рассеиваясь, клуб светлеет, как она выше
-            double y = top + 0.5 + h;
-            if (!wallColor(a, sky, x, y, z, dark ? DARK_FROM : 1, from)
-                    || !wallColor(a, sky, x, y + 0.4 * w.height(), z, 1.05f * (dark ? DARK_TO : 1), to)) continue;
-            Fx.smoke().vel(cos * v, (0.04 + 0.2 * RANDOM.nextDouble()) * (1 - up), sin * v)
-                    .size((float) (1.5 + 0.06 * h), (float) (5 + Math.min(10, w.height() * 0.08) + 3 * RANDOM.nextDouble())).growFast()
-                    .life(50 + RANDOM.nextInt(50)).color(from, to).prelit().alpha(0.8f).drag(0.95f)
-                    .collide().wind(0).fadeIn(3).fadeFrom(0.45f).budget(FxBudget.GROUND).spawn(level, x, y, z);
+            if (puffs) {
+                // гуще у земли; клуб выше — крупнее, у земли — поднимается, наверху — уходит назад со стеной
+                double up = Math.pow(RANDOM.nextDouble(), 1.6), h = w.height() * 0.8 * up;
+                double v = speed * (0.25 + 0.45 * RANDOM.nextDouble());
+                boolean dark = RANDOM.nextFloat() < 0.35f;
+                // цвет головы стены в месте клуба; рассеиваясь, клуб светлеет, как она выше
+                double y = top + 0.5 + h;
+                if (!wallColor(a, sky, x, y, z, dark ? DARK_FROM : 1, from)
+                        || !wallColor(a, sky, x, y + 0.4 * w.height(), z, 1.05f * (dark ? DARK_TO : 1), to)) continue;
+                Fx.smoke().vel(cos * v, (0.04 + 0.2 * RANDOM.nextDouble()) * (1 - up), sin * v)
+                        .size((float) (1.5 + 0.06 * h), (float) (5 + Math.min(10, w.height() * 0.08) + 3 * RANDOM.nextDouble())).growFast()
+                        .life(50 + RANDOM.nextInt(50)).color(from, to).prelit().alpha(0.8f).drag(0.95f).smooth()
+                        .collide().wind(0).fadeIn(3).fadeFrom(0.45f).budget(FxBudget.GROUND).spawn(level, x, y, z);
+            }
             double kpa = d.overpressureKpa(new Vec3(x, top, z));
             double psi = BlastModel.psi(kpa);
             if (psi < 1) continue;
@@ -178,7 +188,8 @@ public final class NukeDust {
 
     /**
      * Блоки, которые снесла волна (сервер — тем, кто видит чанк): каждый — один-два куска от эпицентра со скоростью,
-     * с которой волна бросает обломки ({@link Detonation#throwSpeed}), и пыль из пролома, когда до места дошёл фронт.
+     * с которой волна бросает обломки ({@link Detonation#throwSpeed}), и пыль из пролома, когда до места дошёл фронт (только
+     * запасная, {@link NukePall#drawsHead}, — решается тогда же).
      */
     static void debris(ClientNuclear.Active a, List<S2C.NukeDebris.Piece> pieces) {
         ClientLevel level = Minecraft.getInstance().level;
@@ -216,14 +227,13 @@ public final class NukeDust {
 
     /** Пыль из пролома: выбита напором вслед за обломками, цветом низа стены, которая проходит это место. */
     private static void breach(ClientLevel level, Breach b) {
-        Detonation d = b.a.d;
         NukePall.Sky sky = new NukePall.Sky();
         NukePall.sky(level, b.at, 0, sky);
         double up = 0.4 * b.a.wall.wall(b.a.seconds(0)).height();
         float[] from = new float[3], to = new float[3];
         if (!wallColor(b.a, sky, b.at.x, b.at.y, b.at.z, 1, from) || !wallColor(b.a, sky, b.at.x, b.at.y + up, b.at.z, 1.05f, to)) return;
         Fx.smoke().vel(b.ax * b.v * 0.3, 0.05, b.az * b.v * 0.3).size(0.8f, 3 + 2 * RANDOM.nextFloat()).growFast().life(40 + RANDOM.nextInt(30))
-                .color(from, to).prelit().alpha(0.7f).drag(0.93f).collide().wind(0).fadeIn(3).fadeFrom(0.4f).budget(FxBudget.GROUND)
+                .color(from, to).prelit().alpha(0.7f).drag(0.93f).smooth().collide().wind(0).fadeIn(3).fadeFrom(0.4f).budget(FxBudget.GROUND)
                 .spawn(level, b.at);
     }
 
@@ -237,24 +247,32 @@ public final class NukeDust {
         return true;
     }
 
-    /** Один тик прохождения стены: клубы вокруг игрока (цветом стены у него) и сорванное с земли летят от эпицентра. */
+    /**
+     * Один тик прохождения стены: сорванное с земли летит от эпицентра; запасные клубы пыли и дыма (цветом стены у игрока)
+     * — только в самой голове стены, по её средней густоте в месте клуба: выше её верха пыли нет, туда доходит только ветер.
+     */
     static void gust(ClientNuclear.Active a, Vec3 ear, double psi, int age) {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) return;
         Detonation d = a.d;
-        NukePall.Sky sky = new NukePall.Sky();
-        NukePall.sky(level, ear, 0, sky);
-        double higher = 0.5 * a.wall.wall(a.seconds(0)).height();
-        float[] dust0 = new float[3], dust1 = new float[3], smoke0 = new float[3], smoke1 = new float[3];
-        if (!wallColor(a, sky, ear.x, ear.y, ear.z, 1.05f, dust0) || !wallColor(a, sky, ear.x, ear.y + higher, ear.z, 1, dust1)) return;
-        grey(dust0, SMOKE_FROM, smoke0);
-        grey(dust1, SMOKE_TO, smoke1);
-        Vec3 away = new Vec3(ear.x - d.burst().x, 0, ear.z - d.burst().z);
-        away = away.lengthSqr() < 1e-4 ? new Vec3(1, 0, 0) : away.normalize();
-        double speed = Mth.clamp(0.4 + psi * 0.25, 0.4, 2.5) * (1 - age / 80.0);
         boolean ceiling = level.dimensionType().hasCeiling();
         // над водой — брызги и водяная пыль, сорванного с земли нет
         boolean wet = !ceiling && NukeWater.waterAround(level, ear.x, ear.z);
+        boolean puffs = !NukePall.drawsHead(a, ear);
+        if (!puffs && (ceiling || wet)) return;
+        float[] dust0 = new float[3], dust1 = new float[3], smoke0 = new float[3], smoke1 = new float[3];
+        if (puffs) {
+            if (!a.wall.slot(a.seconds(0), GUST_WALL)) return;
+            NukePall.Sky sky = new NukePall.Sky();
+            NukePall.sky(level, ear, 0, sky);
+            double higher = 0.5 * GUST_WALL[2];
+            if (!wallColor(a, sky, ear.x, ear.y, ear.z, 1.05f, dust0) || !wallColor(a, sky, ear.x, ear.y + higher, ear.z, 1, dust1)) return;
+            grey(dust0, SMOKE_FROM, smoke0);
+            grey(dust1, SMOKE_TO, smoke1);
+        }
+        Vec3 away = new Vec3(ear.x - d.burst().x, 0, ear.z - d.burst().z);
+        away = away.lengthSqr() < 1e-4 ? new Vec3(1, 0, 0) : away.normalize();
+        double speed = Mth.clamp(0.4 + psi * 0.25, 0.4, 2.5) * (1 - age / 80.0);
         int n = (int) (Mth.clamp(psi * 12, 12, 90) * (1 - age / 60.0));
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (int i = 0; i < n; i++) {
@@ -270,16 +288,28 @@ public final class NukeDust {
                 m.set(bx, chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15), bz);
                 Fragments.launch(level, chunk.getBlockState(m), m, p.x, Math.max(p.y, m.getY() + 1.2), p.z, away.x * v * 1.3, 0.1 + RANDOM.nextDouble() * 0.2,
                         away.z * v * 1.3, 0.1f + 0.2f * RANDOM.nextFloat(), 0);
-            } else {
+            } else if (puffs && RANDOM.nextDouble() < inHead(a, GUST_WALL, p)) {
                 // бурая пыль и серый дым клубами — стена, которая проходит сквозь игрока (цветом стены, со светом); над
                 // водой — брызги и водяная пыль
                 boolean smoke = i % 5 == 1;
                 Fx.Spec puff = Fx.smoke().vel(away.x * v, 0.01 + RANDOM.nextDouble() * 0.04, away.z * v).size(1.2f, 5 + RANDOM.nextFloat() * 3).growFast();
                 if (wet) puff.life(40 + RANDOM.nextInt(40)).color(0xC4CDD3, 0xEEF2F4).alpha(0.55f).budget(FxBudget.SPRAY);
                 else puff.life(70 + RANDOM.nextInt(90)).color(smoke ? smoke0 : dust0, smoke ? smoke1 : dust1).prelit().alpha(0.7f).budget(FxBudget.GROUND);
-                puff.drag(0.97f).collide().wind(0).fadeIn(2).fadeFrom(0.35f).spawn(level, p);
+                puff.drag(0.97f).smooth().collide().wind(0).fadeIn(2).fadeFrom(0.35f).spawn(level, p);
             }
         }
+    }
+
+    /**
+     * Доля средней головы стены в точке {@code p} мира, 0..1 ({@link BlastWall#sigma} к её густоте там): {@code slot} —
+     * числа слота стены ({@link BlastWall#slot}), рельеф и вода под точкой — по карте пелены.
+     */
+    private static double inHead(ClientNuclear.Active a, float[] slot, Vec3 p) {
+        double wet = a.ground.hasWater() ? a.ground.water(p.x, p.z) : 0;
+        double k = slot[3] + (slot[7] - slot[3]) * wet;
+        if (k <= 0) return 0;
+        Detonation d = a.d;
+        return BlastWall.sigma(slot, p.x - d.burst().x, p.z - d.burst().z, p.y - d.groundY() - a.ground.at(p.x, p.z), wet) / k;
     }
 
     /** Дым в стене: её цвет вполовину к серому той же яркости ({@link #SMOKE_GREY}) и темнее в {@code k} раз. */
@@ -290,11 +320,16 @@ public final class NukeDust {
 
     static void tick() {
         ClientLevel level = Minecraft.getInstance().level;
-        BREACHES.removeIf(b -> {
-            if (b.wait-- > 0) return false;
-            if (level != null) breach(level, b);
-            return true;
-        });
+        if (!BREACHES.isEmpty()) {
+            // пыль из пролома — запасная: пелена рисует её в голове стены (решается в тик пыли — настройку могли сменить)
+            Vec3 eye = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+            Map<ClientNuclear.Active, Boolean> heads = new IdentityHashMap<>();
+            BREACHES.removeIf(b -> {
+                if (b.wait-- > 0) return false;
+                if (level != null && !heads.computeIfAbsent(b.a, x -> NukePall.drawsHead(x, eye))) breach(level, b);
+                return true;
+            });
+        }
         // голова у глаза держит пелену, ушла — пелена гаснет (гасить её и тогда, когда голова её держит, — мигание через тик)
         veilTarget = Math.max(veilTarget * VEIL_DECAY, veilWanted);
         veilWanted = 0;
