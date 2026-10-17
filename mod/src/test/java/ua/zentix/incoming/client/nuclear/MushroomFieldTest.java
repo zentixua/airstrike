@@ -71,4 +71,61 @@ class MushroomFieldTest {
         MushroomModel.Shape s = MushroomModel.shape(5, 15, 0, true, 3_000);
         assertEquals(MushroomField.reach(s), MushroomField.reach(s, null), 0, "без столба — рамка гриба");
     }
+
+    /** Направление тени — единичное, не ниже {@link MushroomField#SHADOW_LOW}; оси плоскости поперёк него — ортонормированы. */
+    @Test
+    void shadowAxesAreOrthonormal() {
+        double[] s = new double[3], a = new double[3], b = new double[3];
+        for (double angle = 0; angle < 2 * Math.PI; angle += 0.01) {
+            for (double z : new double[] {0, 0.3, -0.95}) {
+                MushroomField.shadowSun(-Math.sin(angle), Math.cos(angle), z, s);
+                MushroomField.shadowAxes(s, a, b);
+                String at = "угол " + angle + ", z " + z;
+                assertEquals(1, dot(s, s), 1e-9, at);
+                assertTrue(s[1] >= MushroomField.SHADOW_LOW - 1e-12, at);
+                assertEquals(1, dot(a, a), 1e-9, at);
+                assertEquals(1, dot(b, b), 1e-9, at);
+                assertEquals(0, dot(a, s), 1e-9, at);
+                assertEquals(0, dot(b, s), 1e-9, at);
+                assertEquals(0, dot(a, b), 1e-9, at);
+            }
+        }
+    }
+
+    /**
+     * Плитка карты тени держит проекцию рамки гриба поперёк солнца (наклонный цилиндр mushLine: круги радиуса boundR вокруг
+     * оси, сдвинутой сносом на долю высоты, от −0,05 верха до верха) с запасом {@link MushroomField#SHADOW_PAD} текселей
+     * с каждой стороны: прямые у края плитки проходят мимо гриба, и тень не обрезана краем.
+     */
+    @Test
+    void shadowTileHoldsTheBound() {
+        double[] s = new double[3], a = new double[3], b = new double[3], rect = new double[4];
+        for (double angle = -1.55; angle <= 1.55; angle += 0.05) {
+            MushroomField.shadowSun(-Math.sin(angle), Math.cos(angle), 0, s);
+            MushroomField.shadowAxes(s, a, b);
+            for (double[] g : new double[][] {{1200, 2500, 3000, 1700, -400}, {600, 400, 3000, 0, 0}, {80, 300, 1, 40, 25}}) {
+                double r = g[0], top = g[1], end = g[2], dx = g[3], dz = g[4];
+                MushroomField.shadowRect(a, b, r, dx, dz, top, end, rect);
+                double kx = dx / Math.max(end, 1), kz = dz / Math.max(end, 1);
+                for (int i = 0; i < 2; i++) {
+                    double[] e = i == 0 ? a : b;
+                    double pad = MushroomField.SHADOW_PAD * rect[2 + i] / MushroomField.SHADOW, min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
+                    for (double h = -0.05 * top; h <= top + 1e-9; h += top / 100) {
+                        for (double phi = 0; phi < 2 * Math.PI; phi += 0.05) {
+                            double u = e[0] * (kx * h + r * Math.cos(phi)) + e[1] * h + e[2] * (kz * h + r * Math.sin(phi));
+                            min = Math.min(min, u);
+                            max = Math.max(max, u);
+                        }
+                    }
+                    String at = "угол " + angle + ", рамка " + r + "/" + top + ", ось " + i;
+                    assertTrue(min >= rect[i] + pad - 1e-6, at + ": " + min + " < " + (rect[i] + pad));
+                    assertTrue(max <= rect[i] + rect[2 + i] - pad + 1e-6, at + ": " + max + " > " + (rect[i] + rect[2 + i] - pad));
+                }
+            }
+        }
+    }
+
+    private static double dot(double[] x, double[] y) {
+        return x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    }
 }

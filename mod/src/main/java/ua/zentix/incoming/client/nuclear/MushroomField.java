@@ -4,6 +4,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.FrustumIntersection;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import ua.zentix.incoming.client.fx.layer.PallPass;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.BlackBody;
@@ -17,16 +18,16 @@ import java.util.WeakHashMap;
 
 /**
  * Грибы кадра для объёма ({@code mushroom.glsl}, проходы {@code PallPass}): до {@link #MUSHROOMS} самых крупных на экране
- * подрывов, чья рамка в кадре, — числа формы ({@link MushroomModel}; у подрыва на воде — и столба воды,
- * {@link WaterModel#column}) в блоках от глаза, вещество и температура, по строке таблицы на гриб; последняя строка —
- * свет чёрного тела по температуре ({@link BlackBody}). Метры модели → блоки мира через {@link Detonation#blocks}, время —
- * секунды модели подрыва.
+ * подрывов, чья рамка или (днём) тень в кадре, — числа формы ({@link MushroomModel}; у подрыва на воде — и столба воды,
+ * {@link WaterModel#column}) в блоках от глаза, вещество и температура, плитка карты тени от солнца, по строке таблицы
+ * на гриб; последняя строка — свет чёрного тела по температуре ({@link BlackBody}). Метры модели → блоки мира через
+ * {@link Detonation#blocks}, время — секунды модели подрыва.
  */
 public final class MushroomField {
     /** Грибов в кадре, не больше. */
     public static final int MUSHROOMS = 4;
     /** Текселей RGBA на гриб ({@code mushroom.glsl}: таблица грибов). */
-    public static final int TEXELS = 17;
+    public static final int TEXELS = 19;
     /** Узлов света чёрного тела (строка {@link #BB_ROW}): температуры от {@link #BB_FROM} до {@link #BB_TO} K по логарифму. */
     public static final int BB_NODES = 256;
     static final double BB_FROM = 500, BB_TO = 30_000;
@@ -74,9 +75,22 @@ public final class MushroomField {
     static final int CAP_YOUNG = 0x8C5A46, CAP_OLD = 0xC9C4BE, STEM = 0x8E7F70, SKIRT = 0x9C8A74, STEAM = 0xD9D9D6;
     /** Асимметрия рассеяния пыли и дыма гриба — как у пелены. */
     static final double G = 0.6;
+    /**
+     * Карта тени от солнца ({@code mushroom.glsl}: {@code MUSH_SHADOW}): плитка {@link #SHADOW}² текселей на гриб в плоскости
+     * поперёк солнца; ниже высоты {@link #SHADOW_LOW} (синус) солнце кладёт тень как с неё ({@code MUSH_SHADOW_LOW}).
+     */
+    public static final int SHADOW = 128;
+    static final double SHADOW_LOW = 0.05;
+    /** Запас плитки тени за проекцию рамки, текселей с каждой стороны: крайние прямые проходят мимо гриба. */
+    static final int SHADOW_PAD = 2;
+    /** Тексель строки гриба с плиткой карты тени (сторона 0 — тени нет) и с верхом мира над землёй под эпицентром. */
+    public static final int SHADOW_RECT = 17, SHADOW_TOP = 18;
+    /** Сдвиг места в очереди кадра у гриба, от которого в кадре только тень: больше любого углового размера. */
+    private static final double SHADOW_ONLY = 1e6;
 
     private static final float[] BB = blackBody();
-    private static final double[] RGB = new double[3], DRIFT = new double[2];
+    private static final double[] RGB = new double[3], DRIFT = new double[2], RAYS = new double[3], AXIS_A = new double[3],
+            AXIS_B = new double[3], RECT = new double[4];
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f();
     private static final int[] ORDER = new int[MUSHROOMS];
     private static final Map<Detonation, MushroomModel.Churn> CHURN = new WeakHashMap<>();
@@ -115,11 +129,16 @@ public final class MushroomField {
     /**
      * Грибы кадра в строки таблицы {@code into} (строки 0..{@link #MUSHROOMS}−1, по {@link #TEXELS} текселей; строка без
      * гриба — нули): самые крупные на экране, чья рамка в пирамиде видимости ({@code frustum} — от глаза, без дальней
-     * плоскости). {@code airSigma} — ослабление воздуха по погоде мира, 1/м ({@code Sight}: дымка вдали). Возвращает
-     * число грибов.
+     * плоскости) или, днём, тень на мире в ней (такие — после всех, что видны сами). {@code airSigma} — ослабление воздуха по погоде мира, 1/м ({@code Sight}:
+     * дымка вдали); {@code sun} — направление на солнце и сила дня ({@code PallSun}), {@code bottom}, {@code top} — низ
+     * и верх мира (y): тень ложится на всё, что между ними. Возвращает число грибов.
      */
-    public static int frame(List<ClientNuclear.Active> all, Vec3 eye, float partial, FrustumIntersection frustum, double airSigma, float[] into) {
+    public static int frame(List<ClientNuclear.Active> all, Vec3 eye, float partial, FrustumIntersection frustum, double airSigma, Vector4f sun,
+                            double bottom, double top, float[] into) {
         for (int k = 0; k < MUSHROOMS; k++) java.util.Arrays.fill(into, k * WIDTH * 4, k * WIDTH * 4 + TEXELS * 4, 0f);
+        shadowSun(sun.x, sun.y, sun.z, RAYS);
+        shadowAxes(RAYS, AXIS_A, AXIS_B);
+        boolean day = sun.w > 0;
         int n = 0;
         for (int i = 0; i < all.size(); i++) {
             ClientNuclear.Active a = all.get(i);
@@ -127,7 +146,12 @@ public final class MushroomField {
             if (s == null) continue;
             Detonation d = a.d;
             double size = d.blocks(s.capR()) / Math.max(1, Math.hypot(Math.hypot(d.burst().x - eye.x, d.burst().z - eye.z), d.groundY() + d.blocks(s.capY()) - eye.y));
-            if (!inView(a, s, eye, partial, frustum)) continue;
+            if (!inView(a, s, eye, null, bottom, frustum)) {
+                if (!day || !inView(a, s, eye, RAYS, bottom, frustum)) continue;
+                // в кадре только тень — после всех, что видны сами: тело гриба рисует только этот объём, и гриб за спиной
+                // не должен вытеснять видимый
+                size -= SHADOW_ONLY;
+            }
             // по угловому размеру: на месте самого мелкого, если этот крупнее
             int at = n < MUSHROOMS ? n++ : -1;
             if (at < 0) {
@@ -142,7 +166,7 @@ public final class MushroomField {
         for (int k = 0; k < MUSHROOMS; k++) {
             ClientNuclear.Active a = k < n ? all.get(ORDER[k]) : null;
             ROW[k] = a;
-            if (a != null) write(a, shape(a, partial), eye, partial, airSigma, into, k * WIDTH * 4);
+            if (a != null) write(a, shape(a, partial), eye, partial, airSigma, day, top, into, k * WIDTH * 4);
         }
         return n;
     }
@@ -277,7 +301,12 @@ public final class MushroomField {
         return Math.min(s.skirtW(), s.skirtH());
     }
 
-    private static boolean inView(ClientNuclear.Active a, MushroomModel.Shape s, Vec3 eye, float partial, FrustumIntersection frustum) {
+    /**
+     * Рамка гриба в пирамиде видимости; с {@code rays} (днём: направление тени, {@link #shadowSun}) — и его тень: рамка,
+     * протянутая от солнца до низа мира {@code bottom} (y) — тень гриба лежит на земле и тогда, когда сам он за кадром
+     * (смотришь вниз, стоя в тени).
+     */
+    private static boolean inView(ClientNuclear.Active a, MushroomModel.Shape s, Vec3 eye, double[] rays, double bottom, FrustumIntersection frustum) {
         Detonation d = a.d;
         double[] w = DRIFT;
         drift(d, s.t(), w);
@@ -286,11 +315,117 @@ public final class MushroomField {
         float cx = (float) (d.burst().x + 0.5 * w[0] - eye.x), cz = (float) (d.burst().z + 0.5 * w[1] - eye.z), ground = (float) (d.groundY() - eye.y);
         LO.set((float) (cx - r), ground - 4, (float) (cz - r));
         HI.set((float) (cx + r), (float) (ground + d.blocks(top(s, c))), (float) (cz + r));
+        if (rays != null) {
+            // верх рамки опускается вдоль солнца до низа мира: по горизонтали — на высоту, делённую на тангенс высоты солнца
+            double fall = (HI.y - (bottom - eye.y)) / rays[1];
+            float sx = (float) (-rays[0] * fall), sz = (float) (-rays[2] * fall);
+            LO.set(Math.min(LO.x, LO.x + sx), (float) Math.min(LO.y, bottom - eye.y), Math.min(LO.z, LO.z + sz));
+            HI.set(Math.max(HI.x, HI.x + sx), HI.y, Math.max(HI.z, HI.z + sz));
+        }
         return frustum.intersectAab(LO, HI, SIDES_AND_NEAR) < 0;
     }
 
-    /** Гриб в строку таблицы с {@code o} ({@code mushroom.glsl}: таблица грибов). */
-    private static void write(ClientNuclear.Active a, MushroomModel.Shape s, Vec3 eye, float partial, double airSigma, float[] into, int o) {
+    /**
+     * Направление на солнце для тени ({@code mushShadowSun}), единичное: высота (синус) не ниже {@link #SHADOW_LOW},
+     * по горизонтали — как у солнца. В {@code out}.
+     */
+    static void shadowSun(double x, double y, double z, double[] out) {
+        double e = Math.clamp(y, SHADOW_LOW, 1), h = Math.hypot(x, z);
+        if (h < 1e-6) {
+            out[0] = 0;
+            out[1] = 1;
+            out[2] = 0;
+            return;
+        }
+        double c = Math.sqrt(1 - e * e) / h;
+        out[0] = x * c;
+        out[1] = e;
+        out[2] = z * c;
+    }
+
+    /** Оси плоскости поперёк направления {@code s} ({@code mushShadowAxes}): a — поперёк s и оси z мира, b — s × a. */
+    static void shadowAxes(double[] s, double[] a, double[] b) {
+        double cx = s[1], cy = -s[0], cz = 0;
+        if (cx * cx + cy * cy < 0.01) {
+            cx = 0;
+            cy = s[2];
+            cz = -s[1];
+        }
+        double l = Math.sqrt(cx * cx + cy * cy + cz * cz);
+        a[0] = cx / l;
+        a[1] = cy / l;
+        a[2] = cz / l;
+        b[0] = s[1] * a[2] - s[2] * a[1];
+        b[1] = s[2] * a[0] - s[0] * a[2];
+        b[2] = s[0] * a[1] - s[1] * a[0];
+    }
+
+    /**
+     * Свет солнца над точкой на высоте h над землёй под эпицентром по трём слоям карты тени ({@code mushShadowLayer}):
+     * над землёй под эпицентром t0, над серединой между ней и верхом мира t1, над верхом t2 ({@code top} — верх мира над той же землёй).
+     */
+    static double shadowLayer(double h, double top, double t0, double t1, double t2) {
+        double x = Math.clamp(h / Math.max(top, 1), 0, 1);
+        return x < 0.5 ? t0 + (t1 - t0) * 2 * x : t1 + (t2 - t1) * (2 * x - 1);
+    }
+
+    /**
+     * Полуширина облака поперёк солнца ({@code mushAcross}): радиус круга той же площади, что тень столба радиуса r
+     * и высоты h на плоскость поперёк солнца на высоте {@code mu} (синус) — πr²·μ сверху и 2rh·√(1 − μ²) сбоку.
+     */
+    static double across(double r, double h, double mu) {
+        return Math.sqrt(r * (r * mu + 2 / Math.PI * h * Math.sqrt(Math.max(1 - mu * mu, 0))));
+    }
+
+    /**
+     * Доля рассеянного облаком вперёд света, что доходит до горизонтальной земли, в долях пучка на неё (косинус пучка —
+     * {@code mu}), против слоя без края ({@code mushSeen}): облако полушириной w поперёк на расстоянии d по прямой
+     * к солнцу видно кругом с долей v = w²/(w² + d²) потока полушария; на землю — v·(μ + (1 − μ)·v/2) (у бесконечного
+     * слоя (1 + μ)/2, у узкого — как пучок, v·μ).
+     */
+    static double seen(double w, double d, double mu) {
+        double v = w * w / Math.max(w * w + d * d, 1e-6);
+        return v * (mu + (1 - mu) * 0.5 * v) / mu;
+    }
+
+    /**
+     * Доля света солнца, что вещество гриба пропускает к слою карты тени ({@code through} в {@code fx_mush_shadow}):
+     * прямой пучок сквозь толщу {@code tau} и рассеянный ею вперёд (два потока в столбе вдоль солнца, альбедо {@code w},
+     * асимметрия {@code g} после усечения пика) с долей {@link #seen} — облако полушириной {@code width} с серединой
+     * в {@code d} от слоя.
+     */
+    static double shadowThrough(double tau, double d, double width, double w, double g, double mu) {
+        if (tau < 1e-4) return 1;
+        double scattered = Math.max(PallLight.diffuse(w, g, tau, tau, 0, 1, 1, 1, 0, 0, 0, -2.0 / 3), 0);
+        return Math.exp(-tau) + scattered * seen(width, d, mu);
+    }
+
+    /**
+     * Плитка карты тени гриба в плоскости поперёк солнца (оси {@code a}, {@code b}, {@link #shadowAxes}) от эпицентра:
+     * проекция рамки ({@code mushLine}: цилиндр радиуса {@code boundR} вокруг оси, наклонённой сносом {@code dx}, {@code dz}
+     * на высоту {@code end}, от −0,05 верха {@code top} до верха) с запасом {@link #SHADOW_PAD} текселей с каждой стороны.
+     * В {@code out}: начало u, v и стороны. Все величины — в блоках.
+     */
+    static void shadowRect(double[] a, double[] b, double boundR, double dx, double dz, double top, double end, double[] out) {
+        double kx = dx / Math.max(end, 1), kz = dz / Math.max(end, 1), lo = -0.05 * top;
+        for (int i = 0; i < 2; i++) {
+            double[] e = i == 0 ? a : b;
+            // ось — по прямой от низа к верху: её проекция крайняя на концах; круг сечения — ± радиус × горизонталь оси плоскости
+            double p0 = e[0] * kx * lo + e[1] * lo + e[2] * kz * lo, p1 = e[0] * kx * top + e[1] * top + e[2] * kz * top;
+            double r = boundR * Math.hypot(e[0], e[2]);
+            double min = Math.min(p0, p1) - r, size = Math.max(Math.abs(p1 - p0) + 2 * r, 1);
+            double padded = size * SHADOW / (SHADOW - 2.0 * SHADOW_PAD);
+            out[i] = min - SHADOW_PAD * padded / SHADOW;
+            out[2 + i] = padded;
+        }
+    }
+
+    /**
+     * Гриб в строку таблицы с {@code o} ({@code mushroom.glsl}: таблица грибов); днём ({@code day}) — и плитка его карты
+     * тени, верхний слой которой — верх мира {@code worldTop} (y).
+     */
+    private static void write(ClientNuclear.Active a, MushroomModel.Shape s, Vec3 eye, float partial, double airSigma, boolean day, double worldTop,
+                              float[] into, int o) {
         Detonation d = a.d;
         double t = s.t(), y = d.yieldKt();
         double[] w = DRIFT;
@@ -335,6 +470,13 @@ public final class MushroomField {
         }
         // шар и шапка снаружи: доля перепада ядра у края (у шара — вся) и размах клубов края (у шара — гладкая сфера)
         put(into, o, 16, MushroomModel.edgeShare(t, y, d.surface()), MushroomModel.billows(t, y, d.surface()), 0, 0);
+        if (day) {
+            // тень от солнца: плитка карты — проекция рамки поперёк солнца; слои — над землёй под эпицентром, серединой
+            // между ней и верхом мира и верхом
+            shadowRect(AXIS_A, AXIS_B, boundR, w[0], w[1], top, end, RECT);
+            put(into, o, SHADOW_RECT, RECT[0], RECT[1], RECT[2], RECT[3]);
+            put(into, o, SHADOW_TOP, Math.max(worldTop - d.groundY(), 16), 0, 0, 0);
+        }
     }
 
     /** Часы кипения шапки подрыва ({@link MushroomModel#churn}): таблица — одна на подрыв, пока он жив. */

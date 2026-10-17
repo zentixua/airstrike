@@ -180,7 +180,9 @@ public final class NukePall {
         PallPass.Quality q = quality();
         PallPass.Frame f = FRAME;
         double air = Sight.KOSCHMIEDER / Sight.range(level.getRainLevel(partial), level.getThunderLevel(partial));
-        f.mushroomCount = MushroomField.frame(all, eye, partial, frustum, air, f.mushrooms);
+        // свет кадра — до грибов: днём в кадр идёт и гриб, чья тень в нём (MushroomField.frame)
+        light(level, eye, partial, f);
+        f.mushroomCount = MushroomField.frame(all, eye, partial, frustum, air, f.sun, level.getMinBuildHeight(), level.getMaxBuildHeight(), f.mushrooms);
         List<ClientNuclear.Active> visible = new ArrayList<>();
         if (q != PallPass.Quality.OFF) for (ClientNuclear.Active a : all) if (visible(a, partial)) visible.add(a);
         if (visible.isEmpty() && f.mushroomCount == 0) return null;
@@ -213,7 +215,6 @@ public final class NukePall {
             f.min.zero();
             f.max.zero();
         }
-        light(level, eye, partial, f);
         MushroomField.fire(partial, f);
         float clouds = level.effects().getCloudHeight();
         FireStorms.frame(SLOTTED, k, eye, partial, frustum, Float.isNaN(clouds) ? 1e6f : (float) (clouds - eye.y), f);

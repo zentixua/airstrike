@@ -2,7 +2,6 @@ package ua.zentix.incoming.client.fx.layer;
 
 import com.mojang.blaze3d.platform.GlConst;
 import com.mojang.blaze3d.platform.GlStateManager;
-import com.mojang.blaze3d.shaders.FogShape;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.BufferUploader;
@@ -19,11 +18,11 @@ import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
+import org.joml.Vector4f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.far.FarView;
-import ua.zentix.incoming.client.far.Sight;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -75,6 +74,7 @@ public final class WaterDecal {
     private static final String[] RING_UNIFORMS = {"Ring0", "Ring1", "Ring2", "Ring3"};
     private static final ByteBuffer PIXELS = BufferUtils.createByteBuffer(SAMPLES * RINGS * 4);
     private static final Matrix4f INV_PROJ = new Matrix4f(), INV_VIEW = new Matrix4f();
+    private static final Vector4f HAZE = new Vector4f();
     private static int count, texture = -1, lastCount;
     private static boolean wanted, packChecked;
     /** {@code IrisApi.isShaderPackInUse} (по рефлексии: мод от Iris не зависит); null — Iris нет. */
@@ -146,8 +146,8 @@ public final class WaterDecal {
         s.safeGetUniform("CamY").set((float) cam.y);
         double sea = SEA_LEVEL - 1 + SURFACE;
         s.safeGetUniform("WaterParams").set((float) (0.8 * view.world()), (float) (sea - cam.y), (float) count, view.ambient());
-        s.safeGetUniform("Haze").set((float) (Sight.KOSCHMIEDER / view.range()), fog.end > fog.start ? fog.start : 1e9f,
-                fog.end > fog.start ? fog.end : 2e9f, fog.shape == FogShape.CYLINDER ? 1f : 0f);
+        Vector4f haze = fog.haze(view.range(), HAZE);
+        s.safeGetUniform("Haze").set(haze.x, haze.y, haze.z, haze.w);
         s.safeGetUniform("Pixel").set((float) view.pixel());
         boolean pack = shaderPack();
         s.safeGetUniform("Pack").set(pack ? PACK_DROP : 0f, pack ? PACK_STEP : 0f, pack ? PACK_JITTER : 0f);

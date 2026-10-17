@@ -1,13 +1,15 @@
 #version 150
 
 #moj_import <incoming:pall.glsl>
+#moj_import <incoming:mushroom.glsl>
 
 // Пелена — на кадр (client/fx/layer/PallPass): смешивание ONE, SRC_ALPHA — свет пелены плюс мир за ней, ослабленный
-// и в тени пелены. Кадр пелены мельче полного: из четырёх ближних его пикселей — с весом по сходству расстояния до мира
-// (у края дома пелена неба не ложится на стену и наоборот). Тень — здесь, в каждом пикселе, по полю без шума: в кадре
-// пелены альфа — только ослабление (его берут квадраты слоя, fx.fsh), а тень на земле — не их. Пламя горящего города
-// на поверхностях (огненный шторм, client/nuclear/FireStorm) — тоже здесь: по расстоянию до мира за пикселем (и на LOD
-// Distant Horizons), за пеленой — ослабленное ею.
+// и в тени пелены и грибов. Кадр пелены мельче полного: из четырёх ближних его пикселей — с весом по сходству расстояния
+// до мира (у края дома пелена неба не ложится на стену и наоборот). Тень — здесь, в каждом пикселе: пелены — по полю без
+// шума, грибов — по карте тени (mushroom.glsl, fx_mush_shadow); в кадре пелены альфа — только ослабление (его берут
+// квадраты слоя, fx.fsh), а тень на земле — не их. Пламя горящего города на поверхностях (огненный шторм,
+// client/nuclear/FireStorm) — тоже здесь: по расстоянию до мира за пикселем (и на LOD Distant Horizons), за пеленой —
+// ослабленное ею.
 
 // накопленная пелена (fx_pall_resolve)
 uniform sampler2D Sampler0;
@@ -40,16 +42,27 @@ uniform vec4 PallGround1;
 uniform float PallFloorFrom;
 uniform vec4 PallWater0;
 uniform vec4 PallWater1;
+// грибы кадра (MushroomField) и их карта тени от солнца (fx_mush_shadow)
+uniform sampler2D Sampler7;
+uniform sampler2D Sampler8;
+// x — 3.912 / дальность видимости, 1/блок; y, z — начало и конец тумана Minecraft; w — 1, если туман цилиндром (как в fx_water)
+uniform vec4 Haze;
 
 out vec4 fragColor;
 
-// Тень пелены на освещённом солнцем мире в точке p (от глаза): во сколько раз пелена над ней меняет свет на земле — прямое
-// солнце сквозь столб над точкой и рассеянный пеленой свет солнца и неба вниз (два потока, как в fx_pall: pallDiffuse,
-// с отражением от земли и обратно от пелены) против солнца и неба без неё. Точка — у низа слоя: толща над ней — весь
-// слой. Один канал (зелёный): тень — множитель альфы. Вещество — по толще пыли (с дымом), мглы и водяной пыли. Свет
-// линейный, мир кадра — значения экрана: на экране тень — её степень 1/γ (pallDisplay; мир в тени в k раз темнее —
-// на экране в k^(1/γ)).
+// Тень пелены и грибов на освещённом солнцем мире в точке p (от глаза): во сколько раз они над ней меняют свет на земле
+// против солнца и неба без них. Грибы — высоко над пеленой, свет проходит их первыми: карта тени даёт долю света солнца,
+// что они пропускают к точке, — прямой пучок сквозь их толщу и рассеянный ими вперёд с той долей, с которой облако
+// видно с земли (fx_mush_shadow; рассеянное вперёд приходит с неба у солнца — дальше оно идёт как пучок). Пелена — у
+// низа слоя: толща над точкой — весь слой, прямое солнце сквозь столб над ней и рассеянный пеленой свет солнца и неба
+// вниз (два потока, как в fx_pall: pallDiffuse, с отражением от земли и обратно от пелены). Небо, закрытое шапкой, не
+// убавлено: даже под шапкой она закрывает меньше десятой доли неба по его свету на землю (у 15 кт R²/(R² + H²) ≈ 0,07).
+// Один канал (зелёный): тень — множитель альфы. Вещество — по толще пыли (с дымом), мглы и водяной пыли. Свет линейный,
+// мир кадра — значения экрана: на экране тень — её степень 1/γ (pallDisplay; мир в тени в k раз темнее — на экране
+// в k^(1/γ)).
 float shade(vec3 p) {
+    float mu = max(PallSun.y, 0.12), sun = PallSunLight.g, sky = PallSkyLight.g;
+    float beam = sun * mushShadow(Sampler7, Sampler8, mushShadowSun(PallSun.xyz), p), skyIn = sky;
     float tau = 0.0, w = 0.0, g = 0.0, water = 0.0;
     if (PallSlot0[1].w > 0.5) {
         PallAt f = pallField(Sampler2, Sampler5, PallSlot0, PallGround0, PallWater0, p, 0.0);
@@ -65,10 +78,11 @@ float shade(vec3 p) {
         g += (f.column.x + f.column.y) * PALL_DUST_G + f.column.z * PALL_MIST_G;
         water += (f.column.x + f.column.y) * f.wet + f.column.z;
     }
-    if (tau <= 1e-5) return 1.0;
-    float mu = max(PallSun.y, 0.12), sun = PallSunLight.g, sky = PallSkyLight.g;
-    float ground = mix(PALL_LAND, PALL_SEA, clamp(water / tau, 0.0, 1.0));
-    float down = mu * sun * exp(-tau / mu) + pallDiffuse(w / tau, g / tau, tau, tau, ground, mu, sun, 1.0, 0.0, sky, 0.0, -0.6666667);
+    float down = mu * beam + skyIn;
+    if (tau > 1e-5) {
+        float ground = mix(PALL_LAND, PALL_SEA, clamp(water / tau, 0.0, 1.0));
+        down = mu * beam * exp(-tau / mu) + pallDiffuse(w / tau, g / tau, tau, tau, ground, mu, beam, 1.0, 0.0, skyIn, 0.0, -0.6666667);
+    }
     return mix(1.0, clamp(down / max(mu * sun + sky, 1e-4), 0.0, 1.0), PallSun.w);
 }
 
@@ -142,7 +156,12 @@ void main() {
         vec2 ndc = (vec2(full) + 0.5) / vec2(fullSize) * 2.0 - 1.0;
         vec4 farPoint = InvViewProj * vec4(ndc, 1.0, 1.0);
         vec3 dir = normalize(farPoint.xyz / farPoint.w);
-        pall.a *= pallDisplay(shade(dir * (depth / max(dot(dir, PallForward), 1e-3))));
+        vec3 p = dir * (depth / max(dot(dir, PallForward), 1e-3));
+        // тень — на свете самого мира, а дымка воздуха и туман Minecraft перед ним — свет воздуха на всём пути до края, не
+        // в тени: тень тает с ними (как наклейка на воду, fx_water), иначе у края прорисовки туман в тени — серая полоса
+        float fd = Haze.w > 0.5 ? max(length(p.xz), abs(p.y)) : length(p);
+        float seen = exp(-Haze.x * length(p)) * (1.0 - smoothstep(Haze.y, Haze.z, fd));
+        pall.a *= mix(1.0, pallDisplay(shade(p)), seen);
     }
     // накопленная пелена годна всегда (fx_pall_resolve), но мир кадра после неё не должен пострадать ни при каком входе
     fragColor = pallValid(pall) ? pall : vec4(0.0, 0.0, 0.0, 1.0);

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.shaders.FogShape;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.FrustumIntersection;
+import org.joml.Vector4f;
 import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.far.Sight;
 
@@ -58,5 +59,15 @@ public final class FxFrame {
         float start, end;
         FogShape shape = FogShape.SPHERE;
         final float[] color = new float[4];
+
+        /**
+         * Дымка воздуха и этот туман для того, что ложится на сам мир (наклейка на воду, тень пелены и грибов; {@code Haze}
+         * шейдеров): x — ослабление воздуха по дальности видимости {@code range}, 1/блок ({@link Sight}); y, z — начало
+         * и конец тумана (нет тумана — дальше всего); w — 1, если туман цилиндром. В {@code out}.
+         */
+        Vector4f haze(double range, Vector4f out) {
+            boolean on = end > start;
+            return out.set((float) (Sight.KOSCHMIEDER / range), on ? start : 1e9f, on ? end : 2e9f, shape == FogShape.CYLINDER ? 1 : 0);
+        }
     }
 }
