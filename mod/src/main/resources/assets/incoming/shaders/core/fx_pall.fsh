@@ -872,6 +872,9 @@ void main() {
     vec3 whirlFlame = max(gFlame, WHIRL_FIRE_LINEAR);
     vec3 light = vec3(0.0);
     float transmit = 1.0;
+    // доля, которую закрыл бы гриб, но съела дымка воздуха до него (mushAir): там видно то, что за всем лучом (небо, мир
+    // вдали), а не глубина самого гриба — пропускание по лучу остаётся настоящим, и задние клубы за передними не видны
+    float lost = 0.0;
     // смерчи: отрезок луча и свет каждого — заранее, в луч пелены — когда шаг дойдёт до входа (до мира за пикселем)
     gWhirlLight = mat4(0.0);
     gWhirlIn = vec4(1e9);
@@ -958,7 +961,8 @@ void main() {
                 // небе за ним
                 float tr = exp(-r.w * ds), air = mushAir(gMush[0], tm);
                 light += transmit * air * r.rgb * (1.0 - tr) / r.w;
-                transmit *= 1.0 - air * (1.0 - tr);
+                lost += transmit * (1.0 - air) * (1.0 - tr);
+                transmit *= tr;
                 tauEye += r.w * ds;
             }
             tm += ds;
@@ -974,12 +978,12 @@ void main() {
     // на экран: цвет пелены как вещества — свет, делённый на непрозрачность (в однородной — её функция источника), в
     // значения экрана, умноженный на непрозрачность; с миром смешивается, как всё полупрозрачное в кадре. Ярче белого —
     // к белому (CROSS)
-    float cover = 1.0 - transmit;
+    float cover = 1.0 - transmit - lost;
     vec3 medium = light / max(cover, 1e-4);
     medium += vec3(CROSS * max(dot(medium, LUMA) - 1.0, 0.0));
     vec3 shown = shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * cover;
     // негодный итог (NaN, бесконечность — из глубины, матриц или поля) — пропускание −1: накопление возьмёт прошлое
     // этого места, а без него пиксель — без пелены (fx_pall_resolve)
-    vec4 res = vec4(shown, transmit);
+    vec4 res = vec4(shown, transmit + lost);
     fragColor = pallValid(res) ? res : vec4(0.0, 0.0, 0.0, -1.0);
 }
