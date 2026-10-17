@@ -43,7 +43,7 @@ float shade(vec3 p) {
 void main() {
     ivec2 fullSize = textureSize(Sampler1, 0), lowSize = textureSize(Sampler0, 0);
     ivec2 full = ivec2(gl_FragCoord.xy);
-    float depth = texelFetch(Sampler1, clamp(full, ivec2(0), fullSize - 1), 0).r;
+    float depth = pallScene(texelFetch(Sampler1, clamp(full, ivec2(0), fullSize - 1), 0).r);
     vec2 at = gl_FragCoord.xy / PallFrame.z - 0.5;
     ivec2 base = ivec2(floor(at));
     vec2 f = at - vec2(base);
@@ -53,9 +53,10 @@ void main() {
         for (int i = 0; i <= 1; i++) {
             ivec2 t = clamp(base + ivec2(i, j), ivec2(0), lowSize - 1);
             ivec2 tf = clamp(ivec2((vec2(t) + 0.5) * PallFrame.z), ivec2(0), fullSize - 1);
-            float d = texelFetch(Sampler1, tf, 0).r;
+            float d = pallScene(texelFetch(Sampler1, tf, 0).r);
             float rel = abs(d - depth) / max(min(d, depth), 0.1);
-            float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);
+            // билинейный вес без «?:» внутри выражения: Veil теряет скобки вокруг него (ShaderSourceTest)
+            float w = mix(1.0 - f.x, f.x, float(i)) * mix(1.0 - f.y, f.y, float(j));
             w *= 1.0 / (1.0 + 400.0 * rel * rel) + 1e-4;
             sum += texelFetch(Sampler0, t, 0) * w;
             total += w;
@@ -69,5 +70,6 @@ void main() {
         vec3 dir = normalize(farPoint.xyz / farPoint.w);
         pall.a *= shade(dir * (depth / max(dot(dir, PallForward), 1e-3)));
     }
-    fragColor = pall;
+    // накопленная пелена годна всегда (fx_pall_resolve), но мир кадра после неё не должен пострадать ни при каком входе
+    fragColor = pallValid(pall) ? pall : vec4(0.0, 0.0, 0.0, 1.0);
 }

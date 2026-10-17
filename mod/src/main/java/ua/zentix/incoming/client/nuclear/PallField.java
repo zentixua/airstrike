@@ -14,8 +14,8 @@ import ua.zentix.incoming.nuclear.model.ThermalModel;
  * <p>
  * <b>Пыль.</b> Где прошёл фронт, земля и обломки поднимают пыль: покрытие {@link #cover} растёт с давлением на земле
  * от {@link #COVER_FROM_PSI} (сдувает пыль и сухую землю) до {@link #COVER_FULL_PSI} (рушатся дома). Пелена встаёт за
- * фронтом за секунды ({@link #RISE_S}) до высоты {@link #topMetres} (у центра 150 м у 15 кт, к краю — десятки метров;
- * за минуты клубится ещё на треть выше, {@link #rise}) и густа несколько минут ({@link #DENSE_S}, e-кратно; в самой густой видно на {@link #DENSE_VISIBILITY_M} м), её
+ * фронтом сразу на {@link #RISE_FROM_M} м и растёт к высоте {@link #topMetres} (у центра 150 м у 15 кт, к краю — десятки метров)
+ * со скоростью вначале {@link #RISE_SPEED} м/с, за минуты клубится ещё на треть выше ({@link #rise}), и густа несколько минут ({@link #DENSE_S}, e-кратно; в самой густой видно на {@link #DENSE_VISIBILITY_M} м), её
  * сносит ветер подрыва ({@link #DRIFT}).
  * <p>
  * <b>Мгла.</b> Над зоной поджига (световой импульс от {@link ThermalModel#IGNITE}) горит город: дымная мгла
@@ -37,8 +37,18 @@ public final class PallField {
     static final double DENSE_VISIBILITY_M = 40;
     /** Видимость в дымной мгле над горящим городом, м. */
     static final double HAZE_VISIBILITY_M = 900;
-    /** За сколько секунд (e-кратно) пыль встаёт за фронтом. */
-    static final double RISE_S = 6;
+    /**
+     * Пыль за фронтом сразу стоит на столько метров (у 15 кт): её поднял сам напор — пыль у фронта выше 30 м
+     * (Glasstone &amp; Dolan, §3.81: «precursor» пыли выше 100 футов).
+     */
+    static final double RISE_FROM_M = 25;
+    /**
+     * …и растёт к своей высоте ({@link #topMetres}) со скоростью вначале столько м/с, потом всё медленнее — оценка по
+     * базисной волне, которая клубится вверх десятки секунд и минуты (G&amp;D §2.73: у «Бейкера» быстро 270 м и 550 м
+     * к 4-й минуте; §2.84: у «Уаху» её ход за 10 с падает со 120 до 30 км/ч): камера в сотне метров над городом в первые
+     * секунды видит волну и город и только потом тонет в пыли.
+     */
+    static final double RISE_SPEED = 4;
     /** Густая пыль оседает e-кратно за столько секунд (реальных). */
     static final double DENSE_S = 150;
     /** Пыль тоньше этой доли густоты не рисуется (≈ 6,5 {@link #DENSE_S}: 16 минут). */
@@ -76,6 +86,8 @@ public final class PallField {
     private final double fireReach;
     /** По узлам: приход фронта (тики), покрытие 0..1, высота пелены (блоки), доля зоны пожаров 0..1. */
     private final double[] arrival = new double[BINS], cover = new double[BINS], top = new double[BINS], fire = new double[BINS];
+    /** Пыль за фронтом сразу стоит на этой высоте (блоки) и растёт со скоростью вначале столько блоков в секунду. */
+    private final double riseFrom, riseSpeed;
     /** Когда мгла гаснет по прошедшим тикам — тики после подрыва (утро, если часы мира идут ровно). */
     private final long hazeEnd;
     /**
@@ -99,6 +111,8 @@ public final class PallField {
         double ignite = groundRange(ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility()), hob);
         this.fireReach = d.blocks(ignite);
         this.reach = Math.max(1, d.blocks(Math.max(coverM, ignite)) * 1.02);
+        this.riseFrom = Math.max(MIN_TOP_BLOCKS, d.blocks(RISE_FROM_M * ys));
+        this.riseSpeed = d.blocks(RISE_SPEED);
         for (int i = 0; i < BINS; i++) {
             double rb = radius(i), rm = d.metres(rb);
             double slant = Math.hypot(rm, hob);
@@ -193,10 +207,16 @@ public final class PallField {
         return e < GONE ? 0 : e;
     }
 
-    /** Доля высоты пелены по возрасту: за {@link #RISE_S} встаёт, за минуты ещё немного растёт (клубится вверх). */
-    static double rise(double ageS) {
+    /**
+     * Высота пелены по возрасту (секунды после фронта), в единицах {@code top} и {@code from}: сразу {@code from}, дальше
+     * растёт к {@code top} со скоростью вначале {@code speed} (те же единицы в секунду), всё медленнее (e-кратно), и за
+     * минуты клубится ещё на треть выше; 0 — до фронта.
+     */
+    static double rise(double top, double from, double speed, double ageS) {
         if (ageS <= 0) return 0;
-        return (0.2 + 0.8 * (1 - Math.exp(-ageS / RISE_S))) * (1 + 0.35 * (1 - Math.exp(-ageS / 80)));
+        double base = Math.min(from, top), span = top - base;
+        double h = span <= 0 ? top : base + span * (1 - Math.exp(-speed * ageS / span));
+        return h * (1 + 0.35 * (1 - Math.exp(-ageS / 80)));
     }
 
     /**
@@ -273,7 +293,7 @@ public final class PallField {
     void dust(int i, double ticks, double[] out) {
         double age = age(i, ticks);
         out[0] = cover[i] <= 0 ? 0 : perBlock(SIGMA_DENSE) * Math.pow(cover[i], 1.3) * dustEnvelope(age);
-        out[1] = top[i] * Math.max(rise(age), 0.05);
+        out[1] = Math.max(rise(top[i], riseFrom, riseSpeed, age), 0.05 * top[i]);
         out[2] = fire[i] * smooth(30, 300, age);
         out[3] = 0;
     }

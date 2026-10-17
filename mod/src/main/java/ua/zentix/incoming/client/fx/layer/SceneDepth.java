@@ -16,8 +16,12 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.system.MemoryUtil;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.render.DhDepth;
+
+import java.nio.FloatBuffer;
+import java.util.Locale;
 
 /**
  * Расстояние до мира за каждым пикселем кадра — одной текстурой (метры по оси взгляда, 32 бита), по глубине
@@ -81,10 +85,40 @@ public final class SceneDepth {
     /** Чем закрыт слой в последнем кадре — для строки сценария. */
     static String describe() {
         return switch (last) {
-            case 2 -> "world and DH";
+            case 2 -> "world and DH (" + DH.describe() + lodShare() + ")";
             case 1 -> "world";
             default -> "none";
         };
+    }
+
+    /**
+     * Доля кадра, где за пикселем LOD дальше прорисовки Minecraft, и ближний из них — по текстуре расстояний,
+     * прочитанной обратно (ждёт видеокарту: только для строки сценария).
+     */
+    private static String lodShare() {
+        if (texture < 0 || width <= 0) return "";
+        int n = width * height;
+        FloatBuffer b = MemoryUtil.memAllocFloat(n);
+        try {
+            GlStateManager._bindTexture(texture);
+            GlStateManager._pixelStore(GL11.GL_PACK_ALIGNMENT, 4);
+            GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, GL11.GL_RED, GL11.GL_FLOAT, b);
+            float beyond = Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
+            int lod = 0;
+            float nearest = Float.MAX_VALUE;
+            for (int i = 0; i < n; i++) {
+                float d = b.get(i);
+                if (d > beyond && d < 1e8f) {
+                    lod++;
+                    nearest = Math.min(nearest, d);
+                }
+            }
+            if (lod == 0) return ", no LOD beyond the render distance";
+            return String.format(Locale.ROOT, ", LOD beyond the render distance in %.1f%% of the frame, nearest %.0f blocks",
+                    100.0 * lod / n, nearest);
+        } finally {
+            MemoryUtil.memFree(b);
+        }
     }
 
     /** Своя текстура и кадр под размер кадра игры (заново при смене размера окна). */

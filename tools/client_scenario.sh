@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland (tools/nested_kwin.sh — своя шина D-Bus и настройки), звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|nuke|nuke-water|nuke-lake|pall|wall|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|nuke|nuke-water|nuke-lake|pall|pall-front|wall|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   guide — кадры руководства игрока (GuideShots): рецепты, бинокль, пульт, GIF карты, снаряды на экране, камера,
 #     «Ланцет», ЗРК, стационарная пусковая; INCOMING_GUIDE=recipes,map — только эти разделы; карта — по прорисовке 20 чанков, без dh;
@@ -18,6 +18,9 @@
 #   nuke-lake — 15 кт на суше в 1,5 км за прудом перед зрителем: фронт идёт через пруд тёмным кольцом со стеной брызг;
 #   pall — пелена после ядерной волны (15 кт у земли): с холма в 4 км, изнутри, с высоты, в сумерки и ночью; качество —
 #     INCOMING_PALL=LOW|MEDIUM|HIGH (по умолчанию LOW), в лог — строки SCENARIO pall (плотность у камеры, время на видеокарте);
+#   pall-front — пелена за фронтом ночью: камера в 400 м от наземных 15 кт на 120 м над землёй (FOV 50), за эпицентром
+#     квартал башен; кадры pall_front_* от прихода фронта к камере (0–60 с), качество — INCOMING_PALL (по умолчанию MEDIUM);
+#     INCOMING_EXPORT=2560x1440 — кадр игры больше окна, как при выводе видео Flashback;
 #   wall — стена пыли проходит мимо зрителя в 1,5 км от наземных 15 кт: пыль у камеры и стена в одном кадре (wall_*, мир
 #     у прохода идёт медленно); ночью — INCOMING_WALL=night;
 #   fx, fx-night — эффекты крупным планом (взрывы шахеда, ракеты, бомбы и старт МБР; днём и ночью);

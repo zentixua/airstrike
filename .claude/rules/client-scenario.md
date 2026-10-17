@@ -22,6 +22,17 @@ paths:
 - Кадры сценария сравниваются от прогона к прогону: под свойством `incoming.scenario` ветер и сид ядерного подрыва — по
   его номеру (`NuclearWarhead`), а подробность пелены — из настройки, без бюджета видеокарты (`PallPass.Detail.pin`:
   на llvmpipe бюджет опустил бы её до LOW).
+- Сценарий `pall-front` — пелена за фронтом ночью из 400 м от наземных 15 кт на 120 м над землёй (как кадр повтора хоста),
+  кадры от прихода фронта к камере. `INCOMING_EXPORT=2560x1440` — кадр игры больше окна, как при выводе видео Flashback:
+  окно сообщает размер вывода (поля `Window.framebufferWidth/Height` отражением; у Flashback — миксин `Window.getWidth`,
+  пока `ExportJob.shouldChangeFramebufferSize`) и `Minecraft.resizeDisplay` ставит его кадру игры — проверка всего, что
+  берёт размер кадра (пелена, `SceneDepth`, `ScreenSize` шейдеров слоя); с `INCOMING_SIZE=640x360` — как у ноутбука хоста
+  (окно 640×360, вывод 1280×720). Кадры `*_off` — тот же миг без пелены (настройка OFF на несколько кадров): пара, по
+  которой видно, темнит ли пелена освещённую стену и город.
+- С Iris без шейдерпака и DH (как у ноутбука хоста): `INCOMING_SHADERS=1 INCOMING_DH=1` и `-PmcModsDir` с каталогом, где
+  к модам `fetch_runtime_mods.py` добавлены Sodium, Iris и jar DH той версии, что в сборке (Modrinth, sha512 — из
+  `pack/mods/*.pw.toml` open-skies); `iris.properties` не писать — шейдеры выключены. LOD DH в облаке строит мало: доля
+  кадра под LOD дальше прорисовки — в `SCENARIO … depth:`.
 - Экран приветствия доступности и пауза без фокуса ломают клиент без окна — `client_scenario.sh` пишет свой `options.txt`.
 - Клиент без окна работает и в облаке, без KWin и шейдеров (каталог `run/scenario/logs` для gc.log Gradle создаёт сам):
   `INCOMING_SCENARIO=launch LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientScenario

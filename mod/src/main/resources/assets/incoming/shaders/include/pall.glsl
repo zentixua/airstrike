@@ -63,3 +63,32 @@ vec2 pallBox(vec3 dir, vec3 lo, vec3 hi) {
     vec3 t0 = min(a, b), t1 = max(a, b);
     return vec2(max(max(t0.x, t0.y), max(t0.z, 0.0)), min(min(t1.x, t1.y), t1.z));
 }
+
+// Расстояние до мира за пикселем (SceneDepth), годное для пелены: неба, а ещё NaN, бесконечность и «за глазом» (чужая
+// глубина LOD, дальняя плоскость) — 1e9, мира за пикселем нет. Иначе луч шёл бы сквозь километры пыли или NaN
+// попадал бы в накопленную пелену — чёрный кадр.
+float pallScene(float d) {
+    if (d < 0.0) return 1e9;
+    if (d < 1e8) return d;
+    return 1e9;
+}
+
+// Пиксель пелены годен: свет конечен (и в половинной точности кадра), пропускание 0..1; NaN не годен.
+bool pallValid(vec4 v) {
+    return all(lessThan(abs(v.rgb), vec3(6.0e4))) && v.a >= 0.0 && v.a <= 1.0;
+}
+
+// Отсвет на пыли, как у стены пыли (CloudPuffs.lit и CloudPuffs.burn — её свет; fx_pall берёт его, чтобы пелена за
+// фронтом продолжала цвет стены): r — по земле от эпицентра, up — доля высоты пыли 0..1 (низ темнее: земля и обломки).
+// r и радиусы — в одних единицах (блоки).
+// Свет шара, потом раскалённой шапки сверху: overhead 0..1, lightR — шесть радиусов шара (там отсвет вдвое слабее).
+float pallLit(float r, float up, float overhead, float lightR) {
+    float x = r / max(lightR, 1e-3);
+    return (0.3 + 0.4 * up) * overhead / (1.0 + x * x);
+}
+
+// Пожары под пылью: glow — накал гриба 0..1 (стена берёт его же), fireR — край зоны поджига (мягкий, от 0,92 до 1,04).
+float pallBurn(float r, float up, float glow, float fireR) {
+    float e = max(fireR, 1e-3);
+    return (1.0 - smoothstep(0.92 * e, 1.04 * e, r)) * (0.95 - 0.45 * up) * glow;
+}
