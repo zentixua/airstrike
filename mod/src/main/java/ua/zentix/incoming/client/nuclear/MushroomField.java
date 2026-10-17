@@ -85,6 +85,8 @@ public final class MushroomField {
     static final int SHADOW_PAD = 2;
     /** Тексель строки гриба с плиткой карты тени (сторона 0 — тени нет) и с верхом мира над землёй под эпицентром. */
     public static final int SHADOW_RECT = 17, SHADOW_TOP = 18;
+    /** Сдвиг места в очереди кадра у гриба, от которого в кадре только тень: больше любого углового размера. */
+    private static final double SHADOW_ONLY = 1e6;
 
     private static final float[] BB = blackBody();
     private static final double[] RGB = new double[3], DRIFT = new double[2], RAYS = new double[3], AXIS_A = new double[3],
@@ -127,7 +129,7 @@ public final class MushroomField {
     /**
      * Грибы кадра в строки таблицы {@code into} (строки 0..{@link #MUSHROOMS}−1, по {@link #TEXELS} текселей; строка без
      * гриба — нули): самые крупные на экране, чья рамка в пирамиде видимости ({@code frustum} — от глаза, без дальней
-     * плоскости) или, днём, тень на мире в ней. {@code airSigma} — ослабление воздуха по погоде мира, 1/м ({@code Sight}:
+     * плоскости) или, днём, тень на мире в ней (такие — после всех, что видны сами). {@code airSigma} — ослабление воздуха по погоде мира, 1/м ({@code Sight}:
      * дымка вдали); {@code sun} — направление на солнце и сила дня ({@code PallSun}), {@code bottom}, {@code top} — низ
      * и верх мира (y): тень ложится на всё, что между ними. Возвращает число грибов.
      */
@@ -144,7 +146,12 @@ public final class MushroomField {
             if (s == null) continue;
             Detonation d = a.d;
             double size = d.blocks(s.capR()) / Math.max(1, Math.hypot(Math.hypot(d.burst().x - eye.x, d.burst().z - eye.z), d.groundY() + d.blocks(s.capY()) - eye.y));
-            if (!inView(a, s, eye, day ? RAYS : null, bottom, frustum)) continue;
+            if (!inView(a, s, eye, null, bottom, frustum)) {
+                if (!day || !inView(a, s, eye, RAYS, bottom, frustum)) continue;
+                // в кадре только тень — после всех, что видны сами: тело гриба рисует только этот объём, и гриб за спиной
+                // не должен вытеснять видимый
+                size -= SHADOW_ONLY;
+            }
             // по угловому размеру: на месте самого мелкого, если этот крупнее
             int at = n < MUSHROOMS ? n++ : -1;
             if (at < 0) {
@@ -355,7 +362,7 @@ public final class MushroomField {
 
     /**
      * Свет солнца над точкой на высоте h над землёй под эпицентром по трём слоям карты тени ({@code mushShadowLayer}):
-     * над землёй под эпицентром t0, над серединой мира t1, над его верхом t2 ({@code top} — верх мира над той же землёй).
+     * над землёй под эпицентром t0, над серединой между ней и верхом мира t1, над верхом t2 ({@code top} — верх мира над той же землёй).
      */
     static double shadowLayer(double h, double top, double t0, double t1, double t2) {
         double x = Math.clamp(h / Math.max(top, 1), 0, 1);
@@ -465,7 +472,7 @@ public final class MushroomField {
         put(into, o, 16, MushroomModel.edgeShare(t, y, d.surface()), MushroomModel.billows(t, y, d.surface()), 0, 0);
         if (day) {
             // тень от солнца: плитка карты — проекция рамки поперёк солнца; слои — над землёй под эпицентром, серединой
-            // и верхом мира
+            // между ней и верхом мира и верхом
             shadowRect(AXIS_A, AXIS_B, boundR, w[0], w[1], top, end, RECT);
             put(into, o, SHADOW_RECT, RECT[0], RECT[1], RECT[2], RECT[3]);
             put(into, o, SHADOW_TOP, Math.max(worldTop - d.groundY(), 16), 0, 0, 0);
