@@ -273,7 +273,7 @@ public final class NukeSounds {
                 ClientSounds.atEarLoud(ModSounds.BLAST_FAR.get(), b, echo, 0.6f);
             }
             if (echoes != null) echoes.arrive(ear, echo, tone);
-            CameraShake.nuke(psi);
+            CameraShake.nuke(psi, ear.subtract(b));
             CameraShake.quake((int) Mth.clamp(20 + psi * 8, 20, 120));
             NukeDust.arrive(psi);
             if (psi >= 0.5) {

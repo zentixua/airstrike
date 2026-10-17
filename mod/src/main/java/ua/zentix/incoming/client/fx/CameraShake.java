@@ -2,12 +2,19 @@ package ua.zentix.incoming.client.fx;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import ua.zentix.incoming.IncomingConfig;
 
 /**
  * Тряска камеры без сдвига прицела: крутится только камера (курс, тангаж, крен), взгляд игрока остаётся на месте —
  * тряска самого взгляда сбивала бы прицел.
+ * <p>
+ * Глаз видит скорость поворота: размах A° на частоте f — до 2π·f·A °/с (на каждом кадре — её доля). Поэтому дрожь
+ * земли и ядерная волна, у которых размах — градусы, медленные, как у тела: голову качает само тело (ниже ~6 Гц), а
+ * частую дрожь земли оно до глаз почти не доносит. Ядерная волна — толчок от взрыва (тело отклоняется от напора) и порывы
+ * ветра за фронтом, а не частое дёрганье: десятки градусов десять раз в секунду — тысячи градусов в секунду, на экране —
+ * мельтешение вместо удара.
  */
 public final class CameraShake {
     /** Удар взрывной волны: сколько тиков ещё трясёт. */
@@ -15,9 +22,16 @@ public final class CameraShake {
     /** Толчки грунта (подземный взрыв, бурение): медленнее и мягче. */
     private static int quake;
     private static long ticks;
-    /** Ядерная волна: сколько тиков ещё, сколько всего и размах, °. */
+    /** Ядерная волна: тиков ещё и всего, размах толчка, ° и куда толкает напор (от взрыва, единичный). */
     private static int nuke, nukeTotal;
-    private static double nukeAmp;
+    private static double nukeAmp, pushX, pushY, pushZ;
+    /**
+     * Толчок волны доходит до наибольшего за столько тиков и гладко отпускает (тело отклонилось и выпрямилось за
+     * полсекунды): фаза сжатия у килотонн в сотнях метров — десятые доли секунды.
+     */
+    static final double JOLT_TICKS = 3;
+    /** Порывы ветра за фронтом: размах — эта доля толчка. */
+    static final double BUFFET_SHARE = 0.35;
     /** Подходящая ядерная волна: размах в этот тик, °. */
     private static double approach;
     /** Перед приходом волны размах дрожи доходит до этой доли удара. */
@@ -41,19 +55,23 @@ public final class CameraShake {
     }
 
     /**
-     * Приход ядерной волны: удар и долгое затухающее дрожание. Размах — от давления у игрока ({@link #nukeAmplitude}),
-     * длительность — до 10 с.
+     * Приход ядерной волны: толчок от взрыва и порывы ветра, которые гаснут до 10 с. Размах — от давления у игрока
+     * ({@link #nukeAmplitude}); {@code away} — от взрыва к игроку (куда толкает напор).
      */
-    public static void nuke(double psi) {
+    public static void nuke(double psi, Vec3 away) {
         double amp = nukeAmplitude(psi);
         int ticks = (int) Mth.clamp(40 + psi * 12, 40, 200);
         if (amp >= nukeAmp * Math.max(0, (double) nuke / Math.max(1, nukeTotal))) {
             nukeAmp = amp;
             nuke = nukeTotal = ticks;
+            Vec3 n = away.lengthSqr() > 1e-9 ? away.normalize() : new Vec3(0, -1, 0);
+            pushX = n.x;
+            pushY = n.y;
+            pushZ = n.z;
         }
     }
 
-    /** Размах удара ядерной волны, °: 1 psi — 4°, 5 psi — 9°, 20 psi — 14°, слабее 1 psi — от 2,5°. */
+    /** Размах толчка ядерной волны, °: 1 psi — 4°, 5 psi — 9°, 20 psi — 14°, слабее 1 psi — от 2,5°. */
     static double nukeAmplitude(double psi) {
         return psi < 1 ? 2.5 + 1.5 * Math.max(0, psi) : Mth.clamp(4 + 7 * Math.log10(psi), 2.5, 16);
     }
@@ -128,7 +146,18 @@ public final class CameraShake {
     public static void apply(ViewportEvent.ComputeCameraAngles e) {
         double k = IncomingConfig.CLIENT.cameraShake.get();
         if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 && seismic <= 0 && approach <= 0 || Minecraft.getInstance().isPaused()) return;
-        double t = ticks + e.getPartialTick();
+        double[] o = offsets(e.getPartialTick(), e.getYaw());
+        e.setYaw(e.getYaw() + (float) (o[0] * k));
+        e.setPitch(e.getPitch() + (float) (o[1] * k));
+        e.setRoll(e.getRoll() + (float) (o[2] * k));
+    }
+
+    /**
+     * Поворот камеры тряской в кадре, ° (курс, тангаж — вниз больше нуля, крен — верх вправо больше нуля), при курсе
+     * камеры {@code cameraYaw}.
+     */
+    static double[] offsets(double partial, double cameraYaw) {
+        double t = ticks + partial;
         // амплитуды: курс/тангаж, °
         double yaw = 0, pitch = 0;
         if (shake > 0) {
@@ -143,33 +172,37 @@ public final class CameraShake {
             yaw += a[0] * fade * wobble(t, 5.1, 3.1);
             pitch += a[1] * fade * wobble(t, 6.7, 4.4);
         }
-        double roll = 0;
+        double roll = yaw * 0.6;
         if (approach > 0) {
-            // земля дрожит под ногами: мельче и медленнее удара, с креном
-            yaw += approach * wobble(t, 7.3, 0.9);
-            pitch += approach * 0.9 * wobble(t, 9.1, 2.6);
-            roll += approach * 0.5 * wobble(t, 5.9, 4.0);
+            // земля дрожит под ногами: мельче удара, с креном
+            yaw += approach * wobble(t, 3.7, 0.9);
+            pitch += approach * 0.9 * wobble(t, 4.6, 2.6);
+            roll += approach * 0.5 * wobble(t, 3.0, 4.0);
         }
         if (seismic > 0) {
-            // толчок снизу: резкий, частый, больше тангажом и креном, гаснет за пару секунд
-            double age = seismicTotal - seismic + e.getPartialTick();
+            // толчок снизу: резкий, больше тангажом и креном, гаснет за пару секунд
+            double age = seismicTotal - seismic + partial;
             double a = seismicAmp * Math.exp(-age / (seismicTotal * 0.3)) * Math.min(1, age / 2);
-            yaw += a * 0.5 * wobble(t, 13.7, 1.9);
-            pitch += a * wobble(t, 16.3, 0.6);
-            roll += a * 0.8 * wobble(t, 11.9, 3.3);
+            yaw += a * 0.5 * wobble(t, 4.6, 1.9);
+            pitch += a * wobble(t, 5.4, 0.6);
+            roll += a * 0.8 * wobble(t, 4.0, 3.3);
         }
         if (nuke > 0) {
-            // первые полсекунды — удар (вдвое сильнее и резче), дальше затухание по экспоненте
-            double age = nukeTotal - nuke + e.getPartialTick();
-            double env = Math.exp(-age / (nukeTotal * 0.35)) * (age < 10 ? 2 - age / 10 : 1);
-            double a = nukeAmp * env;
-            yaw += a * wobble(t, 11.3, 0.4);
-            pitch += a * 0.8 * wobble(t, 14.1, 2.2);
-            roll += a * 0.9 * wobble(t, 8.7, 5.1);
+            double age = nukeTotal - nuke + partial;
+            // толчок: тело отклоняется от взрыва — напор в лицо запрокидывает голову, в спину и сверху клонит вниз, сбоку
+            // наклоняет от взрыва; к наибольшему за JOLT_TICKS без скачка скорости и гладко обратно
+            double u = age / JOLT_TICKS, jolt = nukeAmp * u * u * Math.exp(2 * (1 - u));
+            double r = Math.toRadians(cameraYaw), sin = Math.sin(r), cos = Math.cos(r);
+            double ahead = -sin * pushX + cos * pushZ, right = -cos * pushX - sin * pushZ;
+            pitch += jolt * Mth.clamp(ahead - pushY, -1, 1);
+            roll += jolt * right;
+            // порывы ветра за фронтом: медленнее и мельче толчка, гаснут за время волны
+            double a = nukeAmp * BUFFET_SHARE * Math.exp(-age / (nukeTotal * 0.35));
+            yaw += a * wobble(t, 2.4, 0.4);
+            pitch += a * 0.8 * wobble(t, 3.3, 2.2);
+            roll += a * 0.9 * wobble(t, 2.0, 5.1);
         }
-        e.setYaw(e.getYaw() + (float) (yaw * k));
-        e.setPitch(e.getPitch() + (float) (pitch * k));
-        e.setRoll(e.getRoll() + (float) ((yaw * 0.6 + roll) * k));
+        return new double[]{yaw, pitch, roll};
     }
 
     /** Гладкое «дрожание» из двух синусов разной частоты (Гц при 20 тиках/с), амплитуда ~1. */
