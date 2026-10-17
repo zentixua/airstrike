@@ -70,6 +70,25 @@ class PallGlslTest {
     }
 
     @Test
+    void surgeMatchesJava() {
+        Function f = Function.parse(GLSL, "pallSurge"), top = Function.parse(GLSL, "pallSurgeTop");
+        for (double u = 0; u <= 1.3; u += 0.002) {
+            assertEquals(PallField.surgeProfile(u), f.call(Map.of("u", u)), 1e-9, "u = " + u);
+            assertEquals(PallField.surgeTop(u), top.call(Map.of("u", u)), 1e-9, "u = " + u);
+        }
+    }
+
+    /**
+     * Водяная пыль пелены ({@code MIST} в {@code fx_pall.fsh}) — того же белого, что стена брызг над водой
+     * ({@link CloudPuffs#SPRAY}): пелена за фронтом над водой продолжает её цвет, как бурая пыль — стену над сушей.
+     */
+    @Test
+    void mistIsTheSprayWallColour() {
+        double[] mist = vec3(read("core/fx_pall.fsh"), "MIST");
+        for (int c = 0; c < 3; c++) assertEquals((CloudPuffs.SPRAY >> (16 - 8 * c) & 0xFF) / 255.0, mist[c], 0.5 / 255, "канал " + c);
+    }
+
+    @Test
     void shapeMatchesJava() {
         Function f = Function.parse(GLSL, "pallShape");
         for (double r = 0; r <= 1; r += 0.05) {

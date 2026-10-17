@@ -58,7 +58,7 @@ import java.util.concurrent.CompletionException;
  * (по расстоянию до мира за пикселем, и на LOD Distant Horizons); у квадратов слоя — свет пожаров снизу.
  * <p>
  * Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, шум 64³ (RG8) и 64² (R8): всё вместе
- * меньше 2 МБ на 1080p; карты огня — до 0,7 МБ на слот (сторона до 256 клеток), карты рельефа под пеленой — 32 КБ на слот. Шум считается в фоне при первом
+ * меньше 2 МБ на 1080p; карты огня — до 0,7 МБ на слот (сторона до 256 клеток), карты рельефа и воды под пеленой — 64 КБ на слот. Шум считается в фоне при первом
  * подрыве (около секунды); пока он не готов, пелены нет.
  * <p>
  * Подробность сама держит бюджет ({@link Detail}): время проходов на видеокарте меряют метки времени OpenGL, читаемые
@@ -247,13 +247,14 @@ public final class PallPass {
     }
 
     /**
-     * Рельеф под пеленой слота ({@code client/nuclear/PallGround}): где кончается луч, за которым нет мира. Карта высот
-     * над землёй под эпицентром, R16F с билинейной выборкой, края — как у края.
+     * Рельеф и вода под пеленой слота ({@code client/nuclear/PallGround}): где кончается луч, за которым нет мира, и из
+     * чего пелена (пыль над сушей, брызги над водой). Карта высот над землёй под эпицентром (R) и доли воды (G), RG16F с
+     * билинейной выборкой, края — как у края.
      */
     public static final class Ground {
         /** Полсторона карты, низ и верх карты (над землёй под эпицентром), клетка — блоки ({@code pall.glsl}); нули — карты нет. */
         public final Vector4f params = new Vector4f();
-        /** Высоты по клеткам, сторона {@link #side}, x быстрее; null — карты нет. */
+        /** По клеткам высота и доля воды (два числа на клетку), сторона {@link #side}, x быстрее; null — карты нет. */
         @Nullable
         public float[] map;
         public int side;
@@ -309,8 +310,13 @@ public final class PallPass {
          * высоты), пламя, зерно.
          */
         public final Matrix4f whirlPos = new Matrix4f().zero(), whirlShape = new Matrix4f().zero(), whirlLean = new Matrix4f().zero();
-        /** Рельеф под пеленой слотов. */
+        /** Рельеф и вода под пеленой слотов. */
         public final Ground ground0 = new Ground(), ground1 = new Ground();
+        /**
+         * Вода слотов ({@code pall.glsl}): радиус и верх базисной волны (блоки), её ослабление в самой густой части
+         * (1/блок; нули — волны нет), 1 — под пеленой есть вода (шейдер читает её карту), 0 — нет.
+         */
+        public final Vector4f water0 = new Vector4f(), water1 = new Vector4f();
         /**
          * Мир кадра кончается не ближе стольких блоков по земле от глаза (дальность прорисовки): луч в пустоту прошёл его,
          * ничего не задев, — рельеф под пеленой ({@link Ground}) режет его только дальше.
@@ -333,8 +339,8 @@ public final class PallPass {
     /** Карты огня слотов (текстура, её сторона, чья и какое заполнение) и карты этого кадра (−1 — нет). */
     private static final int[] FIRE = {-1, -1}, FIRE_SIDE = new int[2], FIRE_VERSION = new int[2], FIRE_NOW = {-1, -1};
     private static final Object[] FIRE_SOURCE = new Object[2];
-    /** Карты рельефа под пеленой слотов (текстура, сторона, чья и какое заполнение). */
-    private static final int[] GROUND = {-1, -1}, GROUND_SIDE = new int[2], GROUND_VERSION = new int[2];
+    /** Карты рельефа под пеленой слотов (текстура, сторона, чья и какое заполнение) и карты этого кадра (−1 — нет). */
+    private static final int[] GROUND = {-1, -1}, GROUND_SIDE = new int[2], GROUND_VERSION = new int[2], GROUND_NOW = {-1, -1};
     private static final Object[] GROUND_SOURCE = new Object[2];
     @Nullable
     private static FloatBuffer groundBuffer;
@@ -398,6 +404,16 @@ public final class PallPass {
         return FIRE_NOW[k];
     }
 
+    /** Карта рельефа и воды слота {@code k} этого кадра ({@code Sampler9}/{@code Sampler10} шейдера {@code fx}); −1 — нет. */
+    static int groundMap(int k) {
+        return GROUND_NOW[k];
+    }
+
+    /** Числа карты рельефа слота {@code k} кадра {@code f} ({@code pall.glsl}); карты нет — нули. */
+    static Vector4f groundParams(Frame f, int k) {
+        return GROUND_NOW[k] < 0 ? NO_GROUND : k == 0 ? f.ground0.params : f.ground1.params;
+    }
+
     /**
      * Пелена этого кадра после накопления ({@code Sampler6} шейдера {@code fx}: свет и пропускание до мира за пикселем —
      * свет пелены перед квадратом слоя берётся из него).
@@ -439,8 +455,10 @@ public final class PallPass {
         FIRE_NOW[1] = fire(1, f.fire1);
         int fire0 = FIRE_NOW[0] >= 0 ? FIRE_NOW[0] : table, fire1 = FIRE_NOW[1] >= 0 ? FIRE_NOW[1] : table;
         Matrix4f fireSlot0 = FIRE_NOW[0] >= 0 ? f.fire0.params : NO_FIRE, fireSlot1 = FIRE_NOW[1] >= 0 ? f.fire1.params : NO_FIRE;
-        int ground0 = ground(0, f.ground0), ground1 = ground(1, f.ground1);
-        Vector4f groundSlot0 = ground0 >= 0 ? f.ground0.params : NO_GROUND, groundSlot1 = ground1 >= 0 ? f.ground1.params : NO_GROUND;
+        GROUND_NOW[0] = ground(0, f.ground0);
+        GROUND_NOW[1] = ground(1, f.ground1);
+        int ground0 = GROUND_NOW[0], ground1 = GROUND_NOW[1];
+        Vector4f groundSlot0 = groundParams(f, 0), groundSlot1 = groundParams(f, 1);
         if (ground0 < 0) ground0 = table;
         if (ground1 < 0) ground1 = table;
 
@@ -495,6 +513,8 @@ public final class PallPass {
         m.safeGetUniform("PallWhirlLean").set(f.whirlLean);
         m.safeGetUniform("PallGround0").set(groundSlot0.x, groundSlot0.y, groundSlot0.z, groundSlot0.w);
         m.safeGetUniform("PallGround1").set(groundSlot1.x, groundSlot1.y, groundSlot1.z, groundSlot1.w);
+        m.safeGetUniform("PallWater0").set(f.water0.x, f.water0.y, f.water0.z, f.water0.w);
+        m.safeGetUniform("PallWater1").set(f.water1.x, f.water1.y, f.water1.z, f.water1.w);
         m.safeGetUniform("PallFloorFrom").set(f.floorFrom);
         quad(m, true);
 
@@ -535,6 +555,8 @@ public final class PallPass {
         c.safeGetUniform("PallFire1").set(fireSlot1);
         c.safeGetUniform("PallGround0").set(groundSlot0.x, groundSlot0.y, groundSlot0.z, groundSlot0.w);
         c.safeGetUniform("PallGround1").set(groundSlot1.x, groundSlot1.y, groundSlot1.z, groundSlot1.w);
+        c.safeGetUniform("PallWater0").set(f.water0.x, f.water0.y, f.water0.z, f.water0.w);
+        c.safeGetUniform("PallWater1").set(f.water1.x, f.water1.y, f.water1.z, f.water1.w);
         c.safeGetUniform("PallFloorFrom").set(f.floorFrom);
         // пламя на поверхностях мерцает по трёхмерному шуму
         quad(c, true);
@@ -615,11 +637,11 @@ public final class PallPass {
         return FIRE[k];
     }
 
-    /** Карта рельефа под пеленой слота {@code k} в видеопамять, если она другая (другой подрыв или новое заполнение); −1 — карты нет. */
+    /** Карта рельефа и воды под пеленой слота {@code k} в видеопамять, если она другая (другой подрыв или новое заполнение); −1 — карты нет. */
     private static int ground(int k, Ground g) {
         if (!g.on()) return -1;
         float[] map = g.map;
-        int n = g.side * g.side;
+        int n = g.side * g.side * 2;
         if (map == null || map.length < n) return -1;
         if (GROUND[k] < 0) {
             GROUND[k] = GlStateManager._genTexture();
@@ -642,7 +664,7 @@ public final class PallPass {
         GlStateManager._pixelStore(GL11.GL_UNPACK_ROW_LENGTH, 0);
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0);
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, 0);
-        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R16F, g.side, g.side, 0, GL11.GL_RED, GL11.GL_FLOAT, buf);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RG16F, g.side, g.side, 0, GL30.GL_RG, GL11.GL_FLOAT, buf);
         GROUND_SOURCE[k] = g.source;
         GROUND_VERSION[k] = g.version;
         GROUND_SIDE[k] = g.side;
@@ -842,5 +864,6 @@ public final class PallPass {
         FIRE_SOURCE[0] = FIRE_SOURCE[1] = null;
         FIRE_NOW[0] = FIRE_NOW[1] = -1;
         GROUND_SOURCE[0] = GROUND_SOURCE[1] = null;
+        GROUND_NOW[0] = GROUND_NOW[1] = -1;
     }
 }

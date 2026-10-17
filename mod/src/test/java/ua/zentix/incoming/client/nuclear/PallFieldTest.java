@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import ua.zentix.incoming.client.far.Sight;
 import ua.zentix.incoming.client.fx.layer.PallPass;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.model.WaterModel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,6 +15,9 @@ class PallFieldTest {
     /** 15 кт у земли в полдень, ветер 8 м/с, масштаб 1, стена пыли вдали — 0,42 скорости звука. */
     private static final Detonation GROUND = new Detonation(1, new Vec3(0, 64, 0), 64, 15, true, 0, 0.5f, 8, 20_000, 7, 1f, false, 0.42f);
     private static final Detonation SMALL = new Detonation(2, new Vec3(0, 64, 0), 64, 1, true, 0, 0.5f, 8, 20_000, 7, 1f, false, 0.42f);
+    /** Те же 15 кт, но сервер не поджигал (вода, высокий подрыв): ни мглы, ни её пепла — только пыль и брызги. */
+    private static final Detonation NO_FIRES = new Detonation(4, new Vec3(0, 64, 0), 64, 15, true, 0, 0.5f, 8, 20_000, 7, 1f, false, 0.42f,
+            Detonation.NO_DAY_TIME, false);
     private static final long NOON = 6000;
 
     @Test
@@ -337,18 +341,18 @@ class PallFieldTest {
         PallField p = new PallField(GROUND, NOON);
         double ticks = 20 * 120;
         float[] row = new float[8 * PallField.BINS];
-        p.row(ticks, row);
+        p.row(ticks, true, false, row);
         double[] w = new double[2];
         p.drift(ticks, w);
         int i = 30;
         double r = p.radius(i);
         // по ветру от эпицентра, у земли: пыль узла i (мгла сюда тоже дотягивается)
         double ux = Math.cos(GROUND.windDir()), uz = Math.sin(GROUND.windDir());
-        double s = p.sigma(w[0] + ux * r, w[1] + uz * r, 0, ticks);
+        double s = p.sigma(w[0] + ux * r, w[1] + uz * r, 0, ticks, PallField.Water.DRY);
         assertTrue(s >= row[4 * i] * 0.98, "пыль у земли " + s + " < таблицы " + row[4 * i]);
         assertTrue(s <= row[4 * i] + row[4 * (PallField.BINS + 2)] * 1.01 + 1e-9);
         // выше пелены — ничего
-        assertEquals(0, p.sigma(w[0] + ux * r, w[1] + uz * r, row[4 * i + 1] * 2 + 400, ticks), 1e-12);
+        assertEquals(0, p.sigma(w[0] + ux * r, w[1] + uz * r, row[4 * i + 1] * 2 + 400, ticks, PallField.Water.DRY), 1e-12);
         assertTrue(w[0] > 0 && w[1] > 0, "ветер на 0,5 рад — снос по +x и +z");
     }
 
@@ -364,10 +368,153 @@ class PallFieldTest {
     @Test
     void ashAfterTheWave() {
         PallField p = new PallField(GROUND, NOON);
-        assertEquals(0, p.ashRate(800, 0, 10));
-        assertTrue(p.ashRate(800, 0, 20 * 90) > 0.1);
-        assertTrue(p.paperRate(600, 0, 20 * 30) > 0.3);
-        assertEquals(0, p.paperRate(4500, 0, 20 * 30), 1e-9);
-        assertTrue(p.ashRate(1000, 0, 20 * 60 * 8) > 0, "мгла над пожарами сыплет пепел");
+        assertEquals(0, p.ashRate(800, 0, 10, PallField.Water.DRY));
+        assertTrue(p.ashRate(800, 0, 20 * 90, PallField.Water.DRY) > 0.1);
+        assertTrue(p.paperRate(600, 0, 20 * 30, PallField.Water.DRY) > 0.3);
+        assertEquals(0, p.paperRate(4500, 0, 20 * 30, PallField.Water.DRY), 1e-9);
+        assertTrue(p.ashRate(1000, 0, 20 * 60 * 8, PallField.Water.DRY) > 0, "мгла над пожарами сыплет пепел");
+    }
+    /**
+     * Над водой пыли нет — брызги, сорванные ветром за фронтом: встают за стеной брызг, редеют за полминуты и через три
+     * минуты выпадают совсем (пыль там же ещё висит); у края пелены ветер за фронтом слабый — брызг не срывает.
+     */
+    @Test
+    void sprayOverWaterGoneInMinutes() {
+        assertEquals(0, PallField.sprayEnvelope(WaterModel.SPRAY_LAG), 1e-12, "до стены брызг");
+        assertTrue(PallField.sprayEnvelope(WaterModel.SPRAY_LAG + 3) > 0.85);
+        assertEquals(0, PallField.sprayEnvelope(200), 1e-12, "через три минуты над водой чисто");
+        PallField p = new PallField(GROUND, NOON);
+        double[] v = new double[4];
+        int i = 20;
+        p.dust(i, 20 * 30, v);
+        assertTrue(v[3] > 0.2 * PallField.SIGMA_SPRAY && v[3] <= PallField.SIGMA_SPRAY, "брызги через полминуты " + v[3]);
+        p.dust(i, 20 * 240, v);
+        assertEquals(0, v[3], 1e-12, "брызги выпали");
+        assertTrue(v[0] > 0, "а пыль ещё висит");
+        // фронт у края пелены — к 33 с: через минуту он прошёл, а ветра за ним на брызги мало
+        p.dust(PallField.BINS - 1, 20 * 60, v);
+        assertEquals(0, v[3], 1e-12, "у края пелены брызг нет");
+        // брызги реже самой густой пыли и белые (их цвет и рассеяние — в шейдере)
+        assertTrue(PallField.SIGMA_SPRAY < PallField.SIGMA_DENSE);
+    }
+
+    /**
+     * Чего под пеленой нет ({@link PallGround#hasLand}, {@link PallGround#hasWater}), того нет и в таблице: подрыв посреди
+     * моря — без пыли и мглы, над сушей — без брызг; высота слоя остаётся (брызги — в слое пыли).
+     */
+    @Test
+    void tableHoldsOnlyWhatIsUnderThePall() {
+        PallField p = new PallField(GROUND, NOON);
+        float[] row = new float[8 * PallField.BINS];
+        p.row(20 * 120, true, false, row);
+        boolean dust = false, haze = false;
+        for (int i = 0; i < PallField.BINS; i++) {
+            assertEquals(0, row[4 * i + 3], 0, "брызги над сушей, узел " + i);
+            dust |= row[4 * i] > 0;
+            haze |= row[4 * (PallField.BINS + i)] > 0;
+        }
+        assertTrue(dust && haze);
+        p.row(20 * 30, false, true, row);
+        boolean spray = false;
+        for (int i = 0; i < PallField.BINS; i++) {
+            assertEquals(0, row[4 * i], 0, "пыль над морем, узел " + i);
+            assertEquals(0, row[4 * (PallField.BINS + i)], 0, "мгла над морем, узел " + i);
+            assertTrue(row[4 * i + 1] > 0, "высота слоя, узел " + i);
+            spray |= row[4 * i + 3] > 0;
+        }
+        assertTrue(spray);
+    }
+
+    /**
+     * Вещество — по месту, откуда его подняло: пыль, поднятая над сушей и снесённая ветром на воду, остаётся пылью; брызги,
+     * сорванные с воды и снесённые на берег, — брызгами. Доля воды берётся у точки за вычетом сноса — там же, где таблица.
+     */
+    @Test
+    void materialComesFromWhereItWasLifted() {
+        PallField p = new PallField(NO_FIRES, NOON);
+        double ticks = 20 * 60;
+        double[] w = new double[2];
+        p.drift(ticks, w);
+        assertTrue(w[0] > 150, "снос по +x " + w[0]);
+        // море к +x от x = 400: поднято в (300, 0) над сушей, снесено на воду
+        PallField.Water east = (dx, dz) -> dx > 400 ? 1 : 0;
+        double qx = w[0] + 300, qz = w[1];
+        assertTrue(qx > 400, "точка над водой");
+        double dust = p.sigma(qx, qz, 0, ticks, PallField.Water.DRY);
+        assertTrue(dust > 0);
+        assertEquals(dust, p.sigma(qx, qz, 0, ticks, east), 1e-12, "пыль, снесённая на воду, — пыль");
+        assertEquals(0, p.mist(qx, qz, 0, ticks, east), 1e-12);
+        // поднято в (600, 0) над водой — брызги, пыли нет
+        double mx = w[0] + 600;
+        assertTrue(p.mist(mx, w[1], 0, ticks, east) > 0);
+        assertEquals(p.mist(mx, w[1], 0, ticks, east), p.sigma(mx, w[1], 0, ticks, east), 1e-12, "над водой пыли нет");
+        // море к −x от x = 100: поднято в (50, 0) над водой, снесено на берег
+        PallField.Water west = (dx, dz) -> dx < 100 ? 1 : 0;
+        double bx = w[0] + 50;
+        assertTrue(bx > 100, "точка над сушей");
+        double mist = p.mist(bx, w[1], 0, ticks, west);
+        assertTrue(mist > 0, "брызги, снесённые на берег, — брызги");
+        assertEquals(mist, p.sigma(bx, w[1], 0, ticks, west), 1e-12);
+    }
+
+    /**
+     * Базисная волна — только у «водяного» подрыва: встаёт через секунды, растёт и тает минутами по законам её клубов
+     * ({@link WaterModel}, часы модели), ослабление — по видимости в ней; катится и над берегом (это вода, поднятая у
+     * эпицентра), рамка пелены её накрывает.
+     */
+    /** В мире меньшего масштаба волна — по часам и меркам её клубов: секунды модели — тики / (20·scale), блоки — × scale. */
+    @Test
+    void surgeFollowsTheWorldScale() {
+        Detonation quarter = new Detonation(5, new Vec3(0, 64, 0), 64, 15, true, 0, 0.5f, 8, 20_000, 7, 0.25f, false, 0.42f);
+        PallField p = new PallField(quarter, NOON);
+        p.water(1, WaterModel.wetBurst(0, 15));
+        double[] s = new double[3];
+        assertTrue(p.surge(20 * 30 * 0.25, s));
+        assertEquals(0.25 * WaterModel.surgeRadius(30, 15), s[0], 1e-6, "радиус на 30-й секунде модели");
+        assertEquals(PallField.SIGMA_SURGE / 0.25 * WaterModel.surgeDensity(30, 15), s[2], 1e-9);
+    }
+
+    @Test
+    void surgeOnlyForAWetBurst() {
+        PallField p = new PallField(NO_FIRES, NOON);
+        double[] s = new double[3];
+        assertFalse(p.surge(20 * 60, s), "на суше волны нет");
+        double wet = WaterModel.wetBurst(0, 15);
+        assertEquals(1, wet, 1e-9);
+        p.water(1, wet);
+        assertFalse(p.surge(20 * 5, s), "волна встаёт через ~7 с");
+        assertTrue(p.surge(20 * 30, s));
+        double r30 = s[0], sigma30 = s[2];
+        assertEquals(WaterModel.surgeRadius(30, 15), r30, 1e-6, "радиус — как у клубов");
+        assertEquals(PallField.SIGMA_SURGE * WaterModel.surgeDensity(30, 15), sigma30, 1e-9);
+        assertTrue(p.surge(20 * 300, s));
+        assertTrue(s[0] > r30 + 500 && s[2] < 0.5 * sigma30, "через 5 минут шире и реже: " + s[0] + " " + s[2]);
+        assertFalse(p.surge(20 * 60 * 30, s), "через полчаса растаяла");
+        assertTrue(p.surge(20 * 120, s));
+        double r = s[0];
+        assertTrue(p.extent(20 * 120) >= 1.05 * r, "рамка накрывает волну");
+        assertTrue(p.visible(20 * 120));
+        // над сушей у края волны (вода под пеленой не важна) — туман; за краем — нет
+        double[] w = new double[2];
+        p.drift(20 * 120, w);
+        assertTrue(p.mist(w[0] + 0.9 * r, w[1], 0, 20 * 120, PallField.Water.DRY) > 0.5 * s[2]);
+        assertEquals(0, p.mist(w[0] + 1.1 * r, w[1], 0, 20 * 120, PallField.Water.DRY), 1e-12);
+        // наполовину «водяной» — вдвое реже
+        p.water(1, 0.5);
+        assertTrue(p.surge(20 * 120, s));
+        assertEquals(0.5 * PallField.SIGMA_SURGE * WaterModel.surgeDensity(120, 15), s[2], 1e-9);
+    }
+
+    /** Над водой нет ни пепла, ни бумаги, ни мглы (пожаров на воде нет): пелена над морем — только брызги. */
+    @Test
+    void noAshPaperOrHazeOverWater() {
+        PallField p = new PallField(GROUND, NOON);
+        PallField.Water sea = (dx, dz) -> 1;
+        assertEquals(0, p.ashRate(800, 0, 20 * 90, sea), 1e-12);
+        assertEquals(0, p.paperRate(600, 0, 20 * 30, sea), 1e-12);
+        assertEquals(0, p.ashRate(1000, 0, 20 * 60 * 8, sea), 1e-12);
+        double late = 20 * 60 * 8;
+        assertTrue(p.sigma(1000, 0, 0, late, PallField.Water.DRY) > 0, "над сушей мгла и пыль");
+        assertEquals(0, p.sigma(1000, 0, 0, late, sea), 1e-12, "над морем брызги давно выпали");
     }
 }
