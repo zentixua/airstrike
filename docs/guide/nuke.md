@@ -40,8 +40,8 @@ blocks, lean downwind and merge higher up into a ceiling of smoke over the town.
 from below, and the glow flickers; from a couple of kilometres away the town glows under its smoke, and the dust around
 it catches the glow. A few times in the first ten minutes a fire whirl rises over the hottest fires for a minute or so
 and wanders across them. From about the sixth minute the fires die down to smouldering, and by morning they are out,
-together with the smoke. A server with nuclear fires turned off (`nuclear.fires`) has no firestorm. Ash and scraps of
-burnt paper fall around you.
+together with the smoke. A server with nuclear fires turned off (`nuclear.fires`) has no firestorm and no smoke haze
+over the town. Ash and scraps of burnt paper fall around you.
 
 ![Fireball and blast wave over a town](img/nuke-wave.jpg)
 

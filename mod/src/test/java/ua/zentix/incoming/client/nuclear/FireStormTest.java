@@ -168,6 +168,9 @@ class FireStormTest {
         assertEquals(0, s.dryAt(AIR.burst().x - 500, AIR.burst().z), 0);
         assertEquals(1, s.dryAt(AIR.burst().x + 500, AIR.burst().z), 0);
         assertEquals(1, s.dryAt(AIR.burst().x + 5, AIR.burst().z), 0, "не знаем, под эпицентром суша — горит, как в модели");
+        // игрок ушёл, чанки выгрузились: увиденное море остаётся морем
+        for (int i = 0; i <= g.index().length / FireStorm.SURVEY_CELLS; i++) s.survey((x, z) -> -1, 0);
+        assertEquals(0, s.dryAt(AIR.burst().x - 500, AIR.burst().z), 0, "видели море — не горит и потом");
         // под эпицентром море: где не знаем ничего, не горит (подрыв над морем вдали)
         FireStorm sea = new FireStorm(AIR, new PallField(AIR, NIGHT));
         for (int i = 0; i < 600 && sea.grid() == null; i++) Thread.sleep(10);
@@ -191,6 +194,7 @@ class FireStormTest {
 
     @Test
     void noStormWhereTheServerStartsNoFires() {
+        assertEquals(0, new PallField(AIR.withFires(false), NIGHT).fireReach(), 0, "ни мглы над пожарами, ни зарева");
         FireStorm off = new FireStorm(AIR.withFires(false), new PallField(AIR, NIGHT));
         assertEquals(0, off.gate(), 0, "с первого кадра");
         assertEquals(0, off.trust(), 0);

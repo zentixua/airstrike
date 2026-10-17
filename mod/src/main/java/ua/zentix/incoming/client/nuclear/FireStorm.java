@@ -202,6 +202,8 @@ public final class FireStorm {
      * (дальше прорисовки без карты рельефа) — как под эпицентром. По номеру клетки зоны, как у сетки.
      */
     private float[] dry = new float[0];
+    /** Клетку хоть раз видели ({@link #survey}): ушёл игрок, чанки выгрузились — она остаётся такой, какой её видели. */
+    private boolean[] surveyed = new boolean[0];
     private int surveyAt;
     /** Сухость менялась после последнего заполнения карты: заполнить снова не позже чем через {@link #FILL_FAST} тиков. */
     private boolean dirty;
@@ -320,7 +322,7 @@ public final class FireStorm {
     /**
      * Тик клиента: доля сухой земли в следующих {@link #SURVEY_CELLS} клетках зоны по кругу — по точкам 3 × 3 в клетке,
      * что знает клиент ({@code surface}: свои чанки и плитки карты рельефа). Модель огня рельефа не знает, а горящее море
-     * или ледник видно сразу. Где не знаем ничего, клетка — как под эпицентром ({@code unknownWet}: доля воды там,
+     * или ледник видно сразу. Где не знаем ничего и не знали, клетка — как под эпицентром ({@code unknownWet}: доля воды там,
      * {@code NukeWater.under}, у подрыва над морем — и догадка по высоте земли): подрыв над морем вдали иначе жёг бы море.
      */
     void survey(Surface surface, double unknownWet) {
@@ -329,7 +331,10 @@ public final class FireStorm {
         if (dry.length != g.index.length) {
             dry = new float[g.index.length];
             Arrays.fill(dry, (float) (1 - unknownWet));
+            surveyed = new boolean[g.index.length];
             surveyAt = 0;
+            // карта, заполненная до первого обхода, считала всё сушей: заполнить заново сразу
+            filledAt = Double.NaN;
         }
         double half = g.side * g.cell / 2, step = g.cell / SURVEY_POINTS;
         Vec3 b = d.burst();
@@ -348,6 +353,8 @@ public final class FireStorm {
                     wet += w;
                 }
             }
+            if (known == 0 && surveyed[k]) continue;
+            surveyed[k] |= known > 0;
             float v = known == 0 ? (float) (1 - unknownWet) : 1 - (float) wet / known;
             if (v != dry[k]) {
                 dry[k] = v;

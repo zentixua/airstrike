@@ -14,6 +14,7 @@ import ua.zentix.incoming.nuclear.NuclearEvents;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -184,11 +185,17 @@ public final class ClientNuclear {
     /** Вход в мир или смена измерения: всё, что уже есть, без вспышки и удара (они уже прошли). */
     public static void sync(S2C.NukeSync p) {
         stopAll();
+        Map<Integer, Active> old = new HashMap<>(DETONATIONS);
         DETONATIONS.clear();
         WARNINGS.clear();
         ClientLevel level = Minecraft.getInstance().level;
         long now = level == null ? 0 : level.getGameTime();
-        for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, now));
+        for (Detonation d : p.detonations()) {
+            // тот же подрыв (возрождение, повтор с места после него) — как после перемотки: пыль, пелена и шторм
+            // со своей историей (сверка шторма с огнём, пока он был молод, позже не повторить)
+            Active known = old.get(d.id());
+            DETONATIONS.put(d.id(), known != null && known.d.equals(d) ? new Active(known, now) : new Active(d, false, now));
+        }
         for (S2C.NukeWarning w : p.warnings()) WARNINGS.put(w.strikeId(), w);
         NukeDust.reset();
         NukePall.reset();

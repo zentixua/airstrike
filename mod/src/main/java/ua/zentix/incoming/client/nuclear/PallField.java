@@ -113,7 +113,9 @@ public final class PallField {
         this.lastDay = burstDay;
         double hob = Math.max(0, d.hobMetres()), ys = Math.cbrt(d.yieldKt() / 15);
         double coverM = groundRange(BlastModel.rangeForOverpressure(BlastModel.kpa(COVER_FROM_PSI), d.yieldKt()), hob);
-        double ignite = groundRange(ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility()), hob);
+        // сервер не поджигает (Detonation.fires) — зоны пожаров нет: ни мглы над ними, ни их зарева, ни шторма
+        double ignite = !d.fires() ? 0
+                : groundRange(ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility()), hob);
         this.fireReach = d.blocks(ignite);
         this.reach = Math.max(1, d.blocks(Math.max(coverM, ignite)) * 1.02);
         this.riseFrom = Math.max(MIN_TOP_BLOCKS, d.blocks(RISE_FROM_M * ys));
