@@ -683,6 +683,12 @@ class Conveyor:
         # продолжение после остановки: пересъёмки, что уже были, в счёт
         variant = sum(1 for x in st["attempts"] if not x.get("interrupted"))
         kept = st.get("kept")
+        if kept and kept != st.get("snapshot") and not any(x.get("world") == kept for x in st["attempts"]):
+            # запасной снимок не из попыток этого прогона: дубль сброшен (retake или руками в state.json). Его мир — в
+            # очередь удаления, запасным станет первая записанная попытка: иначе её мир удалялся на старте следующей,
+            # а из её повтора выводятся планы (LOD DH — из мира записи; 17.10: nw-T24-a0r4, перевыводы n36 без LOD)
+            self.release(kept)
+            kept = st["kept"] = None
         t0 = self.m.now()
         for n in range(len(st["attempts"]), 20):
             if variant > retries:
@@ -712,7 +718,7 @@ class Conveyor:
             saved = bool(a["result"] and a["result"].get("saved"))
             if a["ok"]:
                 if kept and kept != a["world"]:
-                    self.remove(os.path.join(self.saves, kept))
+                    self.release(kept)      # из повтора прежней попытки могли вывести планы: LOD DH — из её мира
                 kept = a["world"]
                 st.update(status="chained" if chain_only else "passed", snapshot=kept)
                 break
@@ -870,6 +876,9 @@ class Conveyor:
                 self.say(f"{take}: пересъёмка пропущена — нет входного мира в saves")
                 continue
             self.state["released"] = [w for w in self.state.get("released", []) if w != src]
+            # прежний запасной снимок дубля — в очередь удаления: kept пересъёмки — мир её записанной попытки
+            if st.get("kept") and st["kept"] not in (st.get("snapshot"), src):
+                self.release(st["kept"])
             self.state["takes"][take] = {"attempts": [], "retake_input": src, "retake_of": st.get("snapshot")}
             self.say(f"{take}: пересъёмка со своего входа ({src or 'мастер'})")
         os.replace(path, path + ".done")

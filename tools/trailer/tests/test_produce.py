@@ -311,6 +311,42 @@ class ProduceTest(unittest.TestCase):
         self.assertIn("a1", tries[0]["reason"])
         self.assertTrue(tries[1]["ok"])
 
+    def test_reset_take_keeps_its_recorded_attempt_world_and_releases_the_old_spare(self):
+        # 17.10: запись T24 сброшена в state.json с прежним kept; попытка 1 записана, но не прошла вывод — её мир
+        # удалили на старте попытки 2, и перевыводы из её повтора шли без LOD DH. Прежний kept — не из попыток этого
+        # прогона: в очередь удаления, запасной — мир записанной попытки 1
+        os.makedirs(os.path.join(self.cfg["saves"], "nw-A-old"))
+        c, m = self.conveyor({("A", "render"): lambda env: {"seconds": 60, "render": {"a1": "FAIL"}}
+                              if len([s for s in m.starts if s[0][1] == "render"]) == 1 else {"seconds": 60, "render": {}}})
+        c.state["takes"]["A"] = {"attempts": [], "kept": "nw-A-old"}
+        c.save()
+        seen = []
+        orig = c.attempt
+
+        def attempt(take, n, variant, src, **kw):
+            seen.append((c.state["takes"][take].get("kept"), sorted(os.listdir(self.cfg["saves"]))))
+            return orig(take, n, variant, src, **kw)
+        c.attempt = attempt
+        self.assertEqual(0, c.run(["A"]))
+        kept_before_second, saves_before_second = seen[1]
+        self.assertEqual("nw-A-a0", kept_before_second, "мир записанной попытки 1 — запасной снимок")
+        self.assertIn("nw-A-a0", saves_before_second, "мир попытки 1 на месте, когда идёт попытка 2")
+        self.assertIn("nw-A-old", c.state["released"], "прежний запасной — в очередь удаления")
+        self.assertIn("nw-A-old", os.listdir(self.cfg["saves"]), "и лежит, пока место есть")
+        self.assertEqual("passed", c.state["takes"]["A"]["status"])
+
+    def test_retake_releases_the_old_spare_snapshot(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        os.makedirs(os.path.join(self.cfg["saves"], "nw-C-spare"))
+        c.state["takes"]["C"]["kept"] = "nw-C-spare"
+        c.save()
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c.run(["C"]))
+        self.assertIn("nw-C-spare", c.state["released"])
+        self.assertNotEqual("nw-C-spare", c.state["takes"]["C"].get("kept"))
+
     def test_stopped_take_stops_and_waits(self):
         c, m = self.conveyor({("A", "record"): {"seconds": 10, "result": {"status": "stopped", "reason": "нет поз камер a1"}}})
         self.assertEqual(P.STOPPED_EXIT, c.run())
