@@ -35,8 +35,11 @@ public final class CameraShake {
     /** Подходящая ядерная волна: размах дрожи в прошлый и в этот тик, °; без новых — гаснет за полсекунды. */
     private static double approachPrev, approach;
     static final double APPROACH_FADE = 0.6;
-    /** Перед приходом волны размах дрожи доходит до этой доли удара. */
-    static final double APPROACH_SHARE = 0.45;
+    /**
+     * Перед приходом волны размах дрожи доходит до этой доли удара: дрожь мельче толчка и медленнее его по скорости
+     * поворота — сильнее всего бьёт сама волна.
+     */
+    static final double APPROACH_SHARE = 0.25;
     /** Толчок грунта от наземного ядерного взрыва: сколько тиков ещё, сколько всего и размах, °. */
     private static int seismic, seismicTotal;
     private static double seismicAmp;

@@ -72,45 +72,58 @@ class CameraShakeTest {
     }
 
     /**
-     * Дрожь перед волной, её приход и ветер за ней — без рывков: камера не поворачивается быстрее 300°/с даже при 40 psi
-     * (прежде — 670°/с уже при 1 psi), у 2 кт в 430 блоках (8 psi, финал трейлера) — не быстрее 200°/с. Толчки грунта от
-     * ударов волны ({@link CameraShake#quake}) — свои, мельче, здесь их нет.
+     * Дрожь перед волной, её приход и ветер за ней — без рывков, при любой фазе дрожи и любом курсе: у 2 кт в 430 блоках
+     * (8 psi, финал трейлера; прежде — ~830°/с) камера не поворачивается быстрее 200°/с, даже при 40 psi — быстрее
+     * 300°/с; дрожь перед волной не быстрее толчка. Толчки грунта от ударов волны ({@link CameraShake#quake}) — свои,
+     * мельче, здесь их нет.
      */
     @Test
     void approachArrivalAndWindDoNotJerk() {
         Detonation d = new Detonation(1, new Vec3(0, 64, 0), 64, 2, true, 0, 0, 5, 20_000, 7, 1f, false, 0.42f);
         Vec3 ear = new Vec3(430, 66, 0);
-        double psi = d.psi(ear), trailer = fastest(psi, ear.subtract(d.burst()), 90);
-        assertTrue(trailer < 200, psi + " psi: " + trailer);
-        for (double p : new double[]{0.6, 1, 3, 10, 40}) {
-            for (int phase = 0; phase < 20; phase += 5) {
-                double most = fastest(p, new Vec3(1, -0.3, 0.4).scale(phase + 1), 30 + 17 * phase);
-                assertTrue(most < 300, p + " psi, фаза " + phase + ": " + most);
+        double trailer = d.psi(ear);
+        for (double psi : new double[]{0.6, 1, 3, trailer, 10, 40}) {
+            double most = 0, before = 0;
+            for (int phase = 0; phase < 40; phase++) {
+                for (double yaw = 0; yaw < 360; yaw += 45) {
+                    double[] r = fastest(psi, ear.subtract(d.burst()), yaw, phase);
+                    most = Math.max(most, r[0]);
+                    before = Math.max(before, r[1]);
+                }
             }
+            assertTrue(most < (psi == trailer ? 200 : 300), psi + " psi: " + most);
+            double jolt = CameraShake.nukeAmplitude(psi) * 2 * 0.293 * Math.exp(2 * 0.707) * 0.707 / (CameraShake.JOLT_TICKS / 20);
+            assertTrue(before < jolt, psi + " psi: дрожь " + before + " °/с, толчок " + jolt);
         }
     }
 
     /**
-     * Самый быстрый поворот, °/с, от подхода ядерной волны давлением psi и её прихода: тики, как у клиента (тряска, потом
-     * подрыв), кадры по 1/10 тика (поворот за кадр × 200 — за секунду).
+     * Самый быстрый поворот, °/с, от подхода ядерной волны давлением psi, её прихода и ветра за ней — и отдельно до
+     * прихода: тики, как у клиента (тряска, потом подрыв), с {@code phase} тиков тряски раньше, кадры по 1/10 тика
+     * (поворот за кадр × 200 — за секунду).
      */
-    private static double fastest(double psi, Vec3 away, double cameraYaw) {
+    private static double[] fastest(double psi, Vec3 away, double cameraYaw, int phase) {
         CameraShake.reset();
-        double most = 0;
+        for (int i = 0; i < phase; i++) CameraShake.tick();
+        double most = 0, before = 0;
         double[] prev = null;
-        int before = (int) CameraShake.approachTicks(psi);
-        for (int tick = -before; tick < 200; tick++) {
+        int ahead = (int) CameraShake.approachTicks(psi);
+        for (int tick = -ahead; tick < 200; tick++) {
             CameraShake.tick();
             if (tick < 0) CameraShake.approach(psi, -tick);
             else if (tick == 0) CameraShake.nuke(psi, away);
             for (int f = 0; f < 10; f++) {
                 double[] o = CameraShake.offsets(f / 10.0, cameraYaw);
-                if (prev != null) most = Math.max(most, Math.sqrt(sq(o[0] - prev[0]) + sq(o[1] - prev[1]) + sq(o[2] - prev[2])) * 200);
+                if (prev != null) {
+                    double turn = Math.sqrt(sq(o[0] - prev[0]) + sq(o[1] - prev[1]) + sq(o[2] - prev[2])) * 200;
+                    most = Math.max(most, turn);
+                    if (tick < 0) before = Math.max(before, turn);
+                }
                 prev = o;
             }
         }
         CameraShake.reset();
-        return most;
+        return new double[]{most, before};
     }
 
     /**
