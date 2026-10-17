@@ -662,6 +662,25 @@ float mushLobes(vec3 c, float tile, float cone, float k, vec3 ch) {
     return (n - 0.5) + 0.35 * fine * (f - 0.5);
 }
 
+// Клубы шапки гриба m в месте q тела: вещество шапки обращается вокруг оси кольца (вихрь Тёрнера: снаружи вниз, внутри
+// вверх, по верху от оси наружу) со скоростью подъёма верха, и клубы идут с ним (mushFlow); турбулентность в нём живёт
+// и умирает — два слоя узора со сдвигом на полжизни (Нейре 2003), каждый уносится вращением от своего рождения и тонет
+// в шапку к концу жизни, а следующий узор поднимается из неё (mushLayer*, mushRise). Пока шар не свернулся в кольцо
+// (roll < 1), обращение — его доля
+float mushCapLobes(Mush m, vec3 q, float cone, float k) {
+    float roll = clamp(m.ringR / max(MUSH_RING * m.capR, 1.0), 0.0, 1.0);
+    float best = -1e9, low = 1.0;
+    for (int j = 0; j < 2; j++) {
+        float age = mushLayerAge(m.churn, float(j)), w = mushLayerWeight(age);
+        vec3 c = mushFlow(m, q, age * MUSH_CYCLE * roll);
+        float seed = mushLayerSeed(m.churn, float(j));
+        float l = mushLobes(c + m.capTile * fract(seed * vec3(0.618034, 0.414214, 0.732051)), m.capTile, cone, k, MUSH_DOMES);
+        best = max(best, l - MUSH_SINK * (1.0 - w));
+        low = min(low, w);
+    }
+    return best + mushRise(low);
+}
+
 // Ослабление шапки, ножки и юбки гриба m в месте q тела с клубами, 1/блок; lobes — сдвиг края шапки клубами (доля
 // размаха), depth — глубина под краем шапки без клубов в её единицах (0 у края), near — сколько до края с клубами
 // у ближайшей части, блоки (оценка: клубы меняются не круче своей плитки — шагу луча вполовину её). Клубы шапки и юбки
@@ -675,7 +694,7 @@ vec3 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float d
     vec3 d = mushDist(m, q);
     float uc = mushCapUnit(m);
     if (m.capSigma > 0.0 && d.x < MUSH_CAP_REACH * uc) {
-        lobes = mushLobes(vec3(q.x, q.y - m.capY, q.z), m.capTile, cone, k, MUSH_DOMES);
+        lobes = mushCapLobes(m, q, cone, k);
         float shifted = d.x - MUSH_CAP_LOBES * uc * lobes;
         sigma.x = m.capSigma * mushEdge(shifted, MUSH_CAP_EDGE * uc);
         near = shifted - MUSH_CAP_EDGE * uc;

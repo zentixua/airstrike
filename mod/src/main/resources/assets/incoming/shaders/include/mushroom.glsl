@@ -18,7 +18,7 @@
 //   9 = (ω' юбки rgb; g')
 //  10 = (воздух вокруг, K; перепад температуры ядра, K; низ шапки; плитка клубов ножки)
 //  11 = (подъём клубов ножки, блоки; верх дыма пожаров; радиус зоны пожаров; ослабление воздуха, 1/блок — дымка вдали)
-//  12 = (свет пожаров под грибом rgb, как у пелены: карта огня шторма и свет кадра; 0)
+//  12 = (свет пожаров под грибом rgb, как у пелены: карта огня шторма и свет кадра; часы кипения шапки, рад)
 
 const int MUSHROOMS = 4;
 const int MUSH_BB_ROW = 4;
@@ -40,6 +40,16 @@ const float MUSH_BLEND = 0.25;
 // доля перепада температуры ядра у края шапки (MushroomModel.EDGE_HEAT): край смешан с подхваченным воздухом (термик
 // Мортона–Тейлора–Тёрнера: горячее всего — ядро кольца)
 const float MUSH_EDGE_HEAT = 0.35;
+// большой радиус кольца шапки — эта доля её радиуса, когда шар свернулся (MushroomModel.RING): доля кольца — по нему
+const float MUSH_RING = 0.55;
+// Кипение шапки (mushCapLobes): узор её клубов — два слоя, каждый живёт столько радиан часов кипения (churn —
+// MushroomModel.churn: сколько радиан своего сечения прошло вещество шапки). Клубы поднимаются из шапки к середине жизни
+// слоя и уходят в неё к концу — за время оборота вихря своего размера: клуб в полсечения (MushroomField: пузырь в
+// полсечения) по закону Колмогорова оборачивается за (1/2)^(2/3) радиана часов, вверх и вниз — вдвое дольше
+const float MUSH_CYCLE = 1.26;
+// на сколько слой уходит в шапку, когда его нет, в долях размаха клубов: больше всего их размаха (±0,68), чтобы
+// уходящий слой не выступал над рождённым и смена его узора не была видна
+const float MUSH_SINK = 1.4;
 // докуда за край без клубов доходит вещество (сдвиг клубами до ±0,68 размаха, мягкость края, у шапки — и мягкий
 // минимум), в единицах клубов — шапка, ножка, юбка
 const float MUSH_CAP_REACH = 0.68 * MUSH_CAP_LOBES + MUSH_CAP_EDGE + 0.25 * MUSH_BLEND;
@@ -83,16 +93,18 @@ struct Mush {
     float fireR;
     float airSigma;
     vec3 fire;
+    float churn;
 };
 
 Mush mushLoad(sampler2D data, int k) {
     vec4 t0 = texelFetch(data, ivec2(0, k), 0), t1 = texelFetch(data, ivec2(1, k), 0), t2 = texelFetch(data, ivec2(2, k), 0);
     vec4 t3 = texelFetch(data, ivec2(3, k), 0), t4 = texelFetch(data, ivec2(4, k), 0), t6 = texelFetch(data, ivec2(6, k), 0);
     vec4 t8 = texelFetch(data, ivec2(8, k), 0), t10 = texelFetch(data, ivec2(10, k), 0), t11 = texelFetch(data, ivec2(11, k), 0);
+    vec4 t12 = texelFetch(data, ivec2(12, k), 0);
     // эпицентр в таблице — x, z и земля по y (как у слота пелены): в место — x, y, z
     return Mush(t0.xzy, t1.xy, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w, t3.x, t3.y, t3.z, t3.w, t4.x, t4.y, t4.z, t4.w,
             texelFetch(data, ivec2(5, k), 0), t6.x, t6.y, t6.z, t6.w, texelFetch(data, ivec2(7, k), 0), t8.x, t8.y, t8.z, t8.w,
-            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, t11.w, texelFetch(data, ivec2(12, k), 0).rgb);
+            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, t11.w, t12.rgb, t12.w);
 }
 
 // есть ли гриб k в кадре
@@ -153,6 +165,36 @@ vec3 mushLocal(Mush m, vec3 p) {
     return vec3(xz.x, h, xz.y);
 }
 
+// Возраст слоя j (0 или 1) узора клубов шапки на часах кипения churn, доля его жизни 0..1: слои — со сдвигом на полжизни
+float mushLayerAge(float churn, float j) {
+    float c = churn / MUSH_CYCLE + 0.5 * j;
+    return c - floor(c);
+}
+
+// Доля слоя возраста age: ноль при рождении и в конце, 1 — в середине; у двух слоёв вместе — 1
+float mushLayerWeight(float age) {
+    return 1.0 - abs(2.0 * age - 1.0);
+}
+
+// Номер узора слоя j: свой у каждой жизни каждого слоя
+float mushLayerSeed(float churn, float j) {
+    return 2.0 * floor(churn / MUSH_CYCLE + 0.5 * j) + j;
+}
+
+// Поправка края шапки на среднее (low — доля слабейшего слоя): край — верхний из двух слоёв, опущенных на MUSH_SINK × (1 −
+// доля), и без поправки в середине жизни слоёв шапка садилась бы на треть размаха. Среднее верхнего из двух равномерных
+// на ±h (h = 1/2) со сдвигами − (1 − w)·K: −low·K + h·(2 − e)³/24, e = |w₀ − w₁|·K/h (rest = 2 − e), пока e < 2
+float mushRise(float low) {
+    float rest = max(2.0 - 2.0 * MUSH_SINK * (1.0 - 2.0 * low), 0.0);
+    return MUSH_SINK * low - rest * rest * rest / 48.0;
+}
+
+// Доля обращения на расстоянии rho от оси гриба: у оси (вершина купола — точка застоя, поток там только поднимается) — 0,
+// к оси кольца — вся
+float mushTaper(float rho, float ringR) {
+    return smoothstep(0.0, max(ringR, 1.0), rho);
+}
+
 // единицы клубов, блоки (MushroomField.capUnit, skirtUnit): шапка — меньшая полуось сечения кольца, юбка — её сечения
 float mushCapUnit(Mush m) {
     return min(m.ringA, m.ringB);
@@ -165,6 +207,22 @@ float mushSkirtUnit(Mush m) {
 // радиус ножки на высоте h места тела
 float mushStemAt(Mush m, float h) {
     return mushStemR(h / max(m.capBot, 1.0), m.stemR, m.lowDust);
+}
+
+// Место в узоре клубов шапки (от её оси и середины по высоте, блоки) для места q тела, если вещество с тех пор обошло
+// сечение кольца на turn радиан: обращение по эллипсу сечения вокруг оси кольца — снаружи вниз, внутри вверх, по верху
+// от оси наружу (в плоскости «от оси, вверх» — по часовой); у оси гриба оно сходит на нет (mushTaper). Узор идёт с
+// веществом: точку, где вещество сейчас, узор берёт оттуда, где оно было
+vec3 mushFlow(Mush m, vec3 q, float turn) {
+    float rho = length(q.xz);
+    float a = max(m.ringA, 1.0), b = max(m.ringB, 1.0);
+    vec2 uv = vec2((rho - m.ringR) / a, (q.y - m.capY) / b);
+    float ang = turn * mushTaper(rho, m.ringR);
+    float c = cos(ang), s = sin(ang);
+    vec2 was = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
+    float r = m.ringR + a * was.x;
+    vec2 around = rho > 1e-3 ? q.xz / rho : vec2(1.0, 0.0);
+    return vec3(around.x * r, b * was.y, around.y * r);
 }
 
 // Расстояния со знаком до края шапки, ножки и юбки без клубов в месте q тела, блоки (у ножки — по радиусу на этой

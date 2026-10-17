@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Законы гриба в шейдере ({@code shaders/include/mushroom.glsl}) — те же, что в Java ({@link MushroomModel},
@@ -118,5 +119,61 @@ class MushroomGlslTest {
             assertEquals(0, edge.call(Map.of("d", p[2] - lobes, "e", p[1])), 1e-12);
             assertEquals(1, edge.call(Map.of("d", -p[1], "e", p[1])), 1e-12);
         }
+    }
+
+    /**
+     * Кипение шапки ({@code mushCapLobes}): два слоя узора со сдвигом на полжизни, доли в сумме — 1. Узор слоя сменяется
+     * только там, где слоя нет (доля 0), а слой без доли весь ниже самого низкого места живого: смена не видна. Жизнь
+     * слоя — подъём и уход клуба в полсечения, по Колмогорову (время оборота вихря ∝ размер^⅔). Поправка на среднее —
+     * среднее верхнего из двух слоёв (клубы ±1/2, равномерно) с их сдвигами со знаком минус: шапка за жизнь слоя в
+     * среднем не садится и не растёт, а верх клубов не выше {@link MushroomField#LOBES_MAX} (по нему рамка гриба).
+     * Обращение у оси гриба сходит на нет, у оси кольца — полное.
+     */
+    @Test
+    void capBoilsWithoutJumps() {
+        Map<String, Double> c = constants();
+        assertEquals(MushroomModel.RING, c.get("MUSH_RING"), 0);
+        double sink = c.get("MUSH_SINK"), cycle = c.get("MUSH_CYCLE");
+        assertEquals(2 * Math.pow(0.5, 2.0 / 3), cycle, 0.005);
+        assertTrue(MushroomField.LOBES_MAX - sink <= -MushroomField.LOBES_MAX, "уходящий слой выступает над живым");
+        GlslFunction age = GlslFunction.parse(GLSL, "mushLayerAge"), weight = GlslFunction.parse(GLSL, "mushLayerWeight");
+        GlslFunction seed = GlslFunction.parse(GLSL, "mushLayerSeed"), rise = GlslFunction.parse(GLSL, "mushRise");
+        GlslFunction taper = GlslFunction.parse(GLSL, "mushTaper");
+        double[] lastSeed = {-1, -1}, lastW = {0, 0};
+        for (double psi = 0; psi < 30; psi += 1e-3) {
+            double sum = 0;
+            for (int j = 0; j < 2; j++) {
+                Map<String, Double> a = new HashMap<>(c);
+                a.put("churn", psi);
+                a.put("j", (double) j);
+                double w = weight.call(Map.of("age", age.call(a))), s = seed.call(a);
+                if (psi > 0 && s != lastSeed[j]) {
+                    assertTrue(w < 0.01 && lastW[j] < 0.01, "слой " + j + " сменил узор на виду: " + psi + " рад");
+                }
+                lastSeed[j] = s;
+                lastW[j] = w;
+                sum += w;
+            }
+            assertEquals(1, sum, 1e-9, psi + " рад");
+        }
+        int n = 400;
+        for (double low = 0; low <= 0.5 + 1e-9; low += 0.05) {
+            double mean = 0;
+            for (int i = 0; i < n; i++) {
+                for (int k = 0; k < n; k++) {
+                    double x = (i + 0.5) / n - 0.5, y = (k + 0.5) / n - 0.5;
+                    mean += Math.max(x - low * sink, y - (1 - low) * sink);
+                }
+            }
+            mean /= (double) n * n;
+            Map<String, Double> a = new HashMap<>(c);
+            a.put("low", low);
+            double r = rise.call(a);
+            assertEquals(0, mean + r, 1e-3, "доля " + low);
+            assertTrue(MushroomField.LOBES_MAX - low * sink + r <= MushroomField.LOBES_MAX + 1e-12, "доля " + low);
+        }
+        assertEquals(0, taper.call(Map.of("rho", 0.0, "ringR", 300.0)), 0);
+        assertEquals(1, taper.call(Map.of("rho", 300.0, "ringR", 300.0)), 0);
+        assertEquals(1, taper.call(Map.of("rho", 900.0, "ringR", 300.0)), 0);
     }
 }
