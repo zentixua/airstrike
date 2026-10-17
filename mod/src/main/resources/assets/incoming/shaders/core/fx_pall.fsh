@@ -83,6 +83,11 @@ uniform float PallFloorFrom;
 // вода слотов (pall.glsl): базисная волна и есть ли под пеленой вода
 uniform vec4 PallWater0;
 uniform vec4 PallWater1;
+// стена пыли слотов (pall.glsl, client/nuclear/BlastWall): голова-вал и облако Вильсона
+uniform mat4 PallWall0;
+uniform mat4 PallWall1;
+uniform vec4 PallWilson0;
+uniform vec4 PallWilson1;
 // грибы кадра (MushroomField): таблица грибов и света чёрного тела (mushroom.glsl)
 uniform sampler2D Sampler7;
 // во сколько раз ярче кажется свет при свете неба кадра (Sight.adapted): свечение гриба — в значениях кадра
@@ -205,14 +210,137 @@ vec3 shoulder(vec3 c) {
     return c * ((0.6 + 0.4 * (1.0 - exp(-(m - 0.6) / 0.4))) / m);
 }
 
-// Пелена слота в точке p — прибавить к s; ground, R — карта рельефа и воды слота и её числа, W — вода слота, G, H — свет
-// стены пыли слота (PallGlow, PallHot), dir — луч зрения, cone — меньшее, что луч здесь различает (блоки)
-void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3 sunDir, vec3 dir, float cone, inout Sample s) {
+// ---------------------------------------------------------------- голова стены пыли (pall.glsl: pallWall*)
+
+// Клубы головы стены: (x) — 0..1 (равномерно, как канал плитки), (y) — мелкие клубы (множитель, в среднем 1; fine — их
+// доля, как у пелены). Шум в плитке V[2].w — у вала (доля roll) в плитке, повёрнутой с ним (rolled — от оси вала), у хвоста
+// в неподвижной (still — от оси кольца и над рельефом: поднятая пыль остаётся позади головы); вдоль кольца — две фазы
+// (BlastWall.slot): клубы стоят на своём угле theta и растут с головой, фаза, что растянулась, сменяется новой с другими
+// клубами, пока другая в полной силе. Смесь — с прежним разбросом (иначе в середине смены клубы бледнели бы вдвое).
+// Смесь, а не выбор сильнейшей: выбор менял бы клубы скачком — на кадре шов
+vec2 wallNoise(mat4 V, vec2 rolled, vec2 still, float theta, float roll, float fine) {
+    float sum = 0.0, norm = 0.0, dsum = 0.0, dnorm = 0.0, tile = max(V[2].w, 1.0);
+    for (int j = 0; j < 2; j++) {
+        float wj = j == 0 ? V[2].z : 1.0 - V[2].z;
+        if (wj < 0.02) continue;
+        float arc = theta * 0.1591549 * V[2][j];
+        vec3 off = fract(vec3(V[3][j]) * vec3(0.618034, 0.414214, 0.732051));
+        vec3 qr = vec3(rolled / tile, arc) + off, qs = vec3(still / tile, arc) + off.zxy;
+        float a = wj * roll, b = wj * (1.0 - roll);
+        if (a > 0.02) {
+            sum += a * (textureLod(PallNoise, qr, 0.0).r - 0.5);
+            norm += a * a;
+        }
+        if (b > 0.02) {
+            sum += b * (textureLod(PallNoise, qs, 0.0).r - 0.5);
+            norm += b * b;
+        }
+        // мелкие клубы — так же смесью обеих плиток (выбор по roll давал шов посреди головы)
+        if (fine > 0.0 && a > 0.02) {
+            dsum += a * (fineAt(qr) - 1.0);
+            dnorm += a * a;
+        }
+        if (fine > 0.0 && b > 0.02) {
+            dsum += b * (fineAt(qs) - 1.0);
+            dnorm += b * b;
+        }
+    }
+    float detail = dnorm > 0.0 ? max(1.0 + dsum / sqrt(dnorm), 0.0) : 1.0;
+    return vec2(clamp(0.5 + sum / sqrt(max(norm, 1e-6)), 0.0, 1.0), mix(1.0, detail, fine));
+}
+
+// Голова стены в точке h (pallWallAt) с клубами: ослабление, 1/блок. Клубы выедают огибающую с края на WALL_BITE (впадины
+// глубже, выступы — до огибающей): край головы — круглые клубы с мягким краем WALL_SOFT, внутри — сплошная пыль; в них —
+// мелкие клубы, пока луч их различает (fine; у тени клубов — 0)
+float wallAt(mat4 V, WallAt h, float fine) {
+    float s = h.s - h.P.z, w = 1.5 * h.P.x;
+    float inside = pallWallInside(s, h.z, h.P.x, h.P.y);
+    float fade = pallWallFade(s, h.z, h.P.x, h.P.y);
+    if (inside <= 0.0 || fade <= 0.0 || h.P.w <= 0.0) return 0.0;
+    // у переднего края пыль идёт вверх, поверху — назад: точка в плитке вала — повёрнутая назад на его угол
+    vec2 u = vec2(s - w, h.z - 0.5 * h.P.y);
+    float c = cos(V[1].x), sn = sin(V[1].x);
+    vec2 rolled = vec2(u.x * c - u.y * sn, u.x * sn + u.y * c);
+    float roll = 1.0 - smoothstep(0.4, 1.4, (s - w) / max(w, 0.001));
+    vec2 n = wallNoise(V, rolled, vec2(length(h.rel), h.z), atan(h.rel.y, h.rel.x), roll, fine);
+    return h.P.w * fade * smoothstep(0.0, WALL_SOFT, inside - WALL_BITE * (1.0 - n.x)) * n.y;
+}
+
+// точка h, сдвинутая на v (блоки): та же вода и тот же рельеф под ней
+WallAt wallMove(mat4 V, WallAt h, vec3 v) {
+    WallAt m = h;
+    m.rel = h.rel + v.xz;
+    m.s = V[0].x - length(m.rel);
+    m.z = h.z + v.y;
+    return m;
+}
+
+// Толща средней головы (без клубов) от точки h по направлению v (единичному) на длину len, n шагов
+float wallChord(mat4 V, WallAt h, vec3 v, float len, int n) {
+    float sum = 0.0, ds = len / float(n);
+    for (int i = 0; i < n; i++) {
+        WallAt m = wallMove(V, h, v * ((float(i) + 0.5) * ds));
+        sum += pallWallMean(m.s - m.P.z, m.z, m.P.x, m.P.y);
+    }
+    return sum * ds * h.P.w;
+}
+
+// Голова стены слота в точке (h — pallWallAt) — в s. Это та же пыль, что пелена, только гуще и с валом: тот же свет
+// (свет стены — пелены у фронта, CloudPuffs.pallLight), то же вещество (в зоне пожаров — с дымом и сажей, над водой —
+// брызги). Голова не плоский слой: в неё свет входит и сбоку — рассеянный свет в точке — по меньшей из толщ над ней и до
+// её переднего края (как глубина под верхом слоя); пучки (солнце и шар) — по толще средней головы к ним (вблизи —
+// по самим клубам: тень соседних клубов к главному свету keyDir, иначе голова выходит плоской), а не столбом над точкой.
+// fireR — край зоны пожаров (блоки), r — точка от эпицентра по земле
+void wall(mat4 V, WallAt h, vec3 keyDir, vec3 sunDir, vec3 lightDir, float fireR, float r, float cone, bool pall, inout Sample s) {
+    float tile = max(V[2].w, 1.0), fine = 1.0 - smoothstep(0.5, 1.0, cone * 32.0 / tile);
+    float hd = wallAt(V, h, fine);
+    // ни головы здесь, ни пелены слота — свет не нужен
+    if (hd <= 0.0 && !pall) return;
+    float hm = h.P.w * pallWallMean(h.s - h.P.z, h.z, h.P.x, h.P.y);
+    // тень клубов: две выборки клубов к главному свету (на 0,06 и 0,2 плитки) и сама точка — против средней там
+    float dev = 0.0;
+    if (hd > 0.0) {
+        WallAt h1 = wallMove(V, h, keyDir * (0.06 * tile)), h2 = wallMove(V, h, keyDir * (0.2 * tile));
+        float m1 = h.P.w * pallWallMean(h1.s - h1.P.z, h1.z, h1.P.x, h1.P.y);
+        float m2 = h.P.w * pallWallMean(h2.s - h2.P.z, h2.z, h2.P.x, h2.P.y);
+        dev = ((hd - hm) * 0.03 + (wallAt(V, h1, 0.0) - m1) * 0.1 + (wallAt(V, h2, 0.0) - m2) * 0.17) * tile;
+        dev = clamp(dev, -3.0, 6.0);
+    }
+    // толща средней головы над точкой, до её переднего края и под точкой (до низа головы)
+    float reach = 4.5 * h.P.x + h.P.y;
+    vec2 out1 = h.rel / max(length(h.rel), 1e-3);
+    float up = wallChord(V, h, vec3(0.0, 1.0, 0.0), max(h.P.y - h.z, 0.0), 4);
+    float side = wallChord(V, h, vec3(out1.x, 0.0, out1.y), max(h.s - h.P.z, 0.0) + 1.0, 4);
+    float down = wallChord(V, h, vec3(0.0, -1.0, 0.0), max(h.z + 0.5 * h.P.y, 0.0), 2);
+    float depth = min(up, side);
+    float toSun = wallChord(V, h, sunDir, reach, 4), toCap = wallChord(V, h, lightDir, reach, 4);
+    float smoke = 0.77 * (1.0 - smoothstep(0.92 * max(fireR, 1e-3), 1.04 * max(fireR, 1e-3), r));
+    vec3 w = mix(mix(PALL_DUST_W, PALL_SMOKE_W, smoke), PALL_MIST_W, h.wet);
+    float g = mix(PALL_DUST_G, PALL_MIST_G, h.wet);
+    s.tau += depth;
+    s.slab += depth + down;
+    s.slabAlbedo += (depth + down) * w;
+    s.slabPhase += (depth + down) * g;
+    s.water += (depth + down) * h.wet;
+    // пучки идут по s.tau / μ: голова в нём — глубина рассеянного света, а пучку — его толща к свету
+    s.shadeSun += toSun + dev * max(dot(keyDir, sunDir), 0.0) - depth / max(sunDir.y, 0.12);
+    s.shadeCap += toCap + dev * max(dot(keyDir, lightDir), 0.0) - depth / clamp(lightDir.y, 0.12, 1.0);
+    s.shadeUp += dev * max(keyDir.y, 0.0);
+    s.shadeDown += dev * max(-keyDir.y, 0.0);
+    s.sigma += hd;
+    s.albedo += hd * w;
+    s.phase += hd * g;
+}
+
+// Пелена слота в точке p — прибавить к s; V — стена пыли слота, ground, R — карта рельефа и воды слота и её числа, W — вода
+// слота, G, H — свет стены пыли слота (PallGlow, PallHot), dir — луч зрения, cone — меньшее, что луч здесь различает (блоки)
+void slot(mat4 S, mat4 V, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3 sunDir, vec3 dir, float cone, inout Sample s) {
     if (S[1].w < 0.5) return;
     // пол слоя — рельеф под точкой (карта PallGround): в долине пелена над ней — тоже слой, и пожары и земля под ней —
     // на дне, а не на уровне земли под эпицентром; карты нет — земля под эпицентром
     float floorUp = R.x > 0.0 ? pallGroundAt(ground, S, R, p.xz) - S[0].z : 0.0;
     PallAt f = pallField(Sampler1, ground, S, R, W, p, floorUp);
+    WallAt head = pallWallAt(ground, S, V, R, W, p, floorUp);
     vec3 dustW = mix(PALL_DUST_W, PALL_SMOKE_W, f.smoke);
     s.tau += f.column.x + f.column.y + f.column.z;
     s.slab += f.slab.x + f.slab.y + f.slab.z;
@@ -220,12 +348,11 @@ void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3
     s.slabPhase += (f.slab.x + f.slab.y) * PALL_DUST_G + f.slab.z * PALL_MIST_G;
     // пыль — над водой, если её подняло с воды; водяная пыль — всегда
     s.water += (f.slab.x + f.slab.y) * f.wet + f.slab.z;
-    // Свет стены пыли (CloudPuffs.wallColor): шар — пучок к верху слоя (свет на верху стены, pallLit), пожары под
-    // пылью — свет снизу (у низа стены, pallBurn); сила — та, что на клубе стены даёт отсвет (× PallGlowOnSmoke), делённая
-    // на цвет пыли, — на экране поверх света неба, в линейный — разностью (pallLift): толстая пыль у фронта отражает его
-    // как клубы стены — пелена продолжает её цвет. Свет пожаров — не ярче пламени (pallFlame): ночью над зоной пожаров
-    // клубы стены на экране уже цвета огня, и обращение через цвет пыли дало бы свет втрое ярче огня — пыль у земли вышла
-    // бы ярче 1 и ровной (плечо). Пожары под пылью днём едва видны, как их зарево на мгле (NukePall: fireLight): за волной
+    // Свет шара и пожаров на пыли (CloudPuffs.pallLight): шар — пучок к верху слоя (pallLit), пожары под пылью — свет
+    // снизу (pallBurn); сила — отсвет на дыме (× PallGlowOnSmoke), делённый на цвет пыли, — на экране поверх света неба, в
+    // линейный — разностью (pallLift): толстая пыль в нём на экране — цвета отсвета. Свет пожаров — не ярче пламени
+    // (pallFlame): ночью над зоной пожаров отсвет на экране уже цвета огня, и обращение через цвет пыли дало бы свет втрое
+    // ярче огня — пыль у земли вышла бы ярче 1 и ровной (плечо). Пожары под пылью днём едва видны, как их зарево на мгле (NukePall: fireLight): за волной
     // стена проходит за секунды, а пелена висит над горящим городом минуты. Под водой пожаров нет (стена брызг их и не
     // берёт): вода — там, откуда подняло пыль
     float r = length(p.xz - S[0].xy);
@@ -238,7 +365,17 @@ void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3
     s.capUp += capI * lightDir.y;
     s.capView += capI * dot(dir, lightDir);
     if (burn > 0.0) s.burn += pallFlame(PallBase, FIRE * (burn * PallGlowOnSmoke) / DUST, FIRE);
-    if (f.sigma.x + f.sigma.y + f.sigma.z <= 1e-7) return;
+    // главный свет — солнце или, пока он ярче, шар над эпицентром или пожары под пылью (ночью это весь свет
+    // пыли); светят пожары внизу — к ним, а не к шару
+    float heat = max(lit, burn) * PallGlowOnSmoke;
+    float key = clamp(heat / (heat + 0.5 * PallSun.w + 0.02), 0.0, 1.0);
+    vec3 keyLight = lightDir;
+    if (burn > lit) keyLight = vec3(0.0, -1.0, 0.0);
+    vec3 keyDir = mix(sunDir, keyLight, key);
+    keyDir /= max(length(keyDir), 1e-3);
+    bool pall = f.sigma.x + f.sigma.y + f.sigma.z > 1e-7;
+    if (head.P.w > 0.0) wall(V, head, keyDir, sunDir, lightDir, G.w, r, cone, pall, s);
+    if (!pall) return;
     float fill = clamp(f.dense * 3.0, 0.0, 1.0) * (1.0 - smoothstep(0.4, 1.0, f.height.x));
     vec3 warp = warpAt(S, p);
     // мелкие клубы — около 1/32 плитки: видны во всю силу, пока луч различает вдвое мельче (fine — их доля; 0 — мельче
@@ -249,14 +386,6 @@ void slot(mat4 S, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3 p, vec3
     float shape = coarse * mix(1.0, detail, fine);
     s.clumps = shape;
     float d = f.sigma.x * shape, h = f.sigma.y * mix(1.0, shape, 0.5), m = f.sigma.z * shape;
-    // главный свет — солнце или, пока он ярче, шар над эпицентром или пожары под пылью (ночью это весь свет
-    // пыли); светят пожары внизу — к ним, а не к шару
-    float heat = max(lit, burn) * PallGlowOnSmoke;
-    float key = clamp(heat / (heat + 0.5 * PallSun.w + 0.02), 0.0, 1.0);
-    vec3 keyLight = lightDir;
-    if (burn > lit) keyLight = vec3(0.0, -1.0, 0.0);
-    vec3 keyDir = mix(sunDir, keyLight, key);
-    keyDir /= max(length(keyDir), 1e-3);
     // Тень своего и соседних клубов: толща к главному свету против средней (clumpShade). Густота — крупные × мелкие, и
     // отклонение толщи — сумма по масштабам: крупных клубов — по выборкам на 0,06 и 0,22 плитки к свету, мелких — вчетверо
     // ближе, × густота крупного клуба, в котором они (на пути в пару мелких клубов крупный почти тот же). Тень крупных —
@@ -528,6 +657,23 @@ float along(float u, float t0, float fa, float fb, float t1, float a, float b) {
     return fb + (t1 - fb) * (u - a - b) / max(1.0 - a - b, 1e-6);
 }
 
+// Облако Вильсона слота (S, L — pallWilson), проход луча dir из глаза в t толщей tau: свет (rgb) и пропускание (a).
+// Туман конденсации за фронтом — те же капли, что водяная пыль (MIST): небо, солнце и шар (его свет на пыли у верха,
+// pallLit) с фазой капель; толща — с клубами по направлению от подрыва (оболочка рвётся полосами и пятнами)
+vec4 wilsonLight(mat4 S, vec4 G, vec4 H, vec4 L, vec3 dir, vec3 sunDir, float t, float tau) {
+    if (tau <= 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
+    vec3 q = dir * t;
+    vec3 toBurst = vec3(S[0].x, S[0].z + L.w, S[0].y) - q;
+    toBurst /= max(length(toBurst), 1e-3);
+    tau *= 0.5 + textureLod(PallNoise, -toBurst * 1.7 + vec3(0.21, 0.47, 0.83), 0.0).r;
+    float lit = pallLit(length(q.xz - S[0].xy), 1.0, G.x, G.z);
+    vec3 cap = pallLift3(PallBase, H.rgb * (lit * PallGlowOnSmoke) / MIST);
+    vec3 l = PALL_MIST_W * (0.5 * PallSkyLight + PallSunLight * (0.25 * hg(PALL_MIST_G, dot(dir, sunDir)))
+            + cap * (0.25 * hg(PALL_MIST_G, dot(dir, toBurst))));
+    float tr = exp(-tau);
+    return vec4(l * (1.0 - tr), tr);
+}
+
 // Луч этого пикселя и общее для его шагов (main): направление, солнце, косинусы, сажа, самое яркое пламя, ширина пикселя
 vec3 gDir;
 vec3 gSun;
@@ -539,9 +685,13 @@ float gSootSun;
 vec3 gFlame;
 float gPixel;
 float gJitter;
-// смерчи: свет и пропускание каждого и где луч в него входит (main)
+// ослабление воздуха по погоде, 1/блок (слот: [3].w) — дымка вдали, как у гриба (mushAir)
+float gAir;
+// смерчи: свет и пропускание каждого и где луч в него входит (main); так же — проходы облака Вильсона (по два на слот)
 mat4 gWhirlLight;
 vec4 gWhirlIn;
+mat4 gWilsonLight;
+vec4 gWilsonIn;
 // грибы кадра и отрезок луча в каждом
 Mush gMush[MUSHROOMS];
 vec2 gMushSpan[MUSHROOMS];
@@ -549,30 +699,44 @@ int gMushes;
 // толща грибов от глаза до шага: настоящая, с клубами, — сколько свет неба со стороны глаза теряет до точки
 float gTauEye;
 
-// смерчи, в которые луч вошёл до t, — в свет луча (каждый раз). Пелену и смерчи глаз видит и там, где гриб растаял
-// в дымке (lost): их свет — с долей transmit + lost, и обе доли за ними меньше
-void whirlsBefore(float t, inout vec3 light, inout float transmit, inout float lost) {
+// Вещество с непрозрачностью 1 − tr и светом l (уже × непрозрачность) в t от глаза — в луч. Пелену, смерчи и облако
+// Вильсона глаз видит и там, где гриб растаял в дымке (lost): их свет — с долей transmit + lost. Дымка воздуха до t
+// (как у гриба, mushAir) берёт долю 1 − air их непрозрачности: там видно то, что за всем лучом, — в lost; пропускание
+// по лучу остаётся настоящим
+void passMatter(float t, vec3 l, float tr, inout vec3 light, inout float transmit, inout float lost) {
+    float air = exp(-gAir * t), seen = transmit + lost;
+    light += seen * air * l;
+    lost = lost * tr + seen * (1.0 - air) * (1.0 - tr);
+    transmit *= tr;
+}
+
+// смерчи и проходы облака Вильсона, в которые луч вошёл до t, — в свет луча (каждый раз)
+void passesBefore(float t, inout vec3 light, inout float transmit, inout float lost) {
     for (int k = 0; k < 4; k++) {
         if (gWhirlIn[k] <= t) {
-            light += (transmit + lost) * gWhirlLight[k].rgb;
-            transmit *= gWhirlLight[k].a;
-            lost *= gWhirlLight[k].a;
+            passMatter(gWhirlIn[k], gWhirlLight[k].rgb, gWhirlLight[k].a, light, transmit, lost);
             gWhirlIn[k] = 1e9;
+        }
+        if (gWilsonIn[k] <= t) {
+            passMatter(gWilsonIn[k], gWilsonLight[k].rgb, gWilsonLight[k].a, light, transmit, lost);
+            gWilsonIn[k] = 1e9;
         }
     }
 }
 
-// Шаг пелены на [ta, ta + ds]: её свет в луч
-void pallStep(float ta, float ds, inout vec3 light, inout float transmit, inout float lost) {
-    whirlsBefore(ta, light, transmit, lost);
+// Шаг пелены на [ta, ta + ds]: её свет в луч. grid — шаг сетки луча здесь (обычной или головы стены, меньший): шаг,
+// урезанный входом в отрезок головы или его концом, случаен от кадра к кадру (сдвиг сетки), и то, что луч различает,
+// по нему мигало бы
+void pallStep(float ta, float ds, float grid, inout vec3 light, inout float transmit, inout float lost) {
+    passesBefore(ta, light, transmit, lost);
     vec3 dir = gDir, sunDir = gSun;
     float muS = gMuS, c = gC, mv = gMv;
     vec3 p = dir * ta;
     // меньшее, что луч здесь различает: ширина пикселя или треть шага
-    float cone = max(ta * gPixel, 0.35 * ds);
+    float cone = max(ta * gPixel, 0.35 * grid);
     Sample s = emptySample();
-    slot(PallSlot0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, p, sunDir, dir, cone, s);
-    slot(PallSlot1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, p, sunDir, dir, cone, s);
+    slot(PallSlot0, PallWall0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, p, sunDir, dir, cone, s);
+    slot(PallSlot1, PallWall1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, p, sunDir, dir, cone, s);
     vec3 f0 = vec3(0.0), f1 = vec3(0.0);
     vec2 around0 = vec2(0.0), around1 = vec2(0.0);
     if (all(greaterThanEqual(p, PallFireMin)) && all(lessThanEqual(p, PallFireMax))) {
@@ -629,9 +793,7 @@ void pallStep(float ta, float ds, inout vec3 light, inout float transmit, inout 
         emit += soot * PALL_SOOT_W * sootLit;
     }
     float tr = exp(-st * ds);
-    light += (transmit + lost) * emit * (1.0 - tr) / st;
-    transmit *= tr;
-    lost *= tr;
+    passMatter(ta, emit * (1.0 - tr) / st, tr, light, transmit, lost);
 }
 
 // Толща гриба m без шума от места p (от глаза) по направлению v на длину len — четыре выборки (MUSH_AT)
@@ -847,6 +1009,7 @@ void main() {
     vec2 span = pallBox(dir, PallMin, PallMax);
     float jitter = fract(texelFetch(Sampler2, ivec2(mod(low, 64.0)), 0).r + PallFrame.x * 0.618034);
     gJitter = jitter;
+    gAir = PallSlot0[1].w > 0.5 ? PallSlot0[3].w : PallSlot1[3].w;
     if (scene < 1e8) {
         scene /= axis;
     } else if (span.y > span.x) {
@@ -888,8 +1051,8 @@ void main() {
         // свет там: рассеянный пеленой и солнце сквозь неё над серединой, зарево пожаров снизу
         vec3 mid = dir * (0.5 * (sp.x + sp.y));
         Sample m = emptySample();
-        slot(PallSlot0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, mid, sunDir, dir, 1e9, m);
-        slot(PallSlot1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, mid, sunDir, dir, 1e9, m);
+        slot(PallSlot0, PallWall0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, mid, sunDir, dir, 1e9, m);
+        slot(PallSlot1, PallWall1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, mid, sunDir, dir, 1e9, m);
         vec3 lit = scattered(m, PALL_SOOT_G * gMv) + PallSunLight * (gSootSun * exp(-m.tau / gMuS));
         float g0 = storm(Sampler3, PallSlot0, PallFire0, mid, 0.0, 1.0).y, g1 = storm(Sampler4, PallSlot1, PallFire1, mid, 0.0, 1.0).y;
         vec3 strongest = g0 >= g1 ? PallFire0[3].rgb : PallFire1[3].rgb;
@@ -897,6 +1060,17 @@ void main() {
         gWhirlLight[i] = whirl(i, dir, sp.x, sp.y, jitter, lit, burnt(m, PALL_SOOT_G * gMv) + glow, whirlFlame);
         gWhirlIn[i] = sp.x;
     }
+    // облако Вильсона: до двух проходов оболочки на слот — так же, когда шаг дойдёт до прохода (до мира за пикселем)
+    vec4 w0 = pallWilson(PallSlot0, PallWilson0, dir, scene), w1 = pallWilson(PallSlot1, PallWilson1, dir, scene);
+    gWilsonLight = mat4(wilsonLight(PallSlot0, PallGlow0, PallHot0, PallWilson0, dir, sunDir, w0.x, w0.y),
+            wilsonLight(PallSlot0, PallGlow0, PallHot0, PallWilson0, dir, sunDir, w0.z, w0.w),
+            wilsonLight(PallSlot1, PallGlow1, PallHot1, PallWilson1, dir, sunDir, w1.x, w1.y),
+            wilsonLight(PallSlot1, PallGlow1, PallHot1, PallWilson1, dir, sunDir, w1.z, w1.w));
+    gWilsonIn = vec4(w0.x, w0.z, w1.x, w1.z);
+    if (w0.y <= 0.0) gWilsonIn.x = 1e9;
+    if (w0.w <= 0.0) gWilsonIn.y = 1e9;
+    if (w1.y <= 0.0) gWilsonIn.z = 1e9;
+    if (w1.w <= 0.0) gWilsonIn.w = 1e9;
     // грибы: их отрезки луча (до мира за пикселем и не дальше, чем видно в пыли у глаза) и общий
     float m0 = 1e9, m1 = -1.0;
     gMushes = 0;
@@ -915,6 +1089,8 @@ void main() {
     float n = float(steps);
     // пелена: шаги гуще у глаза; рамка шторма на луче — туда половина шагов (столбы мельче шага по всей пелене)
     float fa = t1, fb = t1, a = 1.0, b = 0.0;
+    // голова стены пыли: отрезки луча в ней (вход, выход) и шаг её сетки — ниже
+    vec4 enter = vec4(1e9), leave = vec4(1e9), fineStep = vec4(1.0);
     if (t1 > t0) {
         vec2 fs = pallBox(dir, PallFireMin, PallFireMax);
         if (PallFireMax.x > PallFireMin.x && min(fs.y, t1) - max(fs.x, t0) > 1.0) {
@@ -924,10 +1100,34 @@ void main() {
             float after = t1 - fb > 1.0 ? 0.2 : 0.0;
             b = 1.0 - a - after;
         }
+        // Голова стены пыли на луче — гуще: шагом в восьмую её высоты (вал толще шага луч то пробивал бы насквозь, то
+        // проходил мимо, и накопление давало бы рябь вместо клубов), на все отрезки — не больше steps шагов сверх обычных.
+        // Шаги отрезка — своя сетка от его входа, со сдвигом кадра (jitter); обычные шаги внутри отрезка пропускаются
+        vec4 hs0 = pallWallSpans(PallSlot0, PallWall0, PallGround0, dir, t0, t1);
+        vec4 hs1 = pallWallSpans(PallSlot1, PallWall1, PallGround1, dir, t0, t1);
+        enter = vec4(hs0.x, hs0.z, hs1.x, hs1.z);
+        leave = vec4(hs0.y, hs0.w, hs1.y, hs1.w);
+        fineStep = vec4(0.12 * PallWall0[0].z, 0.12 * PallWall0[0].z, 0.12 * PallWall1[0].z, 0.12 * PallWall1[0].z);
+        vec4 want = max(leave - enter, vec4(0.0)) / max(fineStep, vec4(1.0));
+        float wanted = want.x + want.y + want.z + want.w;
+        float fit = wanted > n ? n / wanted : 1.0;
+        for (int k = 0; k < 4; k++) {
+            if (leave[k] <= enter[k]) {
+                enter[k] = 1e9;
+                leave[k] = 1e9;
+                continue;
+            }
+            fineStep[k] = (leave[k] - enter[k]) / max(floor(want[k] * fit), 1.0);
+        }
     }
-    int i = 0;
-    float ta = 1e9;
-    if (t1 > t0) ta = along(jitter / n, t0, fa, fb, t1, a, b);
+    // пелена: i — шагов сделано (с шагами головы стены — до 2·steps + 16), base — обычных границ позади, nextBase — следующая
+    int i = 0, base = 0, pallSteps = 2 * steps + 16;
+    float ta = 1e9, nextBase = 1e9, lastBase = 1e9;
+    if (t1 > t0) {
+        ta = along(jitter / n, t0, fa, fb, t1, a, b);
+        lastBase = ta;
+        nextBase = along((1.0 + jitter) / n, t0, fa, fb, t1, a, b);
+    }
     // гриб: по пустому — шагом до вещества, в нём — на полтолщи, не мельче пикселя и четверти шага пелены по его отрезку
     int mk = 0, mSteps = steps + 16;
     float tauEye = 0.0;
@@ -938,17 +1138,39 @@ void main() {
         dsMax = max((m1 - m0) / 6.0, dsMin);
         tm = m0 + jitter * dsMin;
     }
-    for (int it = 0; it < steps + mSteps; it++) {
-        bool pallLeft = i < steps && ta < t1;
+    for (int it = 0; it < pallSteps + mSteps; it++) {
+        bool pallLeft = i < pallSteps && ta < t1;
         // гриб за почти непрозрачным для себя же лучом не виден и в дымке (его свет — с долей transmit)
         bool mushLeft = mk < mSteps && tm < m1 && transmit >= 0.005;
         if (!pallLeft && !mushLeft) break;
         if (pallLeft && (!mushLeft || ta <= tm)) {
-            float next = min(along((float(i) + 1.0 + jitter) / n, t0, fa, fb, t1, a, b), t1);
-            pallStep(ta, next - ta, light, transmit, lost);
+            // конец шага: обычная граница или вход в отрезок головы, а в нём — ближняя из границы его сетки (или выхода) и
+            // обычной: у глаза обычные гуще сетки головы, и стена, проходящая сквозь зрителя, не теряла бы ближнюю пыль
+            float next = nextBase, grid = nextBase - lastBase;
+            bool dense = false;
+            for (int k = 0; k < 4; k++) {
+                if (!dense && enter[k] <= ta && ta < leave[k]) {
+                    dense = true;
+                    grid = min(grid, fineStep[k]);
+                    float j = floor((ta - enter[k]) / fineStep[k] - jitter + 1e-3) + 1.0;
+                    next = min(next, min(enter[k] + (j + jitter) * fineStep[k], leave[k]));
+                }
+            }
+            if (!dense) {
+                for (int k = 0; k < 4; k++) {
+                    if (enter[k] > ta) next = min(next, enter[k]);
+                }
+            }
+            next = min(next, t1);
+            for (int k = 0; k < steps && nextBase <= next + 1e-4; k++) {
+                base += 1;
+                lastBase = nextBase;
+                nextBase = along((float(base) + 1.0 + jitter) / n, t0, fa, fb, t1, a, b);
+            }
+            if (next > ta) pallStep(ta, next - ta, grid, light, transmit, lost);
             i += 1;
             ta = next;
-            if (i >= steps) ta = 1e9;
+            if (i >= pallSteps || ta >= t1) ta = 1e9;
         } else {
             float cone = max(tm * gPixel, 0.35 * dsMin);
             float gap;
@@ -960,7 +1182,7 @@ void main() {
             if (r.w > 1e-7) {
                 ds = clamp(0.5 / r.w, dsMin, dsMax);
                 ds = min(ds, m1 - tm);
-                whirlsBefore(tm, light, transmit, lost);
+                passesBefore(tm, light, transmit, lost);
                 // дымка воздуха до шага (mushAir; погода и масштаб — одни на все грибы): свет и непрозрачность гриба вдали тают в
                 // небе за ним
                 float tr = exp(-r.w * ds), air = mushAir(gMush[0], tm);
@@ -978,8 +1200,8 @@ void main() {
             break;
         }
     }
-    // смерчи за последним шагом (до мира)
-    whirlsBefore(1e8, light, transmit, lost);
+    // смерчи и облако Вильсона за последним шагом (до мира)
+    passesBefore(1e8, light, transmit, lost);
     // на экран: цвет пелены как вещества — свет, делённый на непрозрачность (в однородной — её функция источника), в
     // значения экрана, умноженный на непрозрачность; с миром смешивается, как всё полупрозрачное в кадре. Ярче белого —
     // к белому (CROSS)

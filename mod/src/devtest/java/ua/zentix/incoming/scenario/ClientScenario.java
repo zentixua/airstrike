@@ -993,7 +993,7 @@ public final class ClientScenario {
             Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}", tick, xyz(a.d.burst()));
         }
         Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        double gap = Math.hypot(cam.x - a.d.burst().x, cam.z - a.d.burst().z) - a.puffs.wall(a.seconds(0)).head();
+        double gap = Math.hypot(cam.x - a.d.burst().x, cam.z - a.d.burst().z) - a.wall.wall(a.seconds(0)).head();
         String day = "night".equals(System.getenv("INCOMING_WALL")) ? "night" : "day";
         double[] gaps = {400, 110, 60, 20, -15, -60};
         if (gap > gaps[wallStage]) return;

@@ -104,6 +104,47 @@ class ShaderSourceTest {
         return out;
     }
 
+    /**
+     * Каждое тело функции закрыто до следующего объявления верхнего уровня (оно пишется с начала строки): незакрытое
+     * тело ни драйвер, ни Veil не разбирают, а пелена без шейдера пропадает целиком (слияние потеряло «}» — кадры без
+     * гриба, стены и пелены).
+     */
+    @Test
+    void everyBodyIsClosed() throws IOException, URISyntaxException {
+        List<String> bad = everyShader(ShaderSourceTest::unclosed);
+        assertTrue(bad.isEmpty(), "объявление внутри незакрытого тела (или «{» без пары): " + bad);
+    }
+
+    @Test
+    void findsAnUnclosedBody() {
+        assertEquals(List.of(4), unclosed("""
+                float f(float x) {
+                    return x;
+
+                float g;
+                void main() {
+                }
+                """));
+        assertEquals(List.of(4), unclosed("void main() {\n    if (a) {\n}\n"));
+        assertEquals(List.of(), unclosed("struct S {\n    float a;\n};\nvoid main() {\n}\n"));
+    }
+
+    /** Строки объявлений верхнего уровня внутри тела, и последняя строка, если «{» осталась без пары. */
+    private static List<Integer> unclosed(String source) {
+        String[] lines = blankComments(source).split("\n", -1);
+        List<Integer> found = new ArrayList<>();
+        int depth = 0;
+        for (int i = 0; i < lines.length; i++) {
+            if (depth > 0 && lines[i].matches("[A-Za-z_].*")) {
+                found.add(i + 1);
+                depth = 0;
+            }
+            for (char c : lines[i].toCharArray()) depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+        }
+        if (depth != 0) found.add(lines.length);
+        return found;
+    }
+
     /** Строки всех шейдеров мода, которые нашла проверка, — «файл:строка». */
     private static List<String> everyShader(Function<String, List<Integer>> check) throws IOException, URISyntaxException {
         Path root = Path.of(ShaderSourceTest.class.getResource("/assets/incoming/shaders").toURI());
