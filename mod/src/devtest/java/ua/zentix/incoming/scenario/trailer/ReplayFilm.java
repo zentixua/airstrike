@@ -65,6 +65,8 @@ public final class ReplayFilm {
     private static final double FPS = 60;
     /** Тиков после открытия повтора до работы, ожидания перемотки и мира; сколько стоять в точке пути. */
     private static final int OPEN_WAIT = 4800, SETTLE = 60, SEEK_SETTLE = 30, WORLD_WAIT = 600, POSE_MIN = 6, POSE_MAX = 300;
+    /** Тиков на месте на паузе перед живым снимком: частицы и пелена дорисованы, кадр стоит. */
+    private static final int SNAP_SETTLE = 20;
     /** Оценка у камеры кандидата: тиков стоять там до первой проверки и сколько ждать её мира. */
     private static final int STOP_SETTLE = 10, STOP_WAIT = 200;
     /** Сколько ждать до вывода, пока DH нарисует LOD в окне и пересоздаст текстуры не в размер вывода ({@link DhFrameDepth#recreatedBy}). */
@@ -92,6 +94,15 @@ public final class ReplayFilm {
     private final @Nullable java.util.regex.Pattern cameraFilter;
     /** Журналы записаны до очереди мест мода (film-war2 и раньше): место снаряда в кадре — {@link Shown}. */
     private final boolean beforeQueue;
+    /**
+     * Живой кадр вместо вывода ({@code INCOMING_FILM_SNAP}: {@code mid} — середина окна плана, или тик повтора): повтор
+     * идёт от начала окна по тику, как сам вывод, встаёт на паузу на этом тике, зритель — в позе кандидата с его углом,
+     * кадр окна — {@code <кандидат>/live.png} (как F2), вывода нет. Сверка картинки вживую и выведенной (17.10: n36 после
+     * пелены #301 вывод дал почти чёрный кадр). null — обычный вывод.
+     */
+    private final @Nullable String snap;
+    /** Угол кадра живого снимка (ComputeFov), NaN — угол из настроек. */
+    private double snapFov = Double.NaN;
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
     /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
@@ -197,6 +208,8 @@ public final class ReplayFilm {
         String camera = System.getenv("INCOMING_FILM_CAMERA");
         cameraFilter = camera == null || camera.isBlank() ? null : java.util.regex.Pattern.compile(camera);
         beforeQueue = System.getenv("INCOMING_FILM_SHOWN") != null;
+        String sn = System.getenv("INCOMING_FILM_SNAP");
+        snap = sn == null || sn.isBlank() ? null : sn.trim();
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
@@ -249,6 +262,7 @@ public final class ReplayFilm {
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
+        NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOWEST, this::onFov);
         if (FrameQa.DH) DhFrameDepth.subscribe();
     }
 
@@ -465,6 +479,10 @@ public final class ReplayFilm {
                 go(State.WARMING);
             }
             case WARMING -> {
+                if (snap != null) {
+                    snapping();
+                    return;
+                }
                 // повтор вживую по тику до начала плана, как идёт сам вывод: события мода — живые (дым, столбы, огонь);
                 // вывод с того же места не перематывает и частиц не чистит
                 standAt(standing);
@@ -726,6 +744,49 @@ public final class ReplayFilm {
         go(State.WALKING);
         Incoming.LOG.info("SCENARIO film candidate {} {} score {}{}", spec.shot(), current.c.name(), String.format(Locale.ROOT, "%.3f", current.score.total()),
                 probing ? " — проба " + probeWidth + "x" + probeHeight : fallback ? " — лучший из не прошедших пробу" : "");
+    }
+
+    /** Тик живого снимка в окне плана. */
+    private int snapTick() {
+        int t = snap.equals("mid") ? (a + b) / 2 : Integer.parseInt(snap);
+        return Mth.clamp(t, a, b);
+    }
+
+    /**
+     * Живой снимок: повтор по тику до {@link #snapTick()} (зритель идёт путём камеры, как в выводе), пауза, мир построен
+     * и {@link #SNAP_SETTLE} тиков на месте — кадр окна в {@code live.png}; потом следующий план, без вывода.
+     */
+    private void snapping() {
+        int s = snapTick(), at = FlashbackApi.replayTick();
+        Pose p = current.c.path().at(Mth.clamp(at, a, s));
+        standAt(p);
+        snapFov = p.fov();
+        if (at < s) {
+            if (at != stepped) {
+                stepped = at;
+                FlashbackApi.step(at + 1);
+            }
+            reachedAt = ticks;
+            return;
+        }
+        if ((!built() && ticks - reachedAt < POSE_MAX) || ticks - reachedAt < SNAP_SETTLE) return;
+        Path file = candDir.resolve("live.png");
+        try (com.mojang.blaze3d.platform.NativeImage img = net.minecraft.client.Screenshot.takeScreenshot(mc.getMainRenderTarget())) {
+            Files.createDirectories(candDir);
+            img.writeToFile(file);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        Incoming.LOG.info("SCENARIO film snap {} {}: тик {} (окно {}..{}), повтор на паузе, глаз {} курс {} тангаж {} угол {} — {}", spec.shot(),
+                current.c.name(), s, a, b, War.xyz(p.pos()), String.format(Locale.ROOT, "%.1f", p.yaw()),
+                String.format(Locale.ROOT, "%.1f", p.pitch()), String.format(Locale.ROOT, "%.1f", p.fov()), file);
+        snapFov = Double.NaN;
+        report(current, null, "живой кадр (INCOMING_FILM_SNAP), без вывода");
+        next();
+    }
+
+    private void onFov(net.neoforged.neoforge.client.event.ViewportEvent.ComputeFov e) {
+        if (!Double.isNaN(snapFov)) e.setFOV(snapFov);
     }
 
     private int outWidth() {
