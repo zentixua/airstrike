@@ -177,8 +177,9 @@ public final class MushroomModel {
     /**
      * Скорость обращения вещества шапки по её сечению, рад/с: вещество вихревого кольца обходит сечение со скоростью
      * подъёма облака (Turner 1957: жидкость кольца движется со скоростью порядка его подъёма), путь — эллипс сечения
-     * a × b, длиной около 2π·√((a² + b²)/2). До сворачивания так же обходит себя пузырь шара. У 15 кт оборот — около
-     * 25 с на 20-й секунде и около трёх минут ко второй минуте, к стабилизации шапка стоит.
+     * a × b, длиной около 2π·√((a² + b²)/2). У 15 кт оборот — около 25 с на 20-й секунде и около трёх минут ко второй
+     * минуте, к стабилизации шапка стоит. Пока шар не свернулся в кольцо, оси обращения ещё нет: шейдер поворачивает узор
+     * на долю сворачивания, а клубы кипят уже по этим часам (пузырь шара перемешивается так же быстро).
      */
     public static double churnRate(Shape s, double riseSpeed) {
         double mean = Math.sqrt(0.5 * (s.ringA() * s.ringA() + s.ringB() * s.ringB()));
@@ -212,7 +213,20 @@ public final class MushroomModel {
     static final int CHURN_NODES = 256;
 
     /** Часы кипения одного подрыва ({@link #churn}): {@code turns[i]} — в момент end·(i/N)². */
-    public record Churn(double end, double[] turns) {
+    public static final class Churn {
+        private final double end;
+        private final double[] turns;
+
+        Churn(double end, double[] turns) {
+            this.end = end;
+            this.turns = turns;
+        }
+
+        /** Конец таблицы, с: дальше часы стоят. */
+        public double end() {
+            return end;
+        }
+
         /** Часы в момент t, рад: между узлами — линейно, после конца таблицы стоят. */
         public double at(double t) {
             int n = turns.length - 1;

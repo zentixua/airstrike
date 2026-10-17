@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 /**
  * Функция GLSL из чисел в число: объявления {@code float a = …, b = …;}, {@code if (условие) return …;},
  * {@code return …;}; в выражениях — числа, переменные (у vec2 — {@code n.x}), + − * /, сравнения, встроенные
- * {@code smoothstep, clamp, min, max, exp, log2, pow, abs, sqrt, sign, floor, fract} и такие же функции того же файла.
+ * {@code smoothstep, clamp, min, max, exp, log2, pow, abs, sqrt, sign, floor, fract, sin, cos} и такие же функции того же файла.
  */
 record GlslFunction(List<String> tokens, List<String> params, String source) {
     private static final Pattern TOKEN = Pattern.compile("\\s*(\\d+\\.?\\d*(?:[eE][-+]?\\d+)?|\\.\\d+|[A-Za-z_]\\w*(?:\\.[xyzw]+)?|<=|>=|==|[-+*/(),;{}<>=])");
@@ -46,7 +46,7 @@ record GlslFunction(List<String> tokens, List<String> params, String source) {
     }
 
     private static final class Run {
-        private static final Set<String> BUILTIN = Set.of("smoothstep", "clamp", "min", "max", "exp", "log2", "pow", "abs", "sqrt", "sign", "floor", "fract");
+        private static final Set<String> BUILTIN = Set.of("smoothstep", "clamp", "min", "max", "exp", "log2", "pow", "abs", "sqrt", "sign", "floor", "fract", "sin", "cos");
         private final List<String> t;
         private final Map<String, Double> vars;
         private final String source;
@@ -166,6 +166,8 @@ record GlslFunction(List<String> tokens, List<String> params, String source) {
                 case "sign" -> Math.signum(a.get(0));
                 case "floor" -> Math.floor(a.get(0));
                 case "fract" -> a.get(0) - Math.floor(a.get(0));
+                case "sin" -> Math.sin(a.get(0));
+                case "cos" -> Math.cos(a.get(0));
                 default -> throw new AssertionError("не знаю функцию " + name);
             };
         }

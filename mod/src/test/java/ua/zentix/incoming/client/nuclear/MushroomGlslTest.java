@@ -134,8 +134,11 @@ class MushroomGlslTest {
         Map<String, Double> c = constants();
         assertEquals(MushroomModel.RING, c.get("MUSH_RING"), 0);
         double sink = c.get("MUSH_SINK"), cycle = c.get("MUSH_CYCLE");
+        double top = c.get("MUSH_LOBES_TOP"), deep = c.get("MUSH_LOBES_DEEP");
         assertEquals(2 * Math.pow(0.5, 2.0 / 3), cycle, 0.005);
-        assertTrue(MushroomField.LOBES_MAX - sink <= -MushroomField.LOBES_MAX, "уходящий слой выступает над живым");
+        assertEquals(0.5 + 0.35 * 0.5, top, 1e-12, "верх клубов одного слоя (mushLobes)");
+        assertTrue(top <= MushroomField.LOBES_MAX);
+        assertTrue(top - sink <= -top, "уходящий слой выступает над живым");
         GlslFunction age = GlslFunction.parse(GLSL, "mushLayerAge"), weight = GlslFunction.parse(GLSL, "mushLayerWeight");
         GlslFunction seed = GlslFunction.parse(GLSL, "mushLayerSeed"), rise = GlslFunction.parse(GLSL, "mushRise");
         GlslFunction taper = GlslFunction.parse(GLSL, "mushTaper");
@@ -170,10 +173,36 @@ class MushroomGlslTest {
             a.put("low", low);
             double r = rise.call(a);
             assertEquals(0, mean + r, 1e-3, "доля " + low);
-            assertTrue(MushroomField.LOBES_MAX - low * sink + r <= MushroomField.LOBES_MAX + 1e-12, "доля " + low);
+            // верх: верхний клуб сильного слоя с поправкой — не выше рамки гриба; низ: нижний клуб сильного слоя с поправкой
+            assertTrue(top - low * sink + r <= MushroomField.LOBES_MAX + 1e-12, "доля " + low);
+            assertTrue(-top - low * sink + r >= -deep - 1e-12, "доля " + low + ": ложбина глубже MUSH_LOBES_DEEP");
         }
         assertEquals(0, taper.call(Map.of("rho", 0.0, "ringR", 300.0)), 0);
         assertEquals(1, taper.call(Map.of("rho", 300.0, "ringR", 300.0)), 0);
         assertEquals(1, taper.call(Map.of("rho", 900.0, "ringR", 300.0)), 0);
+    }
+
+    /**
+     * Обращение шапки ({@code mushFlow}): вещество, что сейчас на верху сечения кольца, пришло от оси гриба, снаружи —
+     * сверху, внутри — снизу, внизу — снаружи (вихрь Тёрнера: внутри вверх, по верху наружу, снаружи вниз). Ядро сечения
+     * обращается целиком, снаружи — как 1/r² (вихрь Рэнкина): у края сечения без скачка.
+     */
+    @Test
+    void capRollsUpTheMiddleAndDownTheOutside() {
+        GlslFunction wasU = GlslFunction.parse(GLSL, "mushWasU"), wasV = GlslFunction.parse(GLSL, "mushWasV");
+        GlslFunction swirl = GlslFunction.parse(GLSL, "mushSwirl");
+        double ang = 0.3;
+        // {u, v} сейчас → откуда: знак сдвига по u и по v
+        double[][] cases = {{0, 1, -1, 0}, {1, 0, 0, 1}, {-1, 0, 0, -1}, {0, -1, 1, 0}};
+        for (double[] k : cases) {
+            Map<String, Double> a = Map.of("u", k[0], "v", k[1], "ang", ang);
+            double du = wasU.call(a) - k[0], dv = wasV.call(a) - k[1];
+            if (k[2] != 0) assertEquals(k[2], Math.signum(du), 0, "u = " + k[0] + ", v = " + k[1]);
+            if (k[3] != 0) assertEquals(k[3], Math.signum(dv), 0, "u = " + k[0] + ", v = " + k[1]);
+            assertEquals(1, Math.hypot(wasU.call(a), wasV.call(a)), 1e-12, "по эллипсу сечения");
+        }
+        assertEquals(1, swirl.call(Map.of("u", 0.3, "v", -0.4)), 0);
+        assertEquals(1, swirl.call(Map.of("u", 0.6, "v", 0.8)), 1e-12);
+        assertEquals(0.25, swirl.call(Map.of("u", 0.0, "v", 2.0)), 1e-12);
     }
 }

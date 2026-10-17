@@ -144,9 +144,11 @@ public final class MushroomField {
             a.storm.refresh(a.ticks(partial));
             double gate = a.storm.gate(), storm = FireStorms.glow(gate, night) * a.storm.meanFlame();
             double table = (1 - gate) * a.pall.fireBelow(a.ticks(partial));
+            // w текселя — часы кипения шапки (write): их не трогать, иначе шапка встанет
             int o = k * WIDTH * 4;
+            float churn = f.mushrooms[o + 4 * 12 + 3];
             put(f.mushrooms, o, 12, storm * FireStorms.FIRE_R + table * f.fireLight.x, storm * FireStorms.FIRE_G + table * f.fireLight.y,
-                    storm * FireStorms.FIRE_B + table * f.fireLight.z, f.mushrooms[o + 4 * 12 + 3]);
+                    storm * FireStorms.FIRE_B + table * f.fireLight.z, churn);
         }
     }
 
