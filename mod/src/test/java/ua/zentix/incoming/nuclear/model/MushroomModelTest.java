@@ -104,4 +104,52 @@ class MushroomModelTest {
             for (double w = 0; w <= 1; w += 0.01) assertTrue(MushroomModel.stemRadius(w, 30, dust) <= ends + 1e-9, "w = " + w);
         }
     }
+
+    /**
+     * Часы кипения шапки — интеграл скорости обращения от подрыва: с нуля, без скачков, только вперёд, а к стабилизации
+     * встают. Оборот шапки 15 кт на 20-й секунде — 15–35 с (вещество обходит сечение кольца со скоростью подъёма), потом
+     * медленнее; за всю жизнь — несколько оборотов, у 1 и 15 кт — того же порядка.
+     */
+    @Test
+    void capChurnsWithTheRise() {
+        for (double kt : new double[]{1, 2, 15}) {
+            MushroomModel.Churn c = MushroomModel.churn(kt, 0, true);
+            assertEquals(0, c.at(0), 0);
+            double last = 0, step = 0.05, fastest = 0;
+            for (double t = 1e-3; t < c.end(); t += 0.01) fastest = Math.max(fastest, rate(kt, t));
+            for (double t = step; t < c.end(); t += step) {
+                double v = c.at(t);
+                assertTrue(v >= last, kt + " кт, " + t + " с");
+                // за шаг — не больше, чем при самом быстром обращении
+                assertTrue(v - last <= 1.01 * fastest * step, kt + " кт, " + t + " с: " + (v - last));
+                last = v;
+            }
+            assertEquals(c.at(c.end()), c.at(3 * c.end()), 0, kt + " кт: часы после конца таблицы стоят");
+            assertTrue(c.at(c.end()) > 10 && c.at(c.end()) < 40, kt + " кт: " + c.at(c.end()) + " рад");
+            // таблица — тот же интеграл, что прямое сложение мелкими шагами
+            double sum = 0, rate0 = rate(kt, 1e-3);
+            for (double t = 0; t < 120; t += 0.01) {
+                double r = rate(kt, t + 0.005);
+                sum += (t == 0 ? 0.5 * (rate0 + r) : r) * 0.01;
+            }
+            assertEquals(sum, c.at(120), 0.01 * sum, kt + " кт: часы через 2 минуты");
+        }
+        double turn20 = 2 * Math.PI / rate(15, 20), turn120 = 2 * Math.PI / rate(15, 120);
+        assertTrue(turn20 > 15 && turn20 < 35, "оборот на 20-й секунде: " + turn20 + " с");
+        assertTrue(turn120 > 3 * turn20, "оборот ко второй минуте: " + turn120 + " с");
+    }
+
+    private static double rate(double kt, double t) {
+        MushroomModel.Shape s = MushroomModel.shape(t, kt, 0, true, 0);
+        return s == null ? 0 : MushroomModel.churnRate(s, CloudModel.riseSpeed(t, 0, kt));
+    }
+
+    /** Скорость подъёма верха облака — производная его высоты. */
+    @Test
+    void riseSpeedIsTheSlopeOfTheTop() {
+        for (double t = 0.5; t < 600; t += 7.3) {
+            double slope = (CloudModel.top(t + 1e-3, 0, 15) - CloudModel.top(t - 1e-3, 0, 15)) / 2e-3;
+            assertEquals(slope, CloudModel.riseSpeed(t, 0, 15), 1e-4 * Math.max(slope, 1), t + " с");
+        }
+    }
 }
