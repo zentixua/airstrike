@@ -168,7 +168,7 @@ public final class FxLayer {
             for (int i = 0; i < 4; i++) QUADS.vertex(i % 2, i / 2, -16, 0, 0, 0, 0, 0, 0, 1, 1, LightTexture.FULL_BRIGHT, 0);
             QUADS.seenBy(0);
         }
-        PallPass.Frame pall = NukePall.frame(level, view.camera(), view.partial());
+        PallPass.Frame pall = NukePall.frame(level, view.camera(), view.partial(), FRUSTUM);
         lastQuads = QUADS.size();
         if (QUADS.size() == 0 && pall == null) {
             PallPass.reset();

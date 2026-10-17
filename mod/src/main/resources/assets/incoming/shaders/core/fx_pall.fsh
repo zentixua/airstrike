@@ -8,7 +8,8 @@
 // поле подрыва по таблице × форма клубов по трёхмерному шуму, снесённому ветром; свет — солнце через столб над точкой
 // (по таблице, и шаг шума к солнцу — тень соседнего клуба) с фазой Хеньи–Гринстейна и рассеянным многократно, небо
 // сверху, пожары снизу.
-// Выход: rgb — свет пелены перед миром, a — сколько света мира проходит (и тень пелены на освещённом солнцем мире).
+// Выход: rgb — свет пелены перед миром, a — сколько света мира проходит (только ослабление: его же берут квадраты слоя,
+// fx.fsh; тень пелены на мире — в fx_pall_composite).
 
 // расстояние до мира за пикселем по оси взгляда (полное разрешение)
 uniform sampler2D Sampler0;
@@ -154,22 +155,5 @@ void main() {
             }
         }
     }
-    // тень пелены на освещённом солнцем мире за ней (только на мире: пустоту под горизонтом она красила бы пятнами)
-    float shade = 1.0;
-    if (depth < 1e8 && PallSun.w > 0.0 && transmit > 0.0) {
-        vec3 p = dir * scene;
-        float tau = 0.0;
-        vec2 column, height;
-        float dense;
-        if (PallSlot0[1].w > 0.5) {
-            pallField(Sampler1, PallSlot0, p, column, height, dense);
-            tau += column.x + column.y;
-        }
-        if (PallSlot1[1].w > 0.5) {
-            pallField(Sampler1, PallSlot1, p, column, height, dense);
-            tau += column.x + column.y;
-        }
-        shade = mix(1.0, 0.4 + 0.6 * exp(-tau / sunY), PallSun.w);
-    }
-    fragColor = vec4(light, transmit * shade);
+    fragColor = vec4(light, transmit);
 }

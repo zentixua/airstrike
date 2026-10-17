@@ -33,7 +33,10 @@ public final class ClientNuclear {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
-        /** Пелена после волны ({@link NukePall}): «до утра» считается от времени суток в миг подрыва. */
+        /**
+         * Пелена после волны ({@link NukePall}): «до утра» — от времени суток в миг подрыва и по часам мира после него
+         * ({@link PallField#daylight}).
+         */
         public final PallField pall;
         /** Сколько тиков прошло до прихода пакета (у пришедших при входе в мир — с самого подрыва). */
         private final long before;
@@ -48,6 +51,7 @@ public final class ClientNuclear {
         Active(Active a, long clientNow) {
             this(a.d, false, clientNow, a.puffs, a.pall);
             puffs.untrack();
+            pall.rewound();
         }
 
         private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, @Nullable PallField pall) {
@@ -236,6 +240,7 @@ public final class ClientNuclear {
             Active a = it.next();
             a.age++;
             a.sounds.tick();
+            a.pall.daylight(a.ticks(0), level.getDayTime());
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
             if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
             NukeDust.front(a, eye);

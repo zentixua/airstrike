@@ -121,6 +121,97 @@ class PallFieldTest {
         assertFalse(p.visible(40000));
     }
 
+    /** Часы мира идут ровно с тиков {@code from} до {@code to}: время суток — {@code day0} плюс тики. */
+    private static void clock(PallField p, long day0, int from, int to) {
+        for (int t = from; t <= to; t++) p.daylight(t, day0 + t);
+    }
+
+    /** Мгла узла у центра в момент {@code ticks}, 1/блок. */
+    private static double haze(PallField p, double ticks) {
+        double[] v = new double[4];
+        p.haze(1, ticks, v);
+        return v[0];
+    }
+
+    /** Часы идут ровно — мгла гаснет к утру по прошедшим тикам, как без часов; часы стоят — тоже. */
+    @Test
+    void hazeEndsAtMorningWithSteadyOrStoppedClock() {
+        PallField p = new PallField(GROUND, 18000);
+        clock(p, 18000, 0, 6200);
+        assertTrue(haze(p, 4000) > 0);
+        assertEquals(0, haze(p, 6100), 1e-12);
+        PallField stopped = new PallField(GROUND, 14000);
+        for (int t = 0; t <= 9000; t++) stopped.daylight(t, 14000);
+        assertTrue(haze(stopped, 8000) > 0, "часы стоят — мгла до утра по прошедшим тикам");
+        assertEquals(0, haze(stopped, 10100), 1e-12);
+    }
+
+    /** Сон: часы прыгают к восходу — мгла гаснет за минуту, даже до 5 минут (подрыв в 5 утра ждал следующего утра). */
+    @Test
+    void sleepingThroughTheNightEndsTheHaze() {
+        PallField evening = new PallField(GROUND, 14000);
+        clock(evening, 14000, 0, 3000);
+        assertTrue(haze(evening, 3000) > 0);
+        evening.daylight(3001, 24000);
+        assertTrue(haze(evening, 3100) > 0, "гаснет не скачком");
+        assertEquals(0, haze(evening, 3001 + PallField.HAZE_FADE_TICKS + 1), 1e-12);
+
+        PallField dawn = new PallField(GROUND, 23000);
+        clock(dawn, 23000, 0, 300);
+        dawn.daylight(301, 24000);
+        assertFalse(dawn.visible(301 + PallField.HAZE_FADE_TICKS + 20 * 60 * 30), "мгла ждала бы следующего утра");
+        // без сна — правило 5 минут: восход через минуту не гасит её, гаснет к следующему утру
+        PallField natural = new PallField(GROUND, 23000);
+        clock(natural, 23000, 0, 3000);
+        assertTrue(haze(natural, 3000) > 0);
+        assertTrue(natural.visible(24000));
+    }
+
+    /** /time set day ночью — день: мгла гаснет; /time add — утро ближе; сервер отводит часы назад в сумерки — нет. */
+    @Test
+    void timeCommandsMoveTheMorning() {
+        PallField set = new PallField(GROUND, 18000);
+        clock(set, 18000, 0, 400);
+        set.daylight(401, 1000);
+        assertEquals(0, haze(set, 401 + PallField.HAZE_FADE_TICKS + 1), 1e-12);
+
+        PallField add = new PallField(GROUND, NOON);
+        clock(add, NOON, 0, 100);
+        add.daylight(101, NOON + 100 + 6000);
+        clock(add, NOON + 6000, 102, 11000);
+        assertTrue(haze(add, 10000) > 0);
+        assertEquals(0, haze(add, 12100), 1e-12, "утро на 6000 тиков ближе");
+
+        PallField lag = new PallField(GROUND, NOON);
+        clock(lag, NOON, 0, 6100);
+        lag.daylight(6101, NOON + 5500);
+        clock(lag, NOON - 600, 6102, 7000);
+        assertTrue(haze(lag, 17000) > 0, "поправка часов в сумерки — не утро");
+    }
+
+    /** Перемотка повтора: утро — снова по времени суток в миг подрыва. */
+    @Test
+    void rewindForgetsTheSkippedNight() {
+        PallField p = new PallField(GROUND, 14000);
+        clock(p, 14000, 0, 3000);
+        p.daylight(3001, 24000);
+        assertEquals(0, haze(p, 5000), 1e-12);
+        p.rewound();
+        assertTrue(haze(p, 5000) > 0);
+    }
+
+    /** Без пожаров (высокий подрыв: поджига на земле нет) мглы нет — пелена кончается с пылью, а не утром. */
+    @Test
+    void withoutFiresNoHazeUntilMorning() {
+        Detonation high = new Detonation(3, new Vec3(0, 64 + 3000, 0), 64, 15, false, 0, 0.5f, 8, 20_000, 7, 1f, false, 0.42f);
+        PallField p = new PallField(high, 23000);
+        assertTrue(p.reach() > 100, "пыль есть");
+        assertEquals(0, haze(p, 20 * 300), 1e-12);
+        assertTrue(p.visible(200));
+        assertFalse(p.visible(24000), "утро через 25000 тиков, а пыль уже осела");
+        assertTrue(new PallField(GROUND, 23000).visible(24000));
+    }
+
     /** Ослабление в точке — то же, что даёт таблица (по ней считает шейдер), и снос ветром уносит пыль. */
     @Test
     void sigmaFollowsTheTable() {

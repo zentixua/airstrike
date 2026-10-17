@@ -20,10 +20,16 @@ import net.neoforged.neoforge.client.event.sound.SoundEngineLoadEvent;
 import org.lwjgl.openal.AL10;
 import org.lwjgl.openal.ALC10;
 import org.lwjgl.openal.EXTEfx;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.nuclear.Deafness;
 import ua.zentix.incoming.client.nuclear.NukePall;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Фильтр нижних частот OpenAL EFX на наши звуки: воздух по дороге «съедает» верха (чем дальше, тем глуше),
@@ -33,7 +39,9 @@ import ua.zentix.incoming.client.nuclear.NukePall;
  * Звук с фильтром — {@link Muffled}: разовый получает фильтр при старте ({@link PlaySoundSourceEvent}),
  * мотор снаряда — каждый тик ({@link #update}). Всё, что трогает OpenAL, идёт в звуковом потоке, где контекст
  * текущий; параметры фильтра копируются в источник при привязке, поэтому один объект фильтра на всех.
- * Если стоит Sound Physics Remastered, он сам глушит звуки по пути — тогда воздух и преграды не наши, только оглушение.
+ * Если стоит Sound Physics Remastered, он сам глушит звуки по пути — тогда воздух и преграды не наши, только оглушение
+ * и пелена. Его фильтр на источнике при этом не затирается, а умножается на наш ({@link Spr}): прямой фильтр у
+ * источника OpenAL один, и наш на минуты пелены снимал бы с каждого звука его преграды.
  */
 public final class SoundFilters {
     /** Затухание верхов в воздухе, дБ на блок (≈ 35 дБ/км на 4–5 кГц при обычной влажности). */
@@ -42,6 +50,11 @@ public final class SoundFilters {
     /** Номер фильтра OpenAL (создаётся в звуковом потоке при первой нужде), −1 — EFX нет. */
     private static volatile int filter;
     private static Boolean soundPhysics;
+    /**
+     * Фильтр Sound Physics Remastered, каким он был при старте наших петель (мотор, сирена): их фильтр мы ставим каждый
+     * тик, и его доля — отсюда. Только звуковой поток; ключи слабые — звук забыт, запись уходит.
+     */
+    private static final Map<SoundInstance, float[]> SPR_AT_START = new WeakHashMap<>();
 
     private SoundFilters() {}
 
@@ -122,7 +135,18 @@ public final class SoundFilters {
         float k = Deafness.depth(sound), m = NukePall.muffle(sound);
         gain *= (1 - 0.55f * k) * (1 - 0.3f * m);
         highs *= Math.max(0.01f, (1 - 0.99f * k) * (1 - 0.75f * m));
-        if (gain < 0.999f || highs < 0.999f) set(source, gain, highs);
+        boolean ours = gain < 0.999f || highs < 0.999f;
+        // Sound Physics Remastered поставил свой фильтр этому звуку только что (в начале Channel.play, событие — сразу
+        // после него, в той же задаче звукового потока): наш — поверх его, а не вместо
+        float[] spr = ours || sound instanceof Muffled ? Spr.now() : null;
+        if (spr != null && sound instanceof Muffled) SPR_AT_START.put(sound, spr);
+        if (ours) {
+            if (spr != null) {
+                gain *= spr[0];
+                highs *= spr[1];
+            }
+            set(source, gain, highs);
+        }
     }
 
     /** Каждый тик для звука, который играет: новые параметры фильтра (мотор улетает, скрывается за холмом). */
@@ -131,7 +155,69 @@ public final class SoundFilters {
         if (handle == null) return;
         float k = Deafness.depth(sound), m = NukePall.muffle(sound);
         float g = gain * (1 - 0.55f * k) * (1 - 0.3f * m), h = highs * Math.max(0.01f, (1 - 0.99f * k) * (1 - 0.75f * m));
-        handle.execute(channel -> set(channel.source, g, h));
+        handle.execute(channel -> {
+            float[] spr = SPR_AT_START.get(sound);
+            if (spr != null) set(channel.source, g * spr[0], h * spr[1]);
+            else set(channel.source, g, h);
+        });
+    }
+
+    /**
+     * Sound Physics Remastered: его фильтр прямого звука ({@code SoundPhysics.directFilter0}, один на все звуки — перед
+     * каждым он ставит в него параметры и копирует их в источник). Внутренности чужого мода, через отражение: не нашлось —
+     * один раз в лог, и наш фильтр снова ставится вместо его.
+     */
+    private static final class Spr {
+        @Nullable
+        private static Field direct;
+        @Nullable
+        private static Object enabled;
+        @Nullable
+        private static Method get;
+        private static boolean tried, logged;
+
+        /** Громкость и доля верхов, которые он только что поставил звуку; null — его нет, он выключен или не прочитать. */
+        @Nullable
+        static float[] now() {
+            if (soundPhysics == null) soundPhysics = ModList.get().isLoaded("sound_physics_remastered");
+            if (!soundPhysics || !find()) return null;
+            try {
+                if (!Boolean.TRUE.equals(get.invoke(enabled))) return null;
+                int id = direct.getInt(null);
+                if (id == 0 || !EXTEfx.alIsFilter(id)) return null;
+                return new float[]{EXTEfx.alGetFilterf(id, EXTEfx.AL_LOWPASS_GAIN), EXTEfx.alGetFilterf(id, EXTEfx.AL_LOWPASS_GAINHF)};
+            } catch (ReflectiveOperationException | RuntimeException ex) {
+                fail(ex);
+                return null;
+            }
+        }
+
+        private static boolean find() {
+            if (!tried) {
+                tried = true;
+                try {
+                    Field f = Class.forName("com.sonicether.soundphysics.SoundPhysics").getDeclaredField("directFilter0");
+                    f.setAccessible(true);
+                    Object config = Class.forName("com.sonicether.soundphysics.SoundPhysicsMod").getField("CONFIG").get(null);
+                    Object entry = config.getClass().getField("enabled").get(config);
+                    get = Class.forName("de.maxhenkel.sound_physics_remastered.configbuilder.entry.ConfigEntry").getMethod("get");
+                    enabled = entry;
+                    direct = f;
+                } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
+                    fail(ex);
+                }
+            }
+            return direct != null;
+        }
+
+        private static void fail(Throwable ex) {
+            if (!logged) {
+                logged = true;
+                Incoming.LOG.warn("Sound Physics Remastered filter not readable, deafness and nuclear dust muffling replace it: {}", ex.toString());
+            }
+            direct = null;
+            tried = true;
+        }
     }
 
     private static void set(int source, float gain, float highs) {

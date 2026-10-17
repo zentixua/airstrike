@@ -30,8 +30,11 @@ import ua.zentix.incoming.Incoming;
 
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
+import java.util.Arrays;
 import java.util.Locale;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 /**
  * Пелена после ударной волны — объёмом, тремя проходами в слое эффектов (до квадратов частиц):
@@ -41,13 +44,19 @@ import java.util.concurrent.CompletableFuture;
  *     сдвинуто синим шумом ({@link BlueNoise}) и от кадра к кадру;</li>
  *     <li>{@code fx_pall_resolve} — накопление по кадрам: прошлое переносится по глубине мира за пикселем, зажато
  *     в пределы соседей (зерно уходит, след за движением — нет);</li>
- *     <li>{@code fx_pall_composite} — на кадр: свет пелены плюс мир за ней, ослабленный; из пониженного разрешения —
- *     с весом по сходству расстояния до мира (края домов чёткие).</li>
+ *     <li>{@code fx_pall_composite} — на кадр: свет пелены плюс мир за ней, ослабленный и в тени пелены (тень — по
+ *     полю без шума в каждом пикселе); из пониженного разрешения — с весом по сходству расстояния до мира (края домов
+ *     чёткие).</li>
  * </ol>
  * Квадраты слоя после этого рисуются со своей долей пелены перед ними ({@code fx.vsh}: те же поле и таблица, без
  * шума). Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, шум 64³ (RG8) и 64² (R8): всё
  * вместе меньше 2 МБ на 1080p. Шум считается в фоне при первом подрыве (около секунды); пока он не готов,
- * пелены нет. Время на видеокарте — запрос OpenGL ({@link #describe}, строка {@code SCENARIO pall}).
+ * пелены нет.
+ * <p>
+ * Подробность сама держит бюджет ({@link Detail}): время проходов на видеокарте меряют метки времени OpenGL, читаемые
+ * через кадры (без ожидания), и пока оно дольше {@link Detail#BUDGET_MS} мс, кадр лучей мельчает и шагов меньше
+ * ({@link #LADDER}, не ниже LOW); есть запас — подробность возвращается к выбранной в настройке. Строка
+ * {@code SCENARIO pall} — {@link #describe}.
  */
 public final class PallPass {
     /** Узлов таблицы по радиусу (ширина текстуры). */
@@ -61,7 +70,7 @@ public final class PallPass {
     /** Глаз сдвинулся за кадр дальше — накопленное не годится (телепорт, камера снаряда). */
     private static final double JUMP = 30;
 
-    /** Качество пелены: во сколько раз кадр мельче полного и сколько шагов на луч. */
+    /** Качество пелены из настройки — самая подробная ступень {@link #LADDER}: во сколько раз кадр мельче полного и шагов на луч. */
     public enum Quality {
         OFF(0, 0), LOW(4, 20), MEDIUM(2, 28), HIGH(2, 48);
 
@@ -70,6 +79,112 @@ public final class PallPass {
         Quality(int factor, int steps) {
             this.factor = factor;
             this.steps = steps;
+        }
+
+        /** Ступень {@link #LADDER} этого качества (OFF — −1). */
+        int step() {
+            for (int i = 0; i < LADDER.length; i++) if (LADDER[i].factor == factor && LADDER[i].steps == steps) return i;
+            return -1;
+        }
+    }
+
+    /** Ступень подробности: во сколько раз кадр лучей мельче полного и шагов на луч. */
+    record Step(int factor, int steps) {
+        /** Цена кадра в долях: лучей — пиксели / фактор², у каждого — шаги. */
+        double cost() {
+            return steps / (double) (factor * factor);
+        }
+    }
+
+    /**
+     * Ступени подробности от HIGH до LOW: каждая следующая — от 0,5 до 0,85 цены прошлой. Шаги меняются без нового
+     * кадра, фактор — с новыми кадрами пониженного разрешения (накопленное сначала).
+     */
+    static final Step[] LADDER = {new Step(2, 48), new Step(2, 36), new Step(2, 28), new Step(2, 22), new Step(3, 26),
+            new Step(3, 20), new Step(4, 24), new Step(4, 20)};
+
+    /**
+     * Ступень подробности по времени проходов на видеокарте: дольше бюджета в среднем за полсекунды (и не меньше
+     * четырёх замеров) — сразу на ступень, что по цене в него влезет; запас — на ступень вверх, если и с ней по цене
+     * выйдет не больше {@link #UP_SHARE} бюджета два окна подряд и после прошлой смены прошло {@link #HOLD_NS} (после
+     * подъёма, за которым сразу пришлось опуститься, — вчетверо дольше). Не выше выбранного в настройке и не ниже LOW.
+     * Без мира и OpenGL — юнит-тест.
+     */
+    static final class Detail {
+        /** Бюджет пелены на кадр на видеокарте, мс. */
+        static final double BUDGET_MS = 2;
+        static final double UP_SHARE = 0.7;
+        static final long WINDOW_NS = 500_000_000L, HOLD_NS = 3_000_000_000L;
+        static final int MIN_SAMPLES = 4, CALM_WINDOWS = 2;
+
+        /** Ступень сейчас и самая подробная (из настройки); −1 — ещё не задана. */
+        int level = -1, ceiling = -1;
+        /** Номер ступени по счёту смен: замеры, снятые до смены, не считаются. */
+        int generation;
+        /** Сколько раз ступень менялась по замерам. */
+        int changes;
+        /** Среднее последнего окна, мс. */
+        double lastMean;
+        private double sum;
+        private int samples, calm;
+        private long windowStart, holdUntil, raisedAt = Long.MIN_VALUE;
+        private boolean skip;
+
+        /** Потолок из настройки: сменился — сразу на него. */
+        void ceiling(int c) {
+            if (c == ceiling) return;
+            ceiling = c;
+            set(c);
+        }
+
+        /** Замер кадра, снятый на ступени поколения {@code gen}, в момент {@code now} (нс); true — ступень сменилась. */
+        boolean sample(double ms, int gen, long now) {
+            if (gen != generation || ceiling < 0) return false;
+            // первый кадр ступени — с новыми кадрами и холодными кэшами
+            if (skip) {
+                skip = false;
+                return false;
+            }
+            if (samples == 0) windowStart = now;
+            sum += ms;
+            samples++;
+            if (samples < MIN_SAMPLES || now - windowStart < WINDOW_NS) return false;
+            double mean = sum / samples;
+            lastMean = mean;
+            sum = 0;
+            samples = 0;
+            int floor = LADDER.length - 1;
+            if (mean > BUDGET_MS && level < floor) {
+                int to = level + 1;
+                while (to < floor && mean * LADDER[to].cost() / LADDER[level].cost() > BUDGET_MS) to++;
+                // подняли, а ступень не по силам — следующий подъём не скоро
+                holdUntil = now + (raisedAt != Long.MIN_VALUE && now - raisedAt < 2 * HOLD_NS ? 4 * HOLD_NS : HOLD_NS);
+                calm = 0;
+                set(to);
+                changes++;
+                return true;
+            }
+            if (level > ceiling && now >= holdUntil && mean * LADDER[level - 1].cost() / LADDER[level].cost() <= UP_SHARE * BUDGET_MS) {
+                if (++calm >= CALM_WINDOWS) {
+                    calm = 0;
+                    holdUntil = now + HOLD_NS;
+                    raisedAt = now;
+                    set(level - 1);
+                    changes++;
+                    return true;
+                }
+            } else {
+                calm = 0;
+            }
+            return false;
+        }
+
+        private void set(int to) {
+            level = Math.max(ceiling, Math.min(LADDER.length - 1, to));
+            generation++;
+            skip = true;
+            sum = 0;
+            samples = 0;
         }
     }
 
@@ -95,6 +210,9 @@ public final class PallPass {
     @Nullable
     static ShaderInstance march, resolve, composite;
     private static final Frame EMPTY = new Frame();
+    private static final Detail DETAIL = new Detail();
+    /** Шум не вышел (ошибка в фоне): пелены нет до перезапуска. */
+    private static boolean failed;
 
     private static int fullW, fullH, lowW, lowH, factor;
     /** Кадр луча и два накопленных (по очереди: прошлый и этот). */
@@ -112,11 +230,18 @@ public final class PallPass {
     private static long frame;
     private static final int[] VIEWPORT = new int[4];
 
-    // время на видеокарте: запрос в полёте и сумма за секунду. Только в сценариях клиента: запрос времени у OpenGL один
-    // на всех, и чужой замер (профайлер, мод) в тот же миг сломал бы и его, и наш
-    private static final boolean TIMING = System.getProperty("incoming.scenario") != null;
-    private static int query = -1;
-    private static boolean querying;
+    // время на видеокарте: метки времени (glQueryCounter) до и после проходов, по кольцу из RING пар — читаются через
+    // кадры, когда готовы, без ожидания. Не запрос GL_TIME_ELAPSED: он у OpenGL один на всех, а Minecraft держит его на
+    // весь кадр, пока на экране F3 с загрузкой видеокарты (TimerQuery), — вложенный не начался бы
+    private static final int RING = 4;
+    private static final int[] QUERIES = new int[2 * RING];
+    /** Поколение ступени ({@link Detail#generation}), на которой снята пара; −1 — пара свободна. */
+    private static final int[] ISSUED = new int[RING];
+    private static int ring;
+    /** Метки времени: 0 — не проверяли, 1 — есть, −1 — нет (тогда подробность — из настройки). */
+    private static int timer;
+    /** Сценарий клиента: смены ступени — в лог строкой INFO. */
+    private static final boolean SCENARIO = System.getProperty("incoming.scenario") != null;
     private static double gpuSum, gpuMax, lastGpuMean, lastGpuMax;
     private static int gpuFrames, drawn, lastDrawn;
 
@@ -125,6 +250,11 @@ public final class PallPass {
     /** Пелена без подрывов: квадраты слоя её не берут. */
     public static Frame empty() {
         return EMPTY;
+    }
+
+    /** Пелену можно рисовать: шум не сломался (до его готовности — тоже да: он ещё будет). */
+    public static boolean available() {
+        return !failed;
     }
 
     /** Шум готовится в фоне (первый подрыв): до готовности пелены нет. */
@@ -157,7 +287,10 @@ public final class PallPass {
         if (m == null || r == null || c == null || f.quality == Quality.OFF || !upload()) return false;
         Minecraft mc = Minecraft.getInstance();
         int w = mc.getMainRenderTarget().width, h = mc.getMainRenderTarget().height;
-        if (!ensure(w, h, f.quality.factor)) return false;
+        DETAIL.ceiling(f.quality.step());
+        if (timer()) poll(System.nanoTime());
+        Step step = LADDER[DETAIL.level];
+        if (!ensure(w, h, step.factor)) return false;
         tableBuffer.clear();
         tableBuffer.put(f.table).flip();
         GlStateManager._bindTexture(table);
@@ -173,7 +306,7 @@ public final class PallPass {
         float dx = (float) (previousEye == null ? 0 : eye.x - previousEye.x), dy = (float) (previousEye == null ? 0 : eye.y - previousEye.y),
                 dz = (float) (previousEye == null ? 0 : eye.z - previousEye.z);
         frame++;
-        boolean timing = beginQuery();
+        int timing = begin();
 
         int previous = GlStateManager._getInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
         GL11.glGetIntegerv(GL11.GL_VIEWPORT, VIEWPORT);
@@ -198,7 +331,7 @@ public final class PallPass {
         m.safeGetUniform("PallSunLight").set(f.sunLight.x, f.sunLight.y, f.sunLight.z);
         m.safeGetUniform("PallSkyLight").set(f.skyLight.x, f.skyLight.y, f.skyLight.z);
         m.safeGetUniform("PallFireLight").set(f.fireLight.x, f.fireLight.y, f.fireLight.z);
-        m.safeGetUniform("PallFrame").set((float) (frame % 4096), f.quality.steps, factor, f.clip);
+        m.safeGetUniform("PallFrame").set((float) (frame % 4096), step.steps, factor, f.clip);
         quad(m, true);
 
         // 2. накопление: из прошлого накопленного — в другое
@@ -223,10 +356,16 @@ public final class PallPass {
                 GlStateManager.SourceFactor.ZERO, GlStateManager.DestFactor.ONE);
         RenderSystem.setShaderTexture(0, TEXTURES[1 + latest]);
         RenderSystem.setShaderTexture(1, scene);
+        RenderSystem.setShaderTexture(2, table);
+        c.safeGetUniform("InvViewProj").set(INVERSE);
+        c.safeGetUniform("PallForward").set(FORWARD.x, FORWARD.y, FORWARD.z);
+        c.safeGetUniform("PallSlot0").set(f.slot0);
+        c.safeGetUniform("PallSlot1").set(f.slot1);
+        c.safeGetUniform("PallSun").set(f.sun.x, f.sun.y, f.sun.z, f.sun.w);
         c.safeGetUniform("PallFrame").set(0f, 0f, factor, 0f);
         quad(c, false);
         RenderSystem.enableDepthTest();
-        if (timing) GL15.glEndQuery(GL33.GL_TIME_ELAPSED);
+        end(timing);
 
         PREVIOUS.set(VIEW_PROJECTION);
         previousEye = eye;
@@ -273,6 +412,19 @@ public final class PallPass {
             return false;
         }
         if (!ready.isDone()) return false;
+        if (ready.isCompletedExceptionally()) {
+            if (!failed) {
+                failed = true;
+                Throwable cause = null;
+                try {
+                    ready.join();
+                } catch (CompletionException | CancellationException ex) {
+                    cause = ex.getCause() != null ? ex.getCause() : ex;
+                }
+                Incoming.LOG.error("Nuclear dust pall: noise textures failed, no dust pall", cause);
+            }
+            return false;
+        }
         byte[][] data = ready.getNow(null);
         if (data == null) return false;
         GlStateManager._pixelStore(GL11.GL_UNPACK_ROW_LENGTH, 0);
@@ -358,23 +510,57 @@ public final class PallPass {
         return true;
     }
 
-    /** Начать замер времени на видеокарте, если прошлый уже прочитан; false — не замеряем. */
-    private static boolean beginQuery() {
-        if (!TIMING) return false;
-        GLCapabilities caps = GL.getCapabilities();
-        if (!caps.OpenGL33 && !caps.GL_ARB_timer_query) return false;
-        if (query < 0) query = GL15.glGenQueries();
-        if (querying) {
-            if (GL15.glGetQueryObjecti(query, GL15.GL_QUERY_RESULT_AVAILABLE) == 0) return false;
-            double ms = GL33.glGetQueryObjecti64(query, GL15.GL_QUERY_RESULT) / 1e6;
+    /** Есть ли метки времени OpenGL (GL 3.3 или ARB_timer_query, и счётчик не пустой); пары заводятся при первой проверке. */
+    private static boolean timer() {
+        if (timer == 0) {
+            GLCapabilities caps = GL.getCapabilities();
+            boolean ok = (caps.OpenGL33 || caps.GL_ARB_timer_query) && GL15.glGetQueryi(GL33.GL_TIMESTAMP, GL15.GL_QUERY_COUNTER_BITS) > 0;
+            if (ok) {
+                for (int i = 0; i < QUERIES.length; i++) QUERIES[i] = GL15.glGenQueries();
+                Arrays.fill(ISSUED, -1);
+            } else {
+                Incoming.LOG.info("Nuclear dust pall: no GPU timer queries, detail stays as set");
+            }
+            timer = ok ? 1 : -1;
+        }
+        return timer > 0;
+    }
+
+    /** Прочитать готовые пары меток (от старых к новым, без ожидания) — в сводку и в {@link Detail}. */
+    private static void poll(long now) {
+        for (int k = 0; k < RING; k++) {
+            int i = (ring + k) % RING;
+            if (ISSUED[i] < 0 || GL15.glGetQueryObjecti(QUERIES[2 * i + 1], GL15.GL_QUERY_RESULT_AVAILABLE) == 0) continue;
+            long start = GL33.glGetQueryObjecti64(QUERIES[2 * i], GL15.GL_QUERY_RESULT), stop = GL33.glGetQueryObjecti64(QUERIES[2 * i + 1], GL15.GL_QUERY_RESULT);
+            double ms = Math.max(0, stop - start) / 1e6;
             gpuSum += ms;
             gpuMax = Math.max(gpuMax, ms);
             gpuFrames++;
-            querying = false;
+            int was = DETAIL.level;
+            if (DETAIL.sample(ms, ISSUED[i], now)) {
+                Step from = LADDER[was], to = LADDER[DETAIL.level];
+                String line = String.format(Locale.ROOT, "Nuclear dust pall: %.2f ms on the GPU (budget %.1f), detail 1/%d × %d steps → 1/%d × %d",
+                        DETAIL.lastMean, Detail.BUDGET_MS, from.factor, from.steps, to.factor, to.steps);
+                if (SCENARIO) Incoming.LOG.info(line);
+                else Incoming.LOG.debug(line);
+            }
+            ISSUED[i] = -1;
         }
-        GL15.glBeginQuery(GL33.GL_TIME_ELAPSED, query);
-        querying = true;
-        return true;
+    }
+
+    /** Метка до проходов; −1 — кадр не меряется (меток нет или все пары ещё в полёте). */
+    private static int begin() {
+        if (!timer() || ISSUED[ring] >= 0) return -1;
+        GL33.glQueryCounter(QUERIES[2 * ring], GL33.GL_TIMESTAMP);
+        return ring;
+    }
+
+    /** Метка после проходов: пара в полёте, читается через кадры ({@link #poll}). */
+    private static void end(int pair) {
+        if (pair < 0) return;
+        GL33.glQueryCounter(QUERIES[2 * pair + 1], GL33.GL_TIMESTAMP);
+        ISSUED[pair] = DETAIL.generation;
+        ring = (pair + 1) % RING;
     }
 
     /** Раз в секунду (тик слоя): сводка времени. */
@@ -386,10 +572,14 @@ public final class PallPass {
         gpuFrames = drawn = 0;
     }
 
-    /** Строка сценария: кадров с пеленой за секунду, разрешение, шаги, время на видеокарте. */
+    /** Строка сценария: кадров с пеленой за секунду, разрешение, ступень подробности, время на видеокарте. */
     public static String describe() {
-        if (lastDrawn == 0) return "off";
-        return String.format(Locale.ROOT, "%d frames, %d×%d (1/%d), gpu %.2f ms (longest %.2f)", lastDrawn, lowW, lowH, factor, lastGpuMean, lastGpuMax);
+        if (lastDrawn == 0) return failed ? "failed" : "off";
+        Step step = LADDER[Math.max(0, DETAIL.level)];
+        Step top = LADDER[Math.max(0, DETAIL.ceiling)];
+        String gpu = timer < 0 ? "gpu n/a" : String.format(Locale.ROOT, "gpu %.2f ms (longest %.2f, budget %.1f)", lastGpuMean, lastGpuMax, Detail.BUDGET_MS);
+        return String.format(Locale.ROOT, "%d frames, %d×%d, detail 1/%d × %d steps (step %d of %d, setting 1/%d × %d, %d changes), %s",
+                lastDrawn, lowW, lowH, step.factor, step.steps, DETAIL.level, LADDER.length - 1, top.factor, top.steps, DETAIL.changes, gpu);
     }
 
     /** Перемотка повтора, смена мира: накопленное — от другого кадра. */

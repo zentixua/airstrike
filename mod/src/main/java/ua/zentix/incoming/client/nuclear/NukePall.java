@@ -7,6 +7,8 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.joml.FrustumIntersection;
+import org.joml.Vector3f;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.fx.layer.PallPass;
 import ua.zentix.incoming.nuclear.Detonation;
@@ -29,6 +31,13 @@ public final class NukePall {
     private static final PallPass.Frame FRAME = new PallPass.Frame();
     private static final float[] ROW = new float[2 * PallPass.WIDTH * 4];
     private static final double[] DRIFT = new double[2];
+    private static final Vector3f LO = new Vector3f(), HI = new Vector3f();
+    /**
+     * Плоскости пирамиды видимости, по которым пелена отсекается, — все, кроме дальней: дальняя плоскость — 4 прорисовки,
+     * а пелена видна и дальше (над LOD Distant Horizons, на горизонте).
+     */
+    private static final int SIDES_AND_NEAR = FrustumIntersection.PLANE_MASK_NX | FrustumIntersection.PLANE_MASK_PX
+            | FrustumIntersection.PLANE_MASK_NY | FrustumIntersection.PLANE_MASK_PY | FrustumIntersection.PLANE_MASK_NZ;
     /** Ослабление у камеры (1/блок) и глухость 0..1 — для звукового потока. */
     private static volatile float sigma, muffle;
     private static volatile double earX, earY, earZ;
@@ -45,6 +54,14 @@ public final class NukePall {
         };
     }
 
+    /**
+     * Глушит ли пелена звуки: только пока она есть на экране (не OFF) и звук вдали глушится по настройке «Глушить звук
+     * вдали и за преградой» (её и Sound Physics Remastered не отменяет: пыли он не знает).
+     */
+    static boolean muffles() {
+        return quality() != PallPass.Quality.OFF && IncomingConfig.CLIENT.soundMuffling.get();
+    }
+
     /** Тик клиента: пелена у камеры — звук и пепел; шум для объёма — в фоне с первого подрыва. */
     static void tick(ClientLevel level, Vec3 cam) {
         List<ClientNuclear.Active> all = ClientNuclear.detonations();
@@ -54,21 +71,29 @@ public final class NukePall {
             return;
         }
         if (quality() != PallPass.Quality.OFF) PallPass.prepare();
-        double s = 0, dust = 0;
+        double s = 0, densest = 0, dust = 0;
+        // пепел и ветер — от подрыва, чья пелена у камеры гуще всех
         ClientNuclear.Active nearest = null;
         for (ClientNuclear.Active a : all) {
             double ticks = a.ticks(0);
             if (!a.pall.visible(ticks)) continue;
             Detonation d = a.d;
             double here = a.pall.sigma(cam.x - d.burst().x, cam.z - d.burst().z, cam.y - d.groundY(), ticks);
-            if (here > s) nearest = a;
+            if (here > densest) {
+                densest = here;
+                nearest = a;
+            }
             s += here;
             dust = Math.max(dust, a.pall.ashRate(cam.x - d.burst().x, cam.z - d.burst().z, ticks));
         }
         sigma = (float) s;
-        // глухость меняется плавно: пелена накрывает за секунды
-        float target = (float) (1 - Math.exp(-MUFFLE_PER_SIGMA * s));
-        muffle += (target - muffle) * 0.1f;
+        if (muffles()) {
+            // глухость меняется плавно: пелена накрывает за секунды
+            float target = (float) (1 - Math.exp(-MUFFLE_PER_SIGMA * s));
+            muffle += (target - muffle) * 0.1f;
+        } else {
+            muffle = 0;
+        }
         earX = cam.x;
         earY = cam.y;
         earZ = cam.z;
@@ -83,7 +108,8 @@ public final class NukePall {
 
     /**
      * Насколько пелена глушит этот звук: 0 — никак, до 0,9 в самой густой пыли — по плотности у уха и пути через неё
-     * (звук у самого уха и интерфейс — нет). Зовут из звукового потока.
+     * (звук у самого уха и интерфейс — нет; пелена выключена или звук вдали не глушится — {@link #muffles}). Зовут из
+     * звукового потока.
      */
     public static float muffle(SoundInstance sound) {
         float m = muffle;
@@ -95,13 +121,14 @@ public final class NukePall {
     }
 
     /**
-     * Пелена кадра для слоя эффектов: до двух подрывов, ближайших к камере по краю их пелены; null — пелены нет
-     * (или выключена).
+     * Пелена кадра для слоя эффектов: до двух подрывов, ближайших к камере по краю их пелены, из тех, у кого в таблице
+     * хоть что-то есть (до фронта и после — пусто) и чья рамка в кадре ({@code frustum} — пирамида видимости от глаза,
+     * без дальней плоскости); null — пелены в кадре нет (или выключена): тогда слой не тратит на неё ни одного прохода.
      */
     @Nullable
-    public static PallPass.Frame frame(ClientLevel level, Vec3 eye, float partial) {
+    public static PallPass.Frame frame(ClientLevel level, Vec3 eye, float partial, FrustumIntersection frustum) {
         PallPass.Quality q = quality();
-        if (q == PallPass.Quality.OFF) return null;
+        if (q == PallPass.Quality.OFF || !PallPass.available()) return null;
         List<ClientNuclear.Active> visible = new ArrayList<>();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) if (a.pall.visible(a.ticks(partial))) visible.add(a);
         if (visible.isEmpty()) return null;
@@ -112,7 +139,9 @@ public final class NukePall {
         f.slot1.zero();
         f.min.set(Float.MAX_VALUE);
         f.max.set(-Float.MAX_VALUE);
-        for (int k = 0; k < Math.min(2, visible.size()); k++) slot(visible.get(k), k, eye, partial, f);
+        int k = 0;
+        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, f)) k++;
+        if (k == 0) return null;
         light(level, eye, partial, f);
         float s = sigma;
         f.clip = s > 1e-4f ? 12 / s : 1e6f;
@@ -127,27 +156,40 @@ public final class NukePall {
         return Math.max(0, Math.hypot(eye.x - a.d.burst().x, eye.z - a.d.burst().z) - r);
     }
 
-    /** Слот k ({@code pall.glsl}): поле подрыва, его строки таблицы и рамка. */
-    private static void slot(ClientNuclear.Active a, int k, Vec3 eye, float partial, PallPass.Frame f) {
+    /**
+     * Слот k ({@code pall.glsl}): поле подрыва, его строки таблицы и рамка; false — слот не нужен (в таблице пусто
+     * или рамка вне кадра), он остаётся свободным для следующего подрыва.
+     */
+    private static boolean slot(ClientNuclear.Active a, int k, Vec3 eye, float partial, FrustumIntersection frustum, PallPass.Frame f) {
         Detonation d = a.d;
         PallField p = a.pall;
         double ticks = a.ticks(partial);
         p.row(ticks, ROW);
-        System.arraycopy(ROW, 0, f.table, k * ROW.length, ROW.length);
         double top = 1;
-        for (int i = 0; i < 2 * PallPass.WIDTH; i++) top = Math.max(top, ROW[4 * i + 1]);
+        boolean any = false;
+        for (int i = 0; i < 2 * PallPass.WIDTH; i++) {
+            any |= ROW[4 * i] > 0;
+            top = Math.max(top, ROW[4 * i + 1]);
+        }
+        if (!any) return false;
         p.drift(ticks, DRIFT);
         double plume = p.plume(ticks);
         float cx = (float) (d.burst().x - eye.x), cz = (float) (d.burst().z - eye.z), ground = (float) (d.groundY() - eye.y);
+        // рамка: снос пыли и шлейф мглы — в любую сторону от эпицентра, ниже земли под ним — долины на всю высоту
+        float r = (float) (p.reach() + Math.hypot(DRIFT[0], DRIFT[1]) + plume);
+        LO.set(cx - r, (float) (ground - top), cz - r);
+        HI.set(cx + r, (float) (ground + top * 1.05), cz + r);
+        if (frustum.intersectAab(LO, HI, SIDES_AND_NEAR) >= 0) return false;
+        System.arraycopy(ROW, 0, f.table, k * ROW.length, ROW.length);
         double ys = Math.cbrt(d.yieldKt() / 15);
         org.joml.Matrix4f m = k == 0 ? f.slot0 : f.slot1;
         m.m00(cx).m01(cz).m02(ground).m03((float) p.reach());
         m.m10((float) DRIFT[0]).m11((float) DRIFT[1]).m12((float) plume).m13(1);
         m.m20((float) Math.cos(d.windDir())).m21((float) Math.sin(d.windDir())).m22((2 * k + 0.5f) / PallPass.ROWS).m23((2 * k + 1.5f) / PallPass.ROWS);
         m.m30((float) (PallField.SIGMA_DENSE / d.scale())).m31((float) Math.max(48, d.blocks(TILE_M * ys))).m32((float) (ticks / 20.0)).m33(0);
-        double r = p.reach() + Math.hypot(DRIFT[0], DRIFT[1]) + plume;
-        f.min.min(new org.joml.Vector3f((float) (cx - r), (float) (ground - top), (float) (cz - r)));
-        f.max.max(new org.joml.Vector3f((float) (cx + r), (float) (ground + top * 1.05), (float) (cz + r)));
+        f.min.min(LO);
+        f.max.max(HI);
+        return true;
     }
 
     /** Солнце, небо и пожары кадра — в долях экрана, как мир вокруг. */
