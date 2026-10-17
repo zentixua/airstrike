@@ -1106,11 +1106,14 @@ def check_take(result, log, take, rec=None):
         spec = next((sh for sh in take.get("shots", []) if sh.get("plans") == s.get("plans")), {})
         passes = [(i, k["pass"]["at"][:2]) for i, k in enumerate(spec.get("strikes", [])) if "pass" in k]
         journal = pass_actual_events(rec, name, passes) if rec else {}
+        secs = spec.get("seconds")
         for i, k in enumerate(s.get("strikes", [])):
             if not k.get("bound"):
                 out.append(f"{name}: удар {k.get('weapon')} не найден у клиента")
             elif k.get("intercepted"):
                 continue        # сбит ЗРК: удара нет, срок не к чему мерить (сколько сбито — take_checks.sam_outcome)
+            elif secs and k["eta"] > secs and min(k.get("actual", secs + 1), k.get("actual_client", secs + 1)) > secs:
+                continue        # и срок, и удар — после конца записи: в кадры плана он не попадает (n17: стая бьёт город позже)
             elif i in journal:
                 # пролёт меряем по журналу повтора: часы постановщика под нагрузкой скачут (T10, 15.10);
                 # несколько ударов с одной точкой — каждый eta находит свой пролёт из журнала

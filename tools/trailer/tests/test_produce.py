@@ -951,6 +951,16 @@ class ProduceTest(unittest.TestCase):
         self.assertEqual(1, len(problems), problems)
         self.assertIn("4.6", problems[0])
 
+    def test_check_take_skips_strikes_that_land_after_the_recording(self):
+        # n17: окно — пуски ЗРК над озером, удары прорвавшейся стаи по городу — после конца записи
+        r = ok_result("A", ["a1"])
+        r["shots"][0]["strikes"] = [{"weapon": "drone", "eta": 8.9, "bound": True, "actual": 10.4, "actual_client": 10.6},
+                                    {"weapon": "drone", "eta": 9.0, "bound": True, "actual": 5.0}]
+        take = {"shots": [{"plans": ["a1"], "seconds": 8}]}
+        problems = [p for p in P.check_take(r, "", take) if "вместо" in p]
+        self.assertEqual(["a1: drone в 5.0 с вместо 9.0"], problems, "удар внутри окна не в срок — отказ, после окна — нет")
+        self.assertEqual(2, len([p for p in P.check_take(r, "", {}) if "вместо" in p]), "без длины записи — как раньше")
+
     def test_check_take_accepts_client_clock_when_server_reads_early(self):
         # серверное actual отстаёт от клиентского на период синхронизации часов (T13, 15.10):
         # удар в допуске хотя бы на одних часах — не отказ
