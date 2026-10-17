@@ -21,7 +21,7 @@ public final class MushroomField {
     /** Грибов в кадре, не больше. */
     public static final int MUSHROOMS = 4;
     /** Текселей RGBA на гриб ({@code mushroom.glsl}: таблица грибов). */
-    public static final int TEXELS = 13;
+    public static final int TEXELS = 14;
     /** Узлов света чёрного тела (строка {@link #BB_ROW}): температуры от {@link #BB_FROM} до {@link #BB_TO} K по логарифму. */
     public static final int BB_NODES = 256;
     static final double BB_FROM = 500, BB_TO = 30_000;
@@ -156,6 +156,20 @@ public final class MushroomField {
         return MushroomModel.shape(t, d.yieldKt(), hob, d.surface(), Math.sqrt(Math.max(0, front * front - hob * hob)));
     }
 
+    /**
+     * Середина шапки (у шара — его середина) в мире, блоки: x, y, z — в {@code out}; ось гриба на её высоте снесена
+     * ветром на свою долю ({@code mushLocal}). Источник света шара ({@link MushroomModel#light}).
+     */
+    static void centre(ClientNuclear.Active a, MushroomModel.Shape s, double[] out) {
+        Detonation d = a.d;
+        double[] w = DRIFT;
+        drift(d, s.t(), w);
+        double share = MushroomModel.driftShare(d.blocks(s.capY()), Math.max(d.blocks(s.endTop()), 1));
+        out[0] = d.burst().x + w[0] * share;
+        out[1] = d.groundY() + d.blocks(s.capY());
+        out[2] = d.burst().z + w[1] * share;
+    }
+
     /** Снос ветром на всю долю, блоки: x, z — в {@code out}. */
     private static void drift(Detonation d, double t, double[] out) {
         double w = d.blocks(d.windSpeed() * t);
@@ -253,6 +267,8 @@ public final class MushroomField {
         // пожары под грибом: верх дыма шторма и радиус зоны пожаров (свет — fire, после света кадра); дымка воздуха —
         // по настоящей дальности, как у дальнего (в блоках гриб меньше в effects_scale раз)
         put(into, o, 11, d.blocks(0.3 * FireballModel.riseSpeed(y) * t), a.pall.hazeTop(), a.pall.fireReach(), airSigma / d.scale());
+        // шар и шапка снаружи: доля перепада ядра у края (у шара — вся) и размах клубов края (у шара — гладкая сфера)
+        put(into, o, 13, MushroomModel.edgeShare(t, y, d.surface()), MushroomModel.billows(t, y, d.surface()), 0, 0);
     }
 
     /** Вещество по цвету толстого слоя (на экране): альбедо ω' по каналам и асимметрия g' — как у пелены ({@link PallLight}). */

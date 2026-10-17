@@ -194,6 +194,28 @@ public final class NukePall {
         return f;
     }
 
+    /**
+     * Сколько света проходит сквозь пелену всех подрывов от глаза {@code eye} до точки (x, y, z) мира: поле без шума
+     * ({@link PallField#sigma}, его среднее по клубам), 16 шагов. Блику и вуали яркого (шар) за пылью — их проба видит
+     * только мир. Пелена выключена (OFF) — 1: невидимая пыль ничего не закрывает.
+     */
+    static double through(Vec3 eye, double x, double y, double z, float partial) {
+        if (quality() == PallPass.Quality.OFF) return 1;
+        double tau = 0, len = Math.sqrt(Mth.square(x - eye.x) + Mth.square(y - eye.y) + Mth.square(z - eye.z)), ds = len / 16;
+        for (ClientNuclear.Active a : ClientNuclear.detonations()) {
+            double ticks = a.ticks(partial);
+            if (!a.pall.visible(ticks)) continue;
+            Detonation d = a.d;
+            PallField.Water water = water(a);
+            for (int i = 0; i < 16; i++) {
+                double f = (i + 0.5) / 16;
+                double px = eye.x + (x - eye.x) * f, py = eye.y + (y - eye.y) * f, pz = eye.z + (z - eye.z) * f;
+                tau += a.pall.sigma(px - d.burst().x, pz - d.burst().z, py - d.groundY(), ticks, water) * ds;
+            }
+        }
+        return Math.exp(-tau);
+    }
+
     /** Насколько камера вне пелены подрыва (по земле), блоки; 0 — внутри. */
     private static double outside(ClientNuclear.Active a, Vec3 eye, float partial) {
         double r = a.pall.extent(a.ticks(partial));

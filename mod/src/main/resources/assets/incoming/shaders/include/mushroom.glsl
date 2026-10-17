@@ -1,5 +1,6 @@
-// Гриб объёмом (client/nuclear/MushroomField — числа кадра, nuclear/model/MushroomModel — законы): шапка — кольцо
-// с куполом над его дыркой, ножка, юбка пыли у её основания. Поле аналитическое: функции чисел гриба этого кадра и
+// Гриб объёмом (client/nuclear/MushroomField — числа кадра, nuclear/model/MushroomModel — законы): шапка — огненный шар,
+// свернувшийся в кольцо с куполом над его дыркой (до сворачивания — сфера шара: кольцо нулевого радиуса), ножка, юбка
+// пыли у её основания. Поле аналитическое: функции чисел гриба этого кадра и
 // места; клубы — шум общей плитки пелены (VolumeNoise) в координатах тела гриба, в долях его размера. Общее у объёма
 // (fx_pall), накопления (fx_pall_resolve) и квадратов слоя эффектов (fx.vsh: что гриб закрывает перед частицей).
 // Скалярные законы — копии MushroomModel и MushroomField (MushroomGlslTest считает их и сверяет с Java).
@@ -19,6 +20,8 @@
 //  10 = (воздух вокруг, K; перепад температуры ядра, K; низ шапки; плитка клубов ножки)
 //  11 = (подъём клубов ножки, блоки; верх дыма пожаров; радиус зоны пожаров; ослабление воздуха, 1/блок — дымка вдали)
 //  12 = (свет пожаров под грибом rgb, как у пелены: карта огня шторма и свет кадра; 0)
+//  13 = (доля перепада температуры ядра у края шапки: у шара 1, у кольца MushroomModel.EDGE_HEAT; размах клубов края
+//        против кольца: у шара — гладкая сфера; 0; 0)
 
 const int MUSHROOMS = 4;
 const int MUSH_BB_ROW = 4;
@@ -37,9 +40,9 @@ const float MUSH_SKIRT_EDGE = 0.25;
 // сглаживание объединения кольца и купола, в единицах клубов шапки (мягкий минимум опускает край не больше чем на
 // четверть его)
 const float MUSH_BLEND = 0.25;
-// доля перепада температуры ядра у края шапки (MushroomModel.EDGE_HEAT): край смешан с подхваченным воздухом (термик
-// Мортона–Тейлора–Тёрнера: горячее всего — ядро кольца)
-const float MUSH_EDGE_HEAT = 0.35;
+// языки клубов на краю шапки (MushroomModel.SKIN): нагрев края ± эта доля его же на размах клубов — выступ клуба —
+// свежий горячий газ изнутри, ложбина — уже смешанный; у шара — его «кипение»
+const float MUSH_SKIN = 0.09 / 0.35;
 // докуда за край без клубов доходит вещество (сдвиг клубами до ±0,68 размаха, мягкость края, у шапки — и мягкий
 // минимум), в единицах клубов — шапка, ножка, юбка
 const float MUSH_CAP_REACH = 0.68 * MUSH_CAP_LOBES + MUSH_CAP_EDGE + 0.25 * MUSH_BLEND;
@@ -83,16 +86,20 @@ struct Mush {
     float fireR;
     float airSigma;
     vec3 fire;
+    float edge;
+    float billows;
 };
 
 Mush mushLoad(sampler2D data, int k) {
     vec4 t0 = texelFetch(data, ivec2(0, k), 0), t1 = texelFetch(data, ivec2(1, k), 0), t2 = texelFetch(data, ivec2(2, k), 0);
     vec4 t3 = texelFetch(data, ivec2(3, k), 0), t4 = texelFetch(data, ivec2(4, k), 0), t6 = texelFetch(data, ivec2(6, k), 0);
     vec4 t8 = texelFetch(data, ivec2(8, k), 0), t10 = texelFetch(data, ivec2(10, k), 0), t11 = texelFetch(data, ivec2(11, k), 0);
+    vec4 t13 = texelFetch(data, ivec2(13, k), 0);
     // эпицентр в таблице — x, z и земля по y (как у слота пелены): в место — x, y, z
     return Mush(t0.xzy, t1.xy, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w, t3.x, t3.y, t3.z, t3.w, t4.x, t4.y, t4.z, t4.w,
             texelFetch(data, ivec2(5, k), 0), t6.x, t6.y, t6.z, t6.w, texelFetch(data, ivec2(7, k), 0), t8.x, t8.y, t8.z, t8.w,
-            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, t11.w, texelFetch(data, ivec2(12, k), 0).rgb);
+            texelFetch(data, ivec2(9, k), 0), t10.x, t10.y, t10.z, t10.w, t11.x, t11.y, t11.z, t11.w, texelFetch(data, ivec2(12, k), 0).rgb,
+            t13.x, t13.y);
 }
 
 // есть ли гриб k в кадре
@@ -188,7 +195,7 @@ float mushStemSigma(Mush m, float h) {
 // свету и квадратов слоя
 vec3 mushMean(Mush m, vec3 q) {
     vec3 d = mushDist(m, q);
-    return vec3(m.capSigma * mushEdge(d.x, 0.5 * MUSH_CAP_LOBES * mushCapUnit(m)),
+    return vec3(m.capSigma * mushEdge(d.x, 0.5 * MUSH_CAP_LOBES * m.billows * mushCapUnit(m)),
             mushStemSigma(m, q.y) * mushEdge(d.y, 0.5 * MUSH_STEM_LOBES * mushStemAt(m, q.y)),
             m.skirtSigma * mushEdge(d.z, 0.5 * MUSH_SKIRT_LOBES * mushSkirtUnit(m)));
 }

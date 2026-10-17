@@ -27,13 +27,43 @@ class MushroomModelTest {
         }
     }
 
-    /** Шар остывает по хронике: 15 кт — около 4 000 K через секунду и около 1 950 K через девять. */
+    /**
+     * Снаружи шар — сам шар (вся доля перепада ядра у края, гладкая сфера), свернувшись, край смешан с воздухом
+     * ({@link MushroomModel#EDGE_HEAT}, клубы в полный размах); видимая температура не выше ядра, без скачка, с конца
+     * второго максимума только падает.
+     */
     @Test
-    void fireballCoolsLikeTheFootage() {
-        double t1 = MushroomModel.fireballTemperature(1, 15), t9 = MushroomModel.fireballTemperature(9, 15);
-        assertTrue(t1 > 3_600 && t1 < 4_400, "1 с: " + t1);
-        assertTrue(t9 > 1_750 && t9 < 2_150, "9 с: " + t9);
-        assertEquals(MushroomModel.FIREBALL_PEAK_K, MushroomModel.fireballTemperature(0.01, 15), 1e-9);
+    void edgeCoolsAsTheBallRollsUp() {
+        double tr = MushroomModel.rollUpSeconds(15, false);
+        assertEquals(1, MushroomModel.edgeShare(0.2 * tr, 15, false), 0);
+        assertEquals(MushroomModel.EDGE_HEAT, MushroomModel.edgeShare(tr, 15, false), 1e-12);
+        assertEquals(MushroomModel.BALL_BILLOWS, MushroomModel.billows(0.2 * tr, 15, false), 0);
+        assertEquals(1, MushroomModel.billows(tr, 15, false), 1e-12);
+        assertEquals(FireballModel.temperature(1, 15), MushroomModel.edgeTemperature(1, 15, false), 1e-9);
+        double last = Double.MAX_VALUE, tm = FireballModel.secondMaximumSeconds(15);
+        for (double t = tm; t < 600; t *= 1.01) {
+            double edge = MushroomModel.edgeTemperature(t, 15, false);
+            assertTrue(edge <= MushroomModel.coreTemperature(t, 15, false) + 1e-9, t + " с");
+            assertTrue(edge <= last, t + " с: " + edge);
+            assertTrue(last == Double.MAX_VALUE || last - edge < 0.02 * last, t + " с: скачок " + last + " → " + edge);
+            last = edge;
+        }
+    }
+
+    /**
+     * Свет шара и шапки вокруг ({@link MushroomModel#light}): у поверхности — яркость чёрного тела её видимой температуры,
+     * дальше — как (R/d)²; днём через секунду шар 15 кт в 5 км светит ярче солнца, а через 20 с свернувшаяся шапка — уже
+     * нет и доли процента дня.
+     */
+    @Test
+    void ballLightsItsSurroundings() {
+        MushroomModel.Shape s = MushroomModel.shape(1, 15, 0, true, 300);
+        double surface = BlackBody.luminance(MushroomModel.edgeTemperature(1, 15, true));
+        assertEquals(surface, MushroomModel.light(s, 15, true, 0), 1e-9 * surface);
+        assertEquals(surface / 4, MushroomModel.light(s, 15, true, 2 * s.capR()), 1e-9 * surface);
+        assertTrue(MushroomModel.light(s, 15, true, 5_000) > 1, "1 с в 5 км: " + MushroomModel.light(s, 15, true, 5_000));
+        MushroomModel.Shape late = MushroomModel.shape(20, 15, 0, true, 3_000);
+        assertTrue(MushroomModel.light(late, 15, true, 2_000) < 1e-3, "20 с в 2 км: " + MushroomModel.light(late, 15, true, 2_000));
     }
 
     /** Ядро шапки — тот же шар до сворачивания и остывает смешением после: температура без скачка и только падает. */
@@ -66,9 +96,9 @@ class MushroomModelTest {
     }
 
     /**
-     * Гриб: до подрыва и после рассеяния его нет; кольцо растёт из шара; шапка проступает, когда шар гаснет; ножка
-     * входит в выемку под куполом, но не выше середины кольца (у наземного — с самого начала: она след шара, у воздушного
-     * столб пыли догоняет шапку позже); юбка не дальше фронта по земле.
+     * Гриб: до подрыва и после рассеяния его нет; шапка — сначала сам огненный шар (сфера его радиуса на его высоте,
+     * непрозрачная), кольцо растёт из него; ножка входит в выемку под куполом, но не выше середины кольца (у наземного — с
+     * самого начала: она след шара, у воздушного столб пыли догоняет шапку позже); юбка не дальше фронта по земле.
      */
     @Test
     void shapeFollowsTheCloud() {
@@ -77,7 +107,11 @@ class MushroomModelTest {
         MushroomModel.Shape early = MushroomModel.shape(0.5, 15, 0, true, 300);
         assertNotNull(early);
         assertEquals(0, early.ringR(), 0);
-        assertEquals(0, early.capTau(), 1e-9);
+        assertEquals(FireballModel.radius(0.5, 15, true), early.capR(), 1e-9);
+        assertEquals(FireballModel.radius(0.5, 15, true), early.ringB(), 1e-9);
+        assertEquals(FireballModel.centreHeight(0.5, 0, 15), early.capY(), 1e-9);
+        assertEquals(MushroomModel.TAU_CAP, early.capTau(), 1e-9);
+        assertTrue(early.domeY() + early.domeH() < early.capY() + early.ringB(), "купол внутри шара");
         for (double t = 1; t < MushroomModel.lifeSeconds(15); t += 3) {
             MushroomModel.Shape s = MushroomModel.shape(t, 15, 0, true, 2_000);
             assertNotNull(s, t + " с");
@@ -94,6 +128,27 @@ class MushroomModelTest {
         MushroomModel.Shape late = MushroomModel.shape(60, 15, 0, true, 5_000);
         assertEquals(MushroomModel.RING * late.capR(), late.ringR(), 1e-9);
         assertTrue(late.capTau() > 10, "шапка через минуту густая: " + late.capTau());
+    }
+
+    /**
+     * Шар становится шапкой одной формой: после второго максимума (шар уже не растёт рывком) числа формы за сотую долю
+     * секунды меняются на доли процента — без скачка на сворачивании.
+     */
+    @Test
+    void ballTurnsIntoTheCapWithoutAJump() {
+        for (boolean surface : new boolean[]{true, false}) {
+            double hob = surface ? 0 : 2 * FireballModel.maxRadius(15, false), dt = 0.01, from = 2 * FireballModel.secondMaximumSeconds(15);
+            MushroomModel.Shape last = MushroomModel.shape(from, 15, hob, surface, 300);
+            for (double t = from + dt; t < 60; t += dt) {
+                MushroomModel.Shape s = MushroomModel.shape(t, 15, hob, surface, 300);
+                double[] a = {last.capY(), last.capR(), last.ringR(), last.ringB(), last.domeY(), last.domeR(), last.domeH(), last.top()};
+                double[] b = {s.capY(), s.capR(), s.ringR(), s.ringB(), s.domeY(), s.domeR(), s.domeH(), s.top()};
+                for (int i = 0; i < a.length; i++) {
+                    assertTrue(Math.abs(b[i] - a[i]) < 0.02 * s.capR() + 2, (surface ? "наземный " : "воздушный ") + t + " с, число " + i + ": " + a[i] + " → " + b[i]);
+                }
+                last = s;
+            }
+        }
     }
 
     /** Ножка шире всего у земли (раструб пыли) или у шапки: рамка гриба берёт её края. */

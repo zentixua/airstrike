@@ -3,8 +3,6 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import ua.zentix.incoming.nuclear.Detonation;
-import ua.zentix.incoming.nuclear.model.BlackBody;
-import ua.zentix.incoming.nuclear.model.FireballModel;
 import ua.zentix.incoming.nuclear.model.MushroomModel;
 
 import java.util.ArrayList;
@@ -32,16 +30,13 @@ class CloudPuffsTest {
     }
 
     /**
-     * Свет сверху на пыль — только шар: когда он начинает гаснуть (70 t_max), видимый край шапки, смешанный с воздухом, в
-     * сотни тысяч раз тусклее его (чёрное тело), у любой мощности; погасший шар пыль сверху не освещает.
+     * Свет сверху на пыль — шар: свернувшись в кольцо, шапка снаружи смешана с воздухом, и через 20 с у 15 кт её свет
+     * в километре от неё — меньше тысячной дня ({@link MushroomModel#light}); погасший шар пыль сверху не освещает.
      */
     @Test
     void onlyTheFireballLightsTheDustFromAbove() {
-        for (double y : new double[]{0.1, 15, 1000}) {
-            double t = 70 * FireballModel.secondMaximumSeconds(y);
-            double edge = BlackBody.luminance(MushroomModel.edgeTemperature(t, y, true));
-            assertTrue(edge < 1e-5 * BlackBody.luminance(MushroomModel.fireballTemperature(t, y)), y + " кт: край " + edge);
-        }
+        MushroomModel.Shape cap = MushroomModel.shape(20, 15, 0, true, 3_000);
+        assertTrue(MushroomModel.light(cap, 15, true, 1_000) < 1e-3, "шапка через 20 с: " + MushroomModel.light(cap, 15, true, 1_000));
         float[] light = new float[8];
         assertTrue(new CloudPuffs(GROUND, 750, false).pallLight(20, light));
         assertEquals(0, light[0], 0, "15 кт через 20 с: свет сверху");

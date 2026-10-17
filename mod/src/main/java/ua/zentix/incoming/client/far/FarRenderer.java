@@ -44,6 +44,7 @@ public final class FarRenderer {
             FarFlightView.collect(view, SPRITES);
         }
         NukeRenderer.clouds(view, SPRITES);
+        NukeRenderer.fireballs(view, SPRITES, lights);
         SPRITES.counts(LAST_FRAME);
     }
 

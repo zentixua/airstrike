@@ -22,19 +22,22 @@ import org.joml.Vector3f;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.far.FarSprites;
 import ua.zentix.incoming.client.far.FarView;
+import ua.zentix.incoming.client.far.Sight;
+import ua.zentix.incoming.client.fx.layer.FxLights;
 import ua.zentix.incoming.client.render.FarDraw;
 import ua.zentix.incoming.net.S2C;
 import ua.zentix.incoming.nuclear.Detonation;
-import ua.zentix.incoming.nuclear.model.FireballModel;
+import ua.zentix.incoming.nuclear.model.BlackBody;
+import ua.zentix.incoming.nuclear.model.MushroomModel;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Картинка ядерного удара в мире (DESIGN-nuke §6): янтарное небо, огненный шар (икосфера с плазмой), след входа
- * боеголовки и чёрный дождь — своим проходом; гриб, стена пыли и облако Вильсона — клубами в слое эффектов
- * ({@link #clouds}).
+ * Картинка ядерного удара в мире (DESIGN-nuke §6): янтарное небо, след входа боеголовки и чёрный дождь — своим
+ * проходом; огненный шар и гриб — объёмом в проходе пелены ({@link MushroomField}), их свет вокруг — светом частиц
+ * и бликом с вуалью в слое эффектов ({@link #fireballs}); стена пыли и облако Вильсона — клубами там же ({@link #clouds}).
  * <p>
  * Дальняя плоскость отсечения в 1.21.1 — 4 × дальность прорисовки, а гриб 15 кт — 12 км в высоту. Всё, что
  * дальше {@code 0.97·far}, переносится на эту дистанцию по тому же лучу и уменьшается во столько же раз (угловой
@@ -44,11 +47,12 @@ import java.util.List;
  * ванили тоже не действует — своя дымка по настоящей дальности.
  */
 public final class NukeRenderer {
-    private static final ResourceLocation PLASMA = Incoming.id("textures/nuke/plasma.png");
     private static final ResourceLocation RAIN = Incoming.id("textures/nuke/rain.png");
     private static final float[][] ICOSPHERE = Icosphere.build(3);
+    /** Свет шара кадра ({@link BlackBody#light}), середина шапки в мире, числа блика ({@link Sight#light}). */
+    private static final double[] BALL = new double[4], CENTRE = new double[3], GLARE = new double[5];
 
-    /** Круглое свечение по формуле ({@code nuke_flare}): ореол шара, голова следа боеголовки, послеобраз вспышки. */
+    /** Круглое свечение по формуле ({@code nuke_flare}): голова следа боеголовки, послеобраз вспышки. */
     @Nullable
     static ShaderInstance flare;
 
@@ -60,7 +64,7 @@ public final class NukeRenderer {
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("nuke_flare"), DefaultVertexFormat.POSITION_TEX_COLOR), s -> flare = s);
         } catch (IOException ex) {
             flare = null;
-            Incoming.LOG.error("Nuclear glow shader failed to load: no fireball halo, re-entry streak head or afterimage", ex);
+            Incoming.LOG.error("Nuclear glow shader failed to load: no re-entry streak head or afterimage", ex);
         }
     }
 
@@ -86,7 +90,6 @@ public final class NukeRenderer {
         FarDraw.begin(e, eye);
         try {
             drawSkyGlow(eye, partial, far);
-            drawFireballs(camera, eye, partial, far);
             drawReentry(level, camera, eye, partial, far);
         } finally {
             FarDraw.end();
@@ -136,6 +139,42 @@ public final class NukeRenderer {
         }
     }
 
+    /**
+     * Свет огненного шара и шапки вокруг (DESIGN-nuke, шаг M2) — тело рисует объём гриба ({@link MushroomField}): шар
+     * светит частицам и лентам кадра ({@link FxLights}: пыль и дым у шара), а в глазу — бликом и вуалью
+     * ({@link FarSprites#eyeLight}) с пробой видимости тела (закрыт ли он рельефом и постройками, с LOD Distant Horizons)
+     * и пропусканием пелены пыли между глазом и шаром ({@link NukePall#through}: её проба не видит). Яркость — чёрное тело
+     * видимой температуры шапки снаружи ({@link MushroomModel#edgeTemperature}): шар, пока шар, — днём ярче неба
+     * секунды, ночью — дольше (глаз привык к темноте, {@link Sight#adapted}); свернувшаяся шапка снаружи смешана
+     * с воздухом и гаснет. Дымка воздуха — по настоящей дальности (в метрах модели).
+     */
+    public static void fireballs(FarView view, FarSprites out, FxLights lights) {
+        List<ClientNuclear.Active> all = ClientNuclear.detonations();
+        if (all.isEmpty()) return;
+        Vec3 cam = view.camera();
+        for (ClientNuclear.Active a : all) {
+            MushroomModel.Shape s = MushroomField.shape(a, view.partial());
+            if (s == null) continue;
+            Detonation d = a.d;
+            BlackBody.light(MushroomModel.edgeTemperature(s.t(), d.yieldKt(), d.surface()), BALL);
+            double surface = Sight.adapted(BALL[3], view.ambient());
+            if (surface < 1e-3) continue;
+            MushroomField.centre(a, s, CENTRE);
+            double dx = CENTRE[0] - cam.x, dy = CENTRE[1] - cam.y, dz = CENTRE[2] - cam.z, r = d.blocks(s.capR());
+            double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            // цвет: свет частицам — линейный на единицу яркости, блику и вуали — на экране, самый яркий канал — 1
+            float lr = (float) (BALL[0] / BALL[3]), lg = (float) (BALL[1] / BALL[3]), lb = (float) (BALL[2] / BALL[3]);
+            double top = Math.max(BALL[0], Math.max(BALL[1], BALL[2]));
+            float cr = (float) Math.pow(BALL[0] / top, 1 / 2.2), cg = (float) Math.pow(BALL[1] / top, 1 / 2.2), cb = (float) Math.pow(BALL[2] / top, 1 / 2.2);
+            double air = Sight.transmittance(d.metres(dist), view.range()), seen = surface * air;
+            // огонь шара на экране (доля белого): свет вокруг и блик не ярче его
+            double shown = Math.min(1, Math.pow(seen, 1 / 2.2));
+            lights.add(dx, dy, dz, r, surface, Math.min(1, Math.pow(surface, 1 / 2.2)), lr, lg, lb);
+            double through = NukePall.through(cam, CENTRE[0], CENTRE[1], CENTRE[2], view.partial());
+            if (seen * through > Sight.THRESHOLD) out.eyeLight(dx, dy, dz, r, seen, view.pixel(), cr, cg, cb, through, shown, GLARE);
+        }
+    }
+
     // ---------------------------------------------------------------- небо
 
     /**
@@ -157,86 +196,6 @@ public final class NukeRenderer {
             }
             FarDraw.draw(b);
         }
-    }
-
-    // ---------------------------------------------------------------- огненный шар
-
-    /**
-     * Шар и корона — второе солнце. Сначала непрозрачный диск шара обычным смешиванием: шар закрывает небо, а не
-     * складывается с ним (жёлтое поверх серо-голубого неба дало бы лаймовый диск), к центру — бело-жёлтый накал,
-     * к краю — оранжевее. Поверх — плазма и корона, складываются со светом; ореол вокруг — тёплый.
-     */
-    private static void drawFireballs(Camera camera, Vec3 cam, float partial, float far) {
-        for (ClientNuclear.Active a : ClientNuclear.detonations()) {
-            Detonation d = a.d;
-            double t = a.seconds(partial);
-            if (t <= 0) continue;
-            // светится весь объём, пока не остынет; потом его свет — накал шапки в объёме гриба (MushroomField)
-            float fade = (float) CloudPuffs.fireballGlow(t, d.yieldKt());
-            if (fade <= 0) continue;
-            double r = d.blocks(FireballModel.radius(t, d.yieldKt(), d.surface()));
-            double cy = d.groundY() + d.blocks(FireballModel.centreHeight(t, d.hobMetres(), d.yieldKt()));
-            double dx = d.burst().x - cam.x, dy = cy - cam.y, dz = d.burst().z - cam.z;
-            double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (dist > far) {
-                double k = far / dist;
-                dx *= k;
-                dy *= k;
-                dz *= k;
-                r *= k;
-            }
-            int rgb = FireballModel.colorArgb(t, d.yieldKt());
-            float glow = (float) Math.min(1, FireballModel.brightness(t, d.yieldKt()) * 3 + 0.65) * fade;
-            float cr = ((rgb >> 16) & 0xFF) / 255f, cg = ((rgb >> 8) & 0xFF) / 255f, cb = (rgb & 0xFF) / 255f;
-            // бело-жёлтый накал середины: первые секунды — почти белый, к оранжевому шару — слабее
-            float white = (float) (1 - CloudPuffs.smooth(20, 60, t / FireballModel.secondMaximumSeconds(d.yieldKt())));
-            float scroll = (float) (t * 0.04);
-            disc((float) dx, (float) dy, (float) dz, (float) r, cr, cg, cb, white, fade);
-            FarDraw.setup(PLASMA, true);
-            sphere((float) dx, (float) dy, (float) dz, (float) r, scroll, cr, cg, cb, glow);
-            sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.85f, cb * 0.6f, glow * 0.35f);
-            // ореол: плоское свечение к камере, в 4 раза шире шара, тёплое (не нейтральное: поверх неба — не зелень);
-            // вблизи он шире экрана — по формуле, без пикселей картинки
-            if (!setupFlare()) continue;
-            Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
-            BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-            FarDraw.billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 4), 0, 0, 0, 1, 1, cr, cg * 0.72f, cb * 0.45f, glow * 0.6f);
-            FarDraw.draw(b);
-        }
-    }
-
-    /**
-     * Непрозрачное тело шара (без текстуры, обычное смешивание): к камере — бело-жёлтый накал ({@code white} 0..1),
-     * к краю диска — цвет шара, оранжевее и темнее (край шара холоднее и светит вскользь). Грани с обратной
-     * стороны прозрачные.
-     */
-    private static void disc(float x, float y, float z, float r, float cr, float cg, float cb, float white, float alpha) {
-        float len = Mth.sqrt(x * x + y * y + z * z);
-        if (len < 1e-3f) return;
-        // к камере от центра шара
-        float vx = -x / len, vy = -y / len, vz = -z / len;
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        FarDraw.blend(false);
-        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
-        for (float[] v : ICOSPHERE) {
-            float mu = v[0] * vx + v[1] * vy + v[2] * vz;
-            float m = Math.max(0, mu);
-            float hot = white * m; // середина — к белому
-            float limb = 0.75f + 0.25f * m; // край диска чуть темнее
-            float r0 = Mth.lerp(hot, cr, 1f) * limb, g0 = Mth.lerp(hot, cg * (0.8f + 0.2f * m), 0.97f) * limb,
-                    b0 = Mth.lerp(hot, cb * (0.55f + 0.45f * m), 0.86f) * limb;
-            b.addVertex(x + v[0] * r, y + v[1] * r, z + v[2] * r).setColor(r0, g0, b0, mu > 0 ? alpha : 0f);
-        }
-        FarDraw.draw(b);
-    }
-
-    private static void sphere(float x, float y, float z, float r, float scroll, float cr, float cg, float cb, float a) {
-        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_TEX_COLOR);
-        for (float[] v : ICOSPHERE) {
-            // v: нормаль (x, y, z) и u, v развёртки; к краю диска шар прозрачнее — мягкий край
-            b.addVertex(x + v[0] * r, y + v[1] * r, z + v[2] * r).setUv(v[3] + scroll, v[4]).setColor(cr, cg, cb, a);
-        }
-        FarDraw.draw(b);
     }
 
     // ---------------------------------------------------------------- вход боеголовки

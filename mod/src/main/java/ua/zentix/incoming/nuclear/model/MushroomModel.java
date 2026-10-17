@@ -1,18 +1,15 @@
 package ua.zentix.incoming.nuclear.model;
 
 /**
- * Гриб объёмом (DESIGN-nuke, шаг M1): форма шапки, купола, ножки и юбки, их вещество и температура по времени. Метры,
- * секунды, килотонны; высоты — над землёй под эпицентром. Шапка — сплюснутый пузырь, который из шара сворачивается
- * в вихревое кольцо ({@link #rollUpSeconds}); её верх, низ и радиус — {@link CloudModel}, растекание после
- * стабилизации и снос ветром — как у прежних клубов гриба. Клиент (поле в шейдере) берёт числа отсюда раз в кадр.
+ * Гриб объёмом (DESIGN-nuke, шаги M1, M2): форма шара и шапки, купола, ножки и юбки, их вещество и температура по
+ * времени. Метры, секунды, килотонны; высоты — над землёй под эпицентром. Шапка — сам огненный шар ({@link FireballModel}:
+ * радиус, всплытие), который сворачивается в вихревое кольцо под куполом ({@link #rollUpSeconds}) — одной формой; её
+ * верх, низ и радиус после этого — {@link CloudModel}, растекание после стабилизации и снос ветром — как у прежних клубов
+ * гриба. Клиент (поле в шейдере) берёт числа отсюда раз в кадр.
  */
 public final class MushroomModel {
     /** Температура воздуха вокруг, K. */
-    public static final double AMBIENT_K = 288;
-    /** Температура шара во втором максимуме, K (G&D: ~7 500–8 000 K почти без зависимости от мощности). */
-    public static final double FIREBALL_PEAK_K = 7700;
-    /** Показатель остывания шара: T ∝ (t/t_max)^−0,32 — 1 с ~4 000 K, 9 с ~1 950 K у 15 кт (ключи цвета по хронике). */
-    static final double FIREBALL_COOLING = 0.32;
+    public static final double AMBIENT_K = FireballModel.AMBIENT_K;
     /**
      * Показатель остывания ядра кольца смешением после сворачивания: ΔT ∝ (t/t_roll)^−0,27 — ночью ядро 15 кт светится
      * около двух с половиной минут, у 1 кт — около полуминуты.
@@ -36,16 +33,17 @@ public final class MushroomModel {
      * Гриб в момент t.
      *
      * @param life      доля гриба 0..1: до 2,5 стабилизаций — весь, к 4 рассеивается
-     * @param top       верх облака
-     * @param capY      середина шапки по высоте
-     * @param capR      радиус шапки по горизонтали (до края кольца)
+     * @param top       верх облака (у шара — его верх)
+     * @param capBottom низ шапки (у шара — его низ)
+     * @param capY      середина шапки по высоте (у шара — его середина)
+     * @param capR      радиус шапки по горизонтали, до края кольца (у шара — его радиус)
      * @param ringR     большой радиус кольца (0 — ещё шар)
      * @param ringA     полуось сечения кольца по горизонтали
      * @param ringB     полуось сечения по вертикали
      * @param domeY     середина купола над кольцом
      * @param domeR     полуось купола по горизонтали
      * @param domeH     полуось купола по вертикали
-     * @param capTau    толща шапки поперёк меньшего поперечника сечения (с её видимостью и долей гриба)
+     * @param capTau    толща шапки поперёк меньшего поперечника сечения (с долей гриба): шар и шапка непрозрачны
      * @param stemTop   верх ножки (догоняет низ шапки)
      * @param stemR     радиус ножки в середине (у шапки шире, у земли — раструб пыли)
      * @param stemTau   толща ножки поперёк (с видимостью, оседанием пыли не считая раструба)
@@ -80,35 +78,64 @@ public final class MushroomModel {
         return smooth(0.25 * tr, tr, t);
     }
 
-    /** Температура шара после второго максимума, K: T₂·(t/t_max)^−0,32 (до максимума — T₂). */
-    public static double fireballTemperature(double t, double yieldKt) {
-        double tm = FireballModel.secondMaximumSeconds(yieldKt);
-        return FIREBALL_PEAK_K * Math.pow(Math.max(t, tm) / tm, -FIREBALL_COOLING);
-    }
-
     /**
-     * Нагрев края шапки — доля перепада температуры ядра ({@code MUSH_EDGE_HEAT} в {@code fx_pall.fsh}): край смешан
-     * с подхваченным воздухом.
+     * Нагрев края свернувшейся шапки — доля перепада температуры ядра: край смешан с подхваченным воздухом (термик
+     * Мортона–Тейлора–Тёрнера: горячее всего — ядро кольца).
      */
     public static final double EDGE_HEAT = 0.35;
+    /**
+     * Языки клубов на краю: нагрев края ± эта доля его же, на размах клубов ({@code MUSH_SKIN} в {@code mushroom.glsl}):
+     * выступ клуба — свежий горячий газ изнутри, ложбина — уже смешанный. У кольца — ±9 % перепада ядра, у шара — его
+     * «кипение»: шар не ровный диск, а пятна ярче и темнее.
+     */
+    public static final double SKIN = 0.09 / EDGE_HEAT;
+    /**
+     * Размах клубов края у шара — доля их размаха у кольца: пока шар растёт, его край — гладкая сфера (фронт излучения
+     * и ударной волны); клубы растут с подхваченным воздухом, когда он всплывает и сворачивается.
+     */
+    static final double BALL_BILLOWS = 0.3;
 
     /**
-     * Температура видимого края шапки, K ({@link #EDGE_HEAT}): её свет виден у объёма гриба (пыль
-     * внизу светит только шар — CloudPuffs). Ядро горячее, но под толщей края его не видно.
+     * Доля перепада температуры ядра у видимого края 0..1: у шара — вся (он почти изотермичен: свет внутри выравнивает
+     * температуру), сворачиваясь в кольцо, край смешивается с воздухом — до {@link #EDGE_HEAT}.
      */
-    public static double edgeTemperature(double t, double yieldKt, boolean surface) {
-        return AMBIENT_K + (coreTemperature(t, yieldKt, surface) - AMBIENT_K) * EDGE_HEAT;
+    public static double edgeShare(double t, double yieldKt, boolean surface) {
+        return 1 - (1 - EDGE_HEAT) * rollUp(t, yieldKt, surface);
+    }
+
+    /** Размах клубов края 0..1 против кольца: у шара — {@link #BALL_BILLOWS}, растёт со сворачиванием. */
+    public static double billows(double t, double yieldKt, boolean surface) {
+        return BALL_BILLOWS + (1 - BALL_BILLOWS) * rollUp(t, yieldKt, surface);
     }
 
     /**
-     * Температура ядра шапки, K: до сворачивания шапка — сам шар ({@link #fireballTemperature}), дальше кольцо остывает
-     * смешением с воздухом: T_окр + ΔT_св·(t/t_св)^−0,27. Непрерывна на сворачивании.
+     * Видимая температура шара и шапки снаружи, K: перепад ядра × {@link #edgeShare}. Пока шар — его температура
+     * ({@link FireballModel#temperature}); свернувшись, он темнеет снаружи (край смешан с воздухом), а горячее ядро
+     * светит из глубины — в ложбинах клубов (шейдер).
+     */
+    public static double edgeTemperature(double t, double yieldKt, boolean surface) {
+        return AMBIENT_K + (coreTemperature(t, yieldKt, surface) - AMBIENT_K) * edgeShare(t, yieldKt, surface);
+    }
+
+    /**
+     * Температура ядра шапки, K: до конца сворачивания шапка — сам шар ({@link FireballModel#temperature}), дальше кольцо
+     * остывает смешением с воздухом: T_окр + ΔT_св·(t/t_св)^−0,27. Непрерывна на сворачивании.
      */
     public static double coreTemperature(double t, double yieldKt, boolean surface) {
         double tr = rollUpSeconds(yieldKt, surface);
-        if (t <= tr) return fireballTemperature(t, yieldKt);
-        double rolled = fireballTemperature(tr, yieldKt) - AMBIENT_K;
+        if (t <= tr) return FireballModel.temperature(t, yieldKt);
+        double rolled = FireballModel.temperature(tr, yieldKt) - AMBIENT_K;
         return AMBIENT_K + rolled * Math.pow(t / tr, -CORE_COOLING);
+    }
+
+    /**
+     * Свет шара и шапки на белой стене в {@code distanceM} метрах от середины шапки, в долях белой стены в полдень (без
+     * привыкания глаза): ламбертов шар радиуса шапки с яркостью чёрного тела её видимой температуры освещает как
+     * L·R²/d² (у поверхности — L). Источник света вокруг: на ножке, юбке, пыли, дыме, небе.
+     */
+    public static double light(Shape s, double yieldKt, boolean surface, double distanceM) {
+        double r = s.capR();
+        return BlackBody.luminance(edgeTemperature(s.t(), yieldKt, surface)) * r * r / Math.max(distanceM * distanceM, r * r);
     }
 
     /**
@@ -121,8 +148,10 @@ public final class MushroomModel {
 
     /**
      * Гриб в момент t (секунды после подрыва) у подрыва мощностью {@code yieldKt} на высоте {@code hobM} над землёй;
-     * {@code groundFrontM} — докуда по земле дошёл фронт (у клиента — по его профилю фронта). Законы шапки, ножки и юбки
-     * — прежних клубов гриба; шапка сворачивается в кольцо по {@link #rollUp}. null — гриба ещё нет или он уже рассеялся.
+     * {@code groundFrontM} — докуда по земле дошёл фронт (у клиента — по его профилю фронта). Шапка — огненный шар
+     * ({@link FireballModel#radius}, {@link FireballModel#centreHeight}), который по {@link #rollUp} сворачивается в кольцо
+     * шапки: числа формы — от шара к шапке одной долей, без скачка. Законы шапки, ножки и юбки — прежних клубов гриба.
+     * null — гриба ещё нет или он уже рассеялся.
      */
     public static Shape shape(double t, double yieldKt, double hobM, boolean surface, double groundFrontM) {
         if (t <= 0) return null;
@@ -145,16 +174,22 @@ public final class MushroomModel {
         // край — на радиусе шапки; по высоте — от низа шапки почти до верха (середина — capY). Купол — над дыркой кольца,
         // до верха шапки; снизу у оси под ним выемка, в которую входит ножка (кольцо тянет воздух вверх сквозь дырку).
         // Клубы выступают за эти края на долю меньшей полуоси сечения кольца (MushroomField.REACH_CAP)
-        double capY = capBot + 0.45 * capH;
+        // Шапка — огненный шар, свернувшийся в кольцо: до четверти времени сворачивания — сфера шара (кольца нет, купол
+        // внутри), дальше каждое число формы идёт от шара к шапке той же долей roll — одна форма, без смены картинки.
+        // Шар для наземного — полусфера: середина на земле, низ под ней
         double roll = rollUp(t, yieldKt, surface);
-        double ringR = RING * capR * roll, ringA = capR - ringR, ringB = 0.4 * capH;
-        double domeR = 0.6 * capR * Math.sqrt(Math.max(roll, 0.05)), domeH = 0.35 * capH, domeY = capBot + 0.6 * capH;
-        // шапка проступает, когда шар гаснет (он сам ею и становится): 50–110 t_max, как у прежних клубов
+        double ballR = FireballModel.radius(t, yieldKt, surface), ballY = FireballModel.centreHeight(t, hob, yieldKt);
+        capR = lerp(ballR, capR, roll);
+        capBot = lerp(ballY - ballR, capBot, roll);
+        capH = lerp(2 * ballR, capH, roll);
+        top = capBot + capH;
+        double capY = lerp(ballY, capBot + 0.45 * capH, roll);
+        double ringR = RING * capR * roll, ringA = capR - ringR, ringB = lerp(ballR, 0.4 * capH, roll);
+        double domeR = 0.6 * capR * Math.sqrt(Math.max(roll, 0.05)), domeH = 0.35 * capH, domeY = lerp(ballY, capBot + 0.6 * capH, roll);
         double tau = t / FireballModel.secondMaximumSeconds(yieldKt);
-        double show = smooth(50, 110, tau);
         // толща поперёк сечения постоянна, пока шапка поднимается (вещество растёт с подхваченным воздухом); растекаясь
-        // наковальней, она редеет как площадь
-        double capTau = TAU_CAP * show * life / (spread * spread);
+        // наковальней, она редеет как площадь. Шар — непрозрачное излучающее тело: та же толща
+        double capTau = TAU_CAP * life / (spread * spread);
         // ножка входит в выемку под куполом (воздух поднимается сквозь кольцо). У наземного шар касается земли, и пыль
         // уходит вверх за ним сразу: ножка — его след, без разрыва под шапкой. У воздушного пыль поднимают с земли ветры
         // за фронтом, и столб догоняет шапку за десятую часть подъёма; у высокого — тоньше и бледнее
@@ -186,6 +221,10 @@ public final class MushroomModel {
     /** Снос ветром на высоте h, доля пути ветра за время t: верх сносит сильнее низа (как у прежних клубов). */
     public static double driftShare(double h, double endTop) {
         return clamp(h / Math.max(endTop, 1), 0, 1);
+    }
+
+    private static double lerp(double a, double b, double f) {
+        return a + (b - a) * f;
     }
 
     static double smooth(double e0, double e1, double x) {
