@@ -81,6 +81,11 @@ class IcbmFlightTest(unittest.TestCase):
         write(os.path.join(root, "replays", "n1.events.jsonl"), rows)
         return T.icbm_flight(root)
 
+    def test_a_lone_entity_sample_says_nothing(self):
+        # T25 n66 17.10: МБР давно в небе, у клиента одно место от сущности на 627 — не «стоит на площадке»
+        self.assertEqual([], self.check([(169, (0.0, 627.0, 0.0))]))
+        self.assertEqual(1, len(self.check([(t, (0.0, 100.0, 0.0)) for t in range(40)])))
+
     def flight(self, standstill=25, ticks=170, pad=100.0, lag=0, jump=0.0, drop=0.0, side=0.0):
         """Путь записи: стойка на площадке, потом кривая модели с отставанием lag тиков и пачками
         (4 тика одно место из каждых 6); на 80-м тике полёта — скачок вверх jump, падение drop или сдвиг

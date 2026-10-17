@@ -76,6 +76,7 @@ ICBM_WEAPONS = ("nuke", "icbm")
 # 20 780 кг за 61 с) и Airframe.cruiseSpeed 25 бл/тик; блок = метр, тик = 0,05 с (Ascent.step).
 ICBM_ASCENT, ICBM_TOP_SPEED = (903_700, 36_030, 20_780, 61.0), 25.0
 ICBM_PITCH_TICKS, ICBM_LEAD_TICKS, ICBM_LAG_TICKS, ICBM_BURST = 60, 2, 12, 5.0
+ICBM_MIN_SAMPLES = 10                          # меньше мест от сущности — о полёте по ним не судить
 ICBM_ROUND = 0.01                               # места в журнале округлены до 0,01 блока
 SIREN_EVENT, SIREN_BEFORE_S, SIREN_TOTAL_S, SIREN_MAX_S = "incoming:siren", 2.0, 6.0, 26.5
 FLOCK_MIN, FLOCK_SHARE = 6, 0.6
@@ -251,8 +252,10 @@ def _ascent_tick(climbs, climb):
 def _icbm_flight_problems(plan, samples, speeds, climbs):
     """Инварианты одного полёта МБР по местам от сущности; окно — с первого движения (стойка на площадке —
     сущность стоит с IGNITION, пока её чанк не тикает, — не полёт). Первая же причина — в журнал проблем."""
-    if not samples:
-        return []                                # мест от сущности нет (только пакеты сервера) — не повод
+    if len(samples) < ICBM_MIN_SAMPLES:
+        # мест от сущности нет или единицы (только пакеты сервера; T25 n66 17.10 — одно место на 627 после взлёта,
+        # МБР вне кадра плана) — не повод
+        return []
     moving = [(t, p) for k, (t, p) in enumerate(samples) if k and p != samples[k - 1][1]]
     if not moving:
         return [f"{plan}: МБР стоит на площадке весь план (не взлетела)"]
