@@ -9,14 +9,15 @@
 // (квадратично), начало сдвинуто синим шумом по кадрам (накопление сглаживает зерно, fx_pall_resolve). Плотность —
 // поле подрыва по таблице × клубы по трёхмерному шуму, снесённому ветром: крупные и в них мелкие — те, что луч здесь
 // различает. Свет (client/nuclear/PallLight): пелена над точкой и под ней — плоский слой, в нём два потока Эддингтона
-// после дельта-Эддингтона: солнце и отсвет шара — пучками сверху, небо сверху, пожары под пылью (свет стены пыли:
+// после дельта-Эддингтона: солнце и свет шара (чёрное тело, как у тела гриба) — пучками сверху, небо сверху,
+// пожары под пылью (свет стены пыли:
 // у фронта пелена продолжает её цвет) — снизу, земля под слоем; клубы у точки (выборки шума к главному свету) — её тень
 // или просвет: глубже в слой или ближе к его краю. К глазу точка рассеивает пучки с фазой Хеньи–Гринстейна, рассеянный
 // свет — по Эддингтону; вещество — альбедо ω' и асимметрия g' пыли, дыма, мглы и водяной пыли (pall.glsl): тонкая
 // пелена светится по толще, толстая — цвета стены пыли и брызг, в густой пыли свет гаснет медленнее прямого луча.
 // Свет — в линейных долях (перенос линеен по излучению); кадр Minecraft — значения экрана: на выходе цвет пелены как
 // вещества (свет, делённый на её непрозрачность) переведён в экран (pallDisplay) и ярче 0,6 — плечом, как у плёнки.
-// Цвета экрана (стена пыли и брызг, сажа, пламя) — в линейные (pallLinear), отсвет стены и зарево пожаров, что на экране
+// Цвета экрана (стена пыли и брызг, сажа, пламя) — в линейные (pallLinear), отсвет и зарево пожаров, что на экране
 // прибавлены к свету неба, — разностью переводов (pallLift); свет огня — не ярче самого пламени (pallFlame).
 // Грибы кадра (mushroom.glsl, MushroomField) — в том же луче: шаги пелены и шаги гриба идут вперемежку по расстоянию,
 // и свет каждого шага гасит всё, что за ним. Гриб — поле без таблицы: вещество шапки (с первого кадра — огненный шар,
@@ -51,10 +52,11 @@ uniform vec3 PallSunLight;
 uniform vec3 PallSkyLight;
 uniform vec3 PallFireLight;
 // свет неба кадра на экране (белая стена: днём 1, ночью — как у клубов стены, FarView.ambient): к нему стена пыли на экране
-// прибавляет отсвет, а пелена — его линейную разность (pallLift)
+// прибавляет отсвет пожаров, а пелена — его линейную разность (pallLift)
 uniform float PallBase;
-// свет стены пыли на пелене слота (CloudPuffs.pallLight): x — свет шара сверху, y — накал гриба, z — шесть
-// радиусов шара, w — край зоны пожаров (блоки); Hot — цвет накала (rgb) и высота шара над землёй (w, блоки)
+// свет шара и пожаров на пелене слота (CloudPuffs.pallLight): x — радиус шапки (у шара — его), y — накал пожаров, z — снос
+// середины шапки по ветру, w — край зоны пожаров (блоки); Hot — свет чёрного тела видимой температуры шапки (rgb,
+// линейный, в долях белой стены в полдень, без привыкания глаза) и высота её середины над землёй (w, блоки)
 uniform vec4 PallGlow0;
 uniform vec4 PallGlow1;
 uniform vec4 PallHot0;
@@ -182,11 +184,13 @@ struct Sample {
     vec3 slabAlbedo;
     float slabPhase;
     float water;
-    // свет стены пыли (CloudPuffs.pallLight), линейный: пучок шара сверху (rgb — что от него на белой стене), Σ силы
+    // свет шара и пожаров (CloudPuffs.pallLight), линейный: пучок шара (rgb — что от него на белой стене), Σ силы
     // пучка × косинус к вертикали и × косинус к лучу зрения; пожары под пылью — свет снизу (rgb)
     vec3 cap;
     float capUp;
     float capView;
+    // насколько глубже рассеянный свет шара, чем солнца и неба: в голову стены он входит только со стороны шара (wall)
+    float capDeep;
     vec3 burn;
     // тень своего и соседних клубов — толща против средней к солнцу, к шару (shadeCap), к небу сверху и к пожарам снизу
     float shadeSun;
@@ -198,7 +202,7 @@ struct Sample {
 };
 
 Sample emptySample() {
-    return Sample(0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, 0.0, vec3(0.0), 0.0, 0.0, vec3(0.0), 0.0, 0.0, vec3(0.0), 0.0, 0.0, 0.0, 0.0, 1.0);
+    return Sample(0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, 0.0, vec3(0.0), 0.0, 0.0, vec3(0.0), 0.0, 0.0, 0.0, vec3(0.0), 0.0, 0.0, 0.0, 0.0, 1.0);
 }
 
 // Плечо, как у плёнки: на экране до 0,6 — как есть, ярче — плавно к 1 (наклон в 0,6 тот же). Кадр срезает всё ярче 1: ночью
@@ -287,9 +291,11 @@ float wallChord(mat4 V, WallAt h, vec3 v, float len, int n) {
 
 // Голова стены слота в точке (h — pallWallAt) — в s. Это та же пыль, что пелена, только гуще и с валом: тот же свет
 // (свет стены — пелены у фронта, CloudPuffs.pallLight), то же вещество (в зоне пожаров — с дымом и сажей, над водой —
-// брызги). Голова не плоский слой: в неё свет входит и сбоку — рассеянный свет в точке — по меньшей из толщ над ней и до
-// её переднего края (как глубина под верхом слоя); пучки (солнце и шар) — по толще средней головы к ним (вблизи —
-// по самим клубам: тень соседних клубов к главному свету keyDir, иначе голова выходит плоской), а не столбом над точкой.
+// брызги). Голова не плоский слой: в неё свет входит и сбоку — рассеянный свет солнца и неба в точке — по меньшей из толщ
+// над ней и до её переднего края (как глубина под верхом слоя), шара — над ней и до её края к шару (capDeep: шар — за
+// головой, со стороны эпицентра, и наружная сторона в его свете днём оранжевела бы светом, который туда не доходит);
+// пучки (солнце и шар) — по толще средней головы к ним (вблизи — по самим клубам: тень соседних клубов к главному свету
+// keyDir, иначе голова выходит плоской), а не столбом над точкой.
 // fireR — край зоны пожаров (блоки), r — точка от эпицентра по земле
 void wall(mat4 V, WallAt h, vec3 keyDir, vec3 sunDir, vec3 lightDir, float fireR, float r, float cone, bool pall, inout Sample s) {
     float tile = max(V[2].w, 1.0), fine = 1.0 - smoothstep(0.5, 1.0, cone * 32.0 / tile);
@@ -325,11 +331,29 @@ void wall(mat4 V, WallAt h, vec3 keyDir, vec3 sunDir, vec3 lightDir, float fireR
     // пучки идут по s.tau / μ: голова в нём — глубина рассеянного света, а пучку — его толща к свету
     s.shadeSun += toSun + dev * max(dot(keyDir, sunDir), 0.0) - depth / max(sunDir.y, 0.12);
     s.shadeCap += toCap + dev * max(dot(keyDir, lightDir), 0.0) - depth / clamp(lightDir.y, 0.12, 1.0);
+    s.capDeep += min(up, toCap) - depth;
     s.shadeUp += dev * max(keyDir.y, 0.0);
     s.shadeDown += dev * max(-keyDir.y, 0.0);
     s.sigma += hd;
     s.albedo += hd * w;
     s.phase += hd * g;
+}
+
+// Середина шапки слота (CloudPuffs.pallLight): над эпицентром на высоте H.w, снесена по ветру (S[2].xy) на G.z — как
+// у тела гриба (MushroomField.centre), там и шар, пока он шар
+vec3 pallBall(mat4 S, vec4 G, vec4 H) {
+    return vec3(S[0].x + S[2].x * G.z, S[0].z + H.w, S[0].y + S[2].y * G.z);
+}
+
+// Свет шара на белой стене к нему в d от середины шапки — тот же, что светит ножку и частицы (MushroomModel.light,
+// CloudPuffs.ball): ламбертов шар радиуса шапки, чёрное тело её видимой температуры, L·R²/d² (у поверхности — L)
+float pallBallShare(float radius, float d) {
+    return radius * radius / max(max(d * d, radius * radius), 1e-6);
+}
+
+// Свет шара слота в d от середины шапки: G.x — её радиус, H.rgb — свет чёрного тела, × привыкание глаза
+vec3 pallBallLight(vec4 G, vec4 H, float d) {
+    return H.rgb * (PallExposure * pallBallShare(G.x, d));
 }
 
 // Пелена слота в точке p — прибавить к s; V — стена пыли слота, ground, R — карта рельефа и воды слота и её числа, W — вода
@@ -348,18 +372,20 @@ void slot(mat4 S, mat4 V, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3
     s.slabPhase += (f.slab.x + f.slab.y) * PALL_DUST_G + f.slab.z * PALL_MIST_G;
     // пыль — над водой, если её подняло с воды; водяная пыль — всегда
     s.water += (f.slab.x + f.slab.y) * f.wet + f.slab.z;
-    // Свет шара и пожаров на пыли (CloudPuffs.pallLight): шар — пучок к верху слоя (pallLit), пожары под пылью — свет
-    // снизу (pallBurn); сила — отсвет на дыме (× PallGlowOnSmoke), делённый на цвет пыли, — на экране поверх света неба, в
-    // линейный — разностью (pallLift): толстая пыль в нём на экране — цвета отсвета. Свет пожаров — не ярче пламени
+    // Свет шара и пожаров на пыли (CloudPuffs.pallLight): шар — пучок от середины шапки (pallBallLight, линейный, как
+    // солнце: на белой стене к нему), пожары под пылью — свет снизу (pallBurn); сила пожаров — отсвет на дыме
+    // (× PallGlowOnSmoke), делённый на цвет пыли, — на экране поверх света неба, в линейный — разностью (pallLift):
+    // толстая пыль в нём на экране — цвета отсвета. Свет пожаров — не ярче пламени
     // (pallFlame): ночью над зоной пожаров отсвет на экране уже цвета огня, и обращение через цвет пыли дало бы свет втрое
     // ярче огня — пыль у земли вышла бы ярче 1 и ровной (плечо). Пожары под пылью днём едва видны, как их зарево на мгле (NukePall: fireLight): за волной
     // стена проходит за секунды, а пелена висит над горящим городом минуты. Под водой пожаров нет (стена брызг их и не
     // берёт): вода — там, откуда подняло пыль
     float r = length(p.xz - S[0].xy);
-    float lit = pallLit(r, 1.0, G.x, G.z), burn = pallBurn(r, 0.0, G.y, G.w) * (1.0 - 0.75 * PallSun.w) * (1.0 - f.wet);
-    vec3 toLight = vec3(S[0].x, S[0].z + H.w, S[0].y) - p;
-    vec3 lightDir = toLight / max(length(toLight), 1e-3);
-    vec3 cap = pallLift3(PallBase, H.rgb * (lit * PallGlowOnSmoke) / DUST);
+    float burn = pallBurn(r, 0.0, G.y, G.w) * (1.0 - 0.75 * PallSun.w) * (1.0 - f.wet);
+    vec3 toLight = pallBall(S, G, H) - p;
+    float toLen = length(toLight);
+    vec3 lightDir = toLight / max(toLen, 1e-3);
+    vec3 cap = pallBallLight(G, H, toLen);
     float capI = cap.r + cap.g + cap.b;
     s.cap += cap;
     s.capUp += capI * lightDir.y;
@@ -367,10 +393,10 @@ void slot(mat4 S, mat4 V, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3
     if (burn > 0.0) s.burn += pallFlame(PallBase, FIRE * (burn * PallGlowOnSmoke) / DUST, FIRE);
     // главный свет — солнце или, пока он ярче, шар над эпицентром или пожары под пылью (ночью это весь свет
     // пыли); светят пожары внизу — к ним, а не к шару
-    float heat = max(lit, burn) * PallGlowOnSmoke;
+    float lit = dot(cap, LUMA), fires = burn * PallGlowOnSmoke, heat = max(lit, fires);
     float key = clamp(heat / (heat + 0.5 * PallSun.w + 0.02), 0.0, 1.0);
     vec3 keyLight = lightDir;
-    if (burn > lit) keyLight = vec3(0.0, -1.0, 0.0);
+    if (fires > lit) keyLight = vec3(0.0, -1.0, 0.0);
     vec3 keyDir = mix(sunDir, keyLight, key);
     keyDir /= max(length(keyDir), 1e-3);
     bool pall = f.sigma.x + f.sigma.y + f.sigma.z > 1e-7;
@@ -426,18 +452,25 @@ float slabGround(Sample s) {
 }
 
 // Рассеянный свет слоя пелены в точке от света сверху (солнце, шар, небо), I0 + c·I1 по каналам (pallDiffuse;
-// без альбедо точки) — на глубине, сдвинутой тенью клубов к нему
+// без альбедо точки) — на глубине, сдвинутой тенью клубов к нему. Решение линейно по источникам: свет шара — своим
+// решением на своей глубине (capDeep, голова стены) и только пока он не исчезающе мал
 vec3 scattered(Sample s, float c) {
     float slab = max(s.slab, s.tau);
     vec4 w = slabMatter(s);
     float g = w.a, ground = slabGround(s);
     float muS = max(PallSun.y, 0.12);
-    float capI = s.cap.r + s.cap.g + s.cap.b;
-    float muC = clamp(s.capUp / max(capI, 1e-6), 0.12, 1.0);
     float top = clamp(s.tau + s.shadeUp, 0.0, slab);
-    vec3 d = vec3(pallDiffuse(w.r, g, top, slab, ground, muS, PallSunLight.r, muC, s.cap.r, PallSkyLight.r, 0.0, c),
-            pallDiffuse(w.g, g, top, slab, ground, muS, PallSunLight.g, muC, s.cap.g, PallSkyLight.g, 0.0, c),
-            pallDiffuse(w.b, g, top, slab, ground, muS, PallSunLight.b, muC, s.cap.b, PallSkyLight.b, 0.0, c));
+    vec3 d = vec3(pallDiffuse(w.r, g, top, slab, ground, muS, PallSunLight.r, 1.0, 0.0, PallSkyLight.r, 0.0, c),
+            pallDiffuse(w.g, g, top, slab, ground, muS, PallSunLight.g, 1.0, 0.0, PallSkyLight.g, 0.0, c),
+            pallDiffuse(w.b, g, top, slab, ground, muS, PallSunLight.b, 1.0, 0.0, PallSkyLight.b, 0.0, c));
+    float capI = s.cap.r + s.cap.g + s.cap.b;
+    if (capI > 1e-5) {
+        float muC = clamp(s.capUp / capI, 0.12, 1.0);
+        float slabC = slab + s.capDeep, topC = clamp(s.tau + s.capDeep + s.shadeUp, 0.0, slabC);
+        d += vec3(pallDiffuse(w.r, g, topC, slabC, ground, muS, 0.0, muC, s.cap.r, 0.0, 0.0, c),
+                pallDiffuse(w.g, g, topC, slabC, ground, muS, 0.0, muC, s.cap.g, 0.0, 0.0, c),
+                pallDiffuse(w.b, g, topC, slabC, ground, muS, 0.0, muC, s.cap.b, 0.0, 0.0, c));
+    }
     return max(d, vec3(0.0));
 }
 
@@ -658,18 +691,20 @@ float along(float u, float t0, float fa, float fb, float t1, float a, float b) {
 }
 
 // Облако Вильсона слота (S, L — pallWilson), проход луча dir из глаза в t толщей tau: свет (rgb) и пропускание (a).
-// Туман конденсации за фронтом — те же капли, что водяная пыль (MIST): небо, солнце и шар (его свет на пыли у верха,
-// pallLit) с фазой капель; толща — с клубами по направлению от подрыва (оболочка рвётся полосами и пятнами)
+// Туман конденсации за фронтом — те же капли, что водяная пыль (MIST): небо, солнце и шар (pallBallLight — облако
+// встаёт, пока шар ярче всего) с фазой капель; толща — с клубами по направлению от подрыва (оболочка рвётся полосами
+// и пятнами)
 vec4 wilsonLight(mat4 S, vec4 G, vec4 H, vec4 L, vec3 dir, vec3 sunDir, float t, float tau) {
     if (tau <= 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
     vec3 q = dir * t;
     vec3 toBurst = vec3(S[0].x, S[0].z + L.w, S[0].y) - q;
     toBurst /= max(length(toBurst), 1e-3);
     tau *= 0.5 + textureLod(PallNoise, -toBurst * 1.7 + vec3(0.21, 0.47, 0.83), 0.0).r;
-    float lit = pallLit(length(q.xz - S[0].xy), 1.0, G.x, G.z);
-    vec3 cap = pallLift3(PallBase, H.rgb * (lit * PallGlowOnSmoke) / MIST);
+    vec3 toBall = pallBall(S, G, H) - q;
+    float ballLen = length(toBall);
+    vec3 cap = pallBallLight(G, H, ballLen);
     vec3 l = PALL_MIST_W * (0.5 * PallSkyLight + PallSunLight * (0.25 * hg(PALL_MIST_G, dot(dir, sunDir)))
-            + cap * (0.25 * hg(PALL_MIST_G, dot(dir, toBurst))));
+            + cap * (0.25 * hg(PALL_MIST_G, dot(dir, toBall / max(ballLen, 1e-3)))));
     float tr = exp(-tau);
     return vec4(l * (1.0 - tr), tr);
 }

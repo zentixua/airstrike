@@ -31,6 +31,7 @@ The blast wave itself is invisible. The wind right behind it lifts what lies on 
 burning town, spray over water) and rolls it forward as a churning wall, like a dust storm. At 15 kt the wall is about
 150 m tall 1 km from the burst and about 50 m tall 4 km out; farther away it thins out and fades at about 9 km, where
 the wind is too weak to lift dust. Far away, and more so in rain, the wall fades into the haze, like the mushroom cloud.
+In its first seconds the fireball lights the top of the wall orange, even by day.
 The wave breaks buildings as it reaches them: their pieces fly with the dust. The
 ground shakes harder and harder as the wall comes closer. When the wall reaches you, it throws
 your view away from the burst, and the wind behind it keeps rocking you. After a ground burst a short jolt comes through

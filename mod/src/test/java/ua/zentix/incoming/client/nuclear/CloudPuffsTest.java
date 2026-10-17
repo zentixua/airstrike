@@ -3,6 +3,7 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.model.BlackBody;
 import ua.zentix.incoming.nuclear.model.MushroomModel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,33 +26,48 @@ class CloudPuffsTest {
 
     /**
      * Свет сверху на пыль — шар: свернувшись в кольцо, шапка снаружи смешана с воздухом, и через 20 с у 15 кт её свет
-     * в километре от неё — меньше тысячной дня ({@link MushroomModel#light}); погасший шар пыль сверху не освещает.
+     * в километре от неё — меньше тысячной дня ({@link MushroomModel#light}); погасший шар пыль сверху не освещает — и по
+     * числам слота пелены.
      */
     @Test
     void onlyTheFireballLightsTheDustFromAbove() {
         MushroomModel.Shape cap = MushroomModel.shape(20, 15, 0, true, 3_000);
         assertTrue(MushroomModel.light(cap, 15, true, 1_000) < 1e-3, "шапка через 20 с: " + MushroomModel.light(cap, 15, true, 1_000));
         float[] light = new float[8];
-        assertTrue(new CloudPuffs(GROUND).pallLight(20, light));
-        assertEquals(0, light[0], 0, "15 кт через 20 с: свет сверху");
+        assertTrue(new CloudPuffs(GROUND).pallLight(cap, light));
+        double lit = CloudPuffs.ball(luminance(light), light[0], GROUND.blocks(1_000));
+        assertTrue(lit < 1e-3, "15 кт через 20 с: свет сверху в километре " + lit);
     }
 
     /**
-     * Свет на пыли в слоте пелены: пока шар светит — его свет и цвет сверху с высоты шара над землёй, пожары до края зоны
-     * поджига; до подрыва и после гриба — нули (отсвета нет).
+     * Свет шара на пыли — тот же источник, что у тела гриба и частиц ({@link MushroomModel#light}): по числам слота
+     * ({@link CloudPuffs#ball}) — та же сила на любом расстоянии, цвет — чёрное тело видимой температуры шапки, середина —
+     * на её высоте; пожары — до края зоны поджига. Без гриба (до подрыва и после) — нули: отсвета нет.
      */
     @Test
-    void pallLightFollowsTheFireball() {
+    void pallLightIsTheMushroomLight() {
         CloudPuffs puffs = new CloudPuffs(GROUND);
         float[] light = new float[8];
-        assertTrue(puffs.pallLight(2, light));
-        assertEquals(CloudPuffs.fireballGlow(2, 15), light[0], 1e-6);
-        assertEquals(CloudPuffs.glow(2, 15), light[1], 1e-6);
-        assertTrue(light[2] > 0 && light[3] > light[2], "шесть радиусов шара " + light[2] + ", край пожаров " + light[3]);
-        assertTrue(light[4] >= light[5] && light[5] >= light[6], "шар тёплый: " + light[4] + " " + light[5] + " " + light[6]);
-        assertTrue(light[7] > 0, "шар над землёй");
-        assertFalse(puffs.pallLight(0, light));
-        assertFalse(puffs.pallLight(CloudPuffs.lifeSeconds(GROUND) + 1, light));
+        double[] bb = new double[4];
+        for (double t : new double[]{0.5, 2, 5, 9}) {
+            MushroomModel.Shape s = MushroomModel.shape(t, 15, 0, true, 3_000);
+            assertTrue(puffs.pallLight(s, light));
+            BlackBody.light(MushroomModel.edgeTemperature(t, 15, true), bb);
+            for (int c = 0; c < 3; c++) assertEquals(bb[c], light[4 + c], 1e-6 * bb[c] + 1e-30, t + " с, канал " + c);
+            assertTrue(light[4] >= light[5] && light[5] >= light[6], t + " с: шар тёплый: " + light[4] + " " + light[5] + " " + light[6]);
+            for (double m : new double[]{50, 400, 2_000}) {
+                double body = MushroomModel.light(s, 15, true, m), dust = CloudPuffs.ball(bb[3], light[0], GROUND.blocks(m));
+                assertEquals(body, dust, 1e-5 * body, t + " с, " + m + " м");
+            }
+            assertEquals(GROUND.blocks(s.capY()), light[7], 1e-3, t + " с: середина шапки");
+            assertEquals(CloudPuffs.glow(t, 15), light[1], 1e-6);
+            assertTrue(light[3] > light[0], "край пожаров " + light[3] + " дальше радиуса шапки " + light[0]);
+        }
+        assertFalse(puffs.pallLight(null, light));
         for (float v : light) assertEquals(0, v);
+    }
+
+    private static double luminance(float[] light) {
+        return 0.2126 * light[4] + 0.7152 * light[5] + 0.0722 * light[6];
     }
 }

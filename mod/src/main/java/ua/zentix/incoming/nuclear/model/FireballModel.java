@@ -12,23 +12,6 @@ public final class FireballModel {
     /** Шар дорастает до этой доли от максимума, дальше растёт медленно, остывая. */
     private static final double LATE_GROWTH_CAP = 1.3;
 
-    /**
-     * Ключевые точки цвета: t / t_max (второго максимума) и цвет RGB. Шар светится всем объёмом ~100 t_max:
-     * 15 кт — слепяще бело-жёлтый первые 1–2 с, жёлто-оранжевый к 5 с, оранжевый к 9 с, красно-бурый к 16 с.
-     * Жёлтый — с заметной долей синего: чистый жёлтый (R = G, B ≈ 0) на экране читается лаймовым.
-     */
-    private static final double[] COLOR_T = {0, 0.5, 8, 20, 40, 75, 130, 400};
-    private static final int[] COLOR_RGB = {
-            0xC8DCFF, // бело-голубой первый импульс
-            0xFFFFFF, // белый
-            0xFFFCEE, // тёплый белый (1 с у 15 кт)
-            0xFFEAB4, // бело-жёлтый (2.5 с)
-            0xFFBE64, // жёлто-оранжевый (5 с)
-            0xF4823A, // оранжевый (9 с)
-            0x8C3C23, // красно-бурый (оксиды азота)
-            0x96908A, // серое облако
-    };
-
     /** Видимая температура шара во втором максимуме, K (G&D 2.110: ~7 500–8 000 K почти без зависимости от мощности). */
     public static final double PEAK_K = 7700;
     /** Температура воздуха вокруг, K. */
@@ -81,26 +64,13 @@ public final class FireballModel {
         return max * Math.min(LATE_GROWTH_CAP, 1 + 0.1 * Math.log(t / tg));
     }
 
-    /** Цвет ARGB (непрозрачный): бело-голубой → белый → бело-жёлтый → жёлто-оранжевый → красно-бурый → серый. */
-    public static int colorArgb(double t, double yieldKt) {
-        double tau = Math.max(0, t) / secondMaximumSeconds(yieldKt);
-        int n = COLOR_T.length;
-        if (tau >= COLOR_T[n - 1]) return 0xFF000000 | COLOR_RGB[n - 1];
-        int i = 1;
-        while (COLOR_T[i] < tau) i++;
-        // между ключами — по логарифму времени (первый отрезок — линейно, от нуля)
-        double f = i == 1 ? tau / COLOR_T[1]
-                : Math.log(tau / COLOR_T[i - 1]) / Math.log(COLOR_T[i] / COLOR_T[i - 1]);
-        return 0xFF000000 | lerpRgb(COLOR_RGB[i - 1], COLOR_RGB[i], Solve.clamp(f, 0, 1));
-    }
-
     /**
      * Видимая температура поверхности шара, K, пока он шар. До второго максимума — по Стефану–Больцману из его яркости
      * и радиуса: свет шара P ∝ T⁴·R², и T = T₂·(P/P₂)^¼·(R₂/R)^½ — первый импульс (маленький горячий шар) голубовато-белый,
      * в минимуме темнее, ко второму максимуму — T₂ ({@link #PEAK_K}). Дальше шар остывает к воздуху:
-     * T_окр + (T₂ − T_окр)·(t/t_max)^−0,35 — у 15 кт бело-жёлтый ~3 900 K через секунду, ~1 950 K через девять (ключи
-     * цвета по хронике). Это температура ядра: свернувшись в кольцо (у 15 кт — с ~3 с), шар остывает снаружи быстрее,
-     * край смешан с подхваченным воздухом — через девять секунд ~1 250 K ({@link MushroomModel#edgeTemperature}).
+     * T_окр + (T₂ − T_окр)·(t/t_max)^−0,35 — у 15 кт бело-жёлтый ~3 900 K через секунду, ~1 950 K через девять (по
+     * хронике). Это температура ядра: свернувшись в кольцо (у 15 кт — с ~3 с), шар остывает снаружи быстрее, край
+     * смешан с подхваченным воздухом — через девять секунд ~1 250 K ({@link MushroomModel#edgeTemperature}).
      */
     public static double temperature(double t, double yieldKt) {
         if (t <= 0) return AMBIENT_K;
@@ -125,12 +95,5 @@ public final class FireballModel {
         double span = target - hobM;
         if (span <= 0 || t <= 0) return hobM;
         return hobM + span * (1 - Math.exp(-t * riseSpeed(yieldKt) / span));
-    }
-
-    private static int lerpRgb(int a, int b, double f) {
-        int r = (int) Math.round(((a >> 16) & 0xFF) + f * (((b >> 16) & 0xFF) - ((a >> 16) & 0xFF)));
-        int g = (int) Math.round(((a >> 8) & 0xFF) + f * (((b >> 8) & 0xFF) - ((a >> 8) & 0xFF)));
-        int bl = (int) Math.round((a & 0xFF) + f * ((b & 0xFF) - (a & 0xFF)));
-        return r << 16 | g << 8 | bl;
     }
 }
