@@ -24,6 +24,9 @@
   ../plume, ../plume_diamonds — факел двигателя 64×256 (сопло сверху, хвост внизу; второй — с «алмазами»
   скачков уплотнения, как у МБР и стартового ускорителя), ../halo — ореол у сопла 64×64; у этих трёх цвет
   домножен на прозрачность — они рисуются сложением.
+  flake, paper — хлопья пепла и клочок обгоревшей бумаги 16×16 (пепел после ядерной волны, client/nuclear/NukeAsh):
+                неровное пятно и прямоугольник с тёмным рваным краем; свой генератор (прежние файлы не меняются).
+                Только их — `uv run tools/gen_particles.py ash`.
   ../../far/disc — круг с мягким краем 32×32 (корпус снаряда, огненный шар и вспышка вдали), ../../far/glow — гауссов
   ореол 64×64 (блик и вуаль вокруг вспышки и шара, зарево на облаках: широкий мягкий свет
   без ядра; лентой шлейфа — средняя строка); белые, цвет и яркость даёт вершина.
@@ -33,6 +36,7 @@
 """
 import json
 import os
+import sys
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -193,6 +197,33 @@ def far_glow(n=64):
     return np.ones((n, n, 3)), a / a.max()
 
 
+# ---------------------------------------------------------------- пепел и бумага (свой генератор: прежние файлы не меняются)
+
+ash_rng = np.random.default_rng(1946)
+
+
+def flake(n=16):
+    """Хлопья пепла: неровное серое пятно с рваным краем, светлее к середине."""
+    v, u = np.meshgrid(np.linspace(-1, 1, n), np.linspace(-1, 1, n), indexing="ij")
+    ang = np.arctan2(v, u)
+    wobble = sum(ash_rng.uniform(0.05, 0.14) * np.cos(k * ang + ash_rng.uniform(0, 2 * np.pi)) for k in (2, 3, 5))
+    r = np.hypot(u * 1.15, v) / (0.72 + wobble)
+    alpha = smooth(1.0, 0.75, r)
+    lum = 0.78 + 0.2 * smooth(1.0, 0.0, r) + 0.06 * (ash_rng.random((n, n)) - 0.5)
+    return np.dstack([lum] * 3), alpha
+
+
+def paper(n=16):
+    """Клочок бумаги: светлый прямоугольник, край обгорел — темнее и рваный."""
+    v, u = np.meshgrid(np.linspace(-1, 1, n), np.linspace(-1, 1, n), indexing="ij")
+    edge = np.maximum(np.abs(u) / 0.9, np.abs(v) / 0.62) + 0.12 * (ash_rng.random((n, n)) - 0.5)
+    alpha = smooth(1.02, 0.9, edge)
+    burnt = smooth(0.62, 0.95, edge)
+    lum = 0.95 - 0.7 * burnt
+    rgb = np.dstack([lum, lum * 0.97, lum * 0.9])
+    return rgb, alpha
+
+
 # ---------------------------------------------------------------- огненный шар
 
 def _cmf(x, mu, s1, s2):
@@ -318,6 +349,11 @@ def fireball(u, vol, n=128, steps=96, cross=CROSS):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["ash"]:
+        save(*flake(), "flake")
+        save(*paper(), "paper")
+        print("ok")
+        sys.exit(0)
     for i in range(4):
         for k, (rgb, a) in enumerate(smoke()):
             save(rgb, a, f"smoke_{i * 4 + k:02d}")
@@ -340,4 +376,6 @@ if __name__ == "__main__":
     with open(os.path.join(OUT, "fireball.json"), "w", encoding="utf-8") as out:
         json.dump({"fire": shown}, out)
         out.write("\n")
+    save(*flake(), "flake")
+    save(*paper(), "paper")
     print("ok")

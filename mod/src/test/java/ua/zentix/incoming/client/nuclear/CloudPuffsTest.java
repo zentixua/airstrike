@@ -111,6 +111,39 @@ class CloudPuffsTest {
         }
     }
 
+    /**
+     * Пыль у камеры берёт свет стены ({@link CloudPuffs#wallColor}): у головы стены в 1,5 км её цвет на любой высоте —
+     * в пределах цветов клубов стены там же (дым со свечением поверх), днём и ночью; ночью он не тёмный — стена там
+     * в отсвете пожаров, а по ночной карте освещения пыль вышла бы почти чёрной.
+     */
+    @Test
+    void nearDustTakesWallLight() {
+        CloudPuffs puffs = new CloudPuffs(GROUND, 750, false);
+        double t = 0.5;
+        while (GROUND.metres(puffs.wall(t).head()) < 1500) t += 0.05;
+        double head = puffs.wall(t).head(), height = puffs.wall(t).height();
+        for (float ambient : new float[]{NIGHT, 1f}) {
+            double[] range = {Double.MAX_VALUE, -Double.MAX_VALUE};
+            puffs.sprites(t, 1, ambient, (x, y, z, size, rot, r, g, b, a, gr, gg, gb, ga, tex) -> {
+                // клубы головы стены: у фронта и не выше стены (эпицентр — 0, 64, 0)
+                if (Math.abs(Math.hypot(x, z) - head) > 0.5 * height || y - 64 > height || a < 0.05) return;
+                double k = ga / a;
+                double l = luminance(new float[]{(float) (r + gr * k), (float) (g + gg * k), (float) (b + gb * k)});
+                range[0] = Math.min(range[0], l);
+                range[1] = Math.max(range[1], l);
+            });
+            assertTrue(range[1] > range[0], "у головы стены нет клубов");
+            for (double up = 0.3; up <= 1; up += 0.1) {
+                float[] c = new float[3];
+                assertTrue(puffs.wallColor(t, head - 5, up, 1, ambient, c));
+                double l = luminance(c);
+                assertTrue(l >= range[0] * 0.95 && l <= range[1] * 1.05,
+                        "свет " + ambient + ", высота " + up + ": яркость " + l + " вне клубов стены " + range[0] + ".." + range[1]);
+                if (ambient == NIGHT) assertTrue(l > 0.2, "ночью у пожаров пыль тёмная: " + l);
+            }
+        }
+    }
+
     /** Вал головы стены крутится в одну сторону и не быстрее {@link CloudPuffs#ROLL_MAX}. */
     @Test
     void wallHeadRollsSteadily() {

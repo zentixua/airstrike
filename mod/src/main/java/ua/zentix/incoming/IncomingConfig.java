@@ -251,8 +251,8 @@ public final class IncomingConfig {
             workBudgetMs = b.comment("At most how many milliseconds of each tick the server spends on the mod's heavy work in total (5–45):",
                             "strike destruction, then the nuke (up to destruction_ms_per_tick), then blackout lights (up to",
                             "their ms_per_tick). The full budget comes only from time left free in the tick: a server behind schedule",
-                            "gets 2 ms for each of the three. More: salvo damage and nuclear ruins appear sooner;",
-                            "less: a steadier tick, craters and ruins take longer to finish.")
+                            "gets 2 ms for each of the three, and 6 ms more for nuclear ruins in a player's view. More: salvo damage and",
+                            "nuclear ruins appear sooner; less: a steadier tick, craters and ruins take longer to finish.")
                     .translation("incoming.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
             b.pop();
 
@@ -287,6 +287,7 @@ public final class IncomingConfig {
         public final ModConfigSpec.BooleanValue autoCamera;
         public final ModConfigSpec.DoubleValue zoom;
         public final ModConfigSpec.EnumValue<CloudQuality> nukeCloudQuality;
+        public final ModConfigSpec.EnumValue<DustQuality> nukeDustQuality;
         public final ModConfigSpec.BooleanValue nukeTinnitus;
         public final ModConfigSpec.BooleanValue soundMuffling;
         public final ModConfigSpec.BooleanValue mapPrefetch;
@@ -299,6 +300,11 @@ public final class IncomingConfig {
             CloudQuality(int puffs) {
                 this.puffs = puffs;
             }
+        }
+
+        /** Пелена пыли и дыма после ядерной волны: выключена или объёмом с качеством (client/fx/layer/PallPass). */
+        public enum DustQuality {
+            OFF, LOW, MEDIUM, HIGH
         }
 
         Client(ModConfigSpec.Builder b) {
@@ -314,9 +320,15 @@ public final class IncomingConfig {
                     .translation("incoming.config.zoom").defineInRange("zoom", 4.0, 1.5, 10.0);
             nukeCloudQuality = b.comment("Mushroom cloud detail: LOW / MEDIUM / HIGH = 750 / 1500 / 2500 puffs (plus 4/5 as many for the dust wall).")
                     .translation("incoming.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
+            nukeDustQuality = b.comment("Dust and smoke pall after a nuclear blast wave: OFF / LOW / MEDIUM / HIGH. LOW is lighter on a weak graphics card;",
+                            "MEDIUM and HIGH lower their own detail (not below LOW) while the pall takes more than about 2 ms of graphics card time a frame,",
+                            "but not while Flashback exports a video.",
+                            "OFF leaves only the dust wall and falling ash: no pall, and it does not muffle sounds.")
+                    .translation("incoming.config.nuke_dust_quality").defineEnum("nuke_dust_quality", DustQuality.MEDIUM);
             nukeTinnitus = b.comment("Ringing ears and muffled hearing after a nearby blast wave.")
                     .translation("incoming.config.nuke_tinnitus").define("nuke_tinnitus", true);
-            soundMuffling = b.comment("Strike sounds lose high tones with distance and are muffled behind hills and walls. With Sound Physics Remastered, that mod does it.")
+            soundMuffling = b.comment("Strike sounds lose high tones with distance and are muffled behind hills and walls (with Sound Physics Remastered, that mod does it);",
+                            "inside the nuclear dust pall, distant sounds are muffled too.")
                     .translation("incoming.config.sound_muffling").define("sound_muffling", true);
             mapPrefetch = b.comment("Terrain of the targeting map around the player is prepared in advance (from Distant Horizons) while a designator",
                             "is in the inventory or the map was opened in this world, so the map opens instantly.")

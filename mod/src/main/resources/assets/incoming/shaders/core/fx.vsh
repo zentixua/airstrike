@@ -1,5 +1,7 @@
 #version 150
 
+#moj_import <incoming:pall.glsl>
+
 // Слой эффектов (client/fx/layer): дым, пламя, искры, вспышки и всё дальнее одним проходом после мира.
 in vec3 Position;
 in vec2 UV0;
@@ -26,6 +28,13 @@ uniform mat4 ProjMat;
 // против света вокруг глаза, с цветом, и его огонь на экране (w)
 uniform mat4 FxBalls;
 uniform mat4 FxBallLight;
+// пелена ядерного удара (pall.glsl, PallPass): таблица поля, слоты подрывов, рамка, её средний свет (w — 1, если есть)
+uniform sampler2D Sampler5;
+uniform mat4 PallSlot0;
+uniform mat4 PallSlot1;
+uniform vec3 PallMin;
+uniform vec3 PallMax;
+uniform vec4 PallAmbient;
 
 out vec2 texCoord0;
 out vec4 vertexColor;
@@ -34,6 +43,8 @@ out float softness;
 out float fog;
 out float nearest;
 out float opacity;
+// сколько пропускает пелена между глазом и квадратом (её свет — в fx.fsh, по пелене на кадре)
+out float pallFront;
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 // дальше стольких радиусов шар не освещает (от половины — плавно к нулю): теней нет, и ночью свет шара за сотни блоков
@@ -53,6 +64,31 @@ vec3 balls(vec3 p, float gain) {
         sum += add / (1.0 + dot(add, LUMA) / max(FxBallLight[i].w, 1e-4));
     }
     return sum;
+}
+
+// Пелена перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем; квадрат
+// ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно).
+float pall(vec3 p) {
+    float len = length(p);
+    if (PallAmbient.w < 0.5 || len < 1e-3) return 1.0;
+    vec3 dir = p / len;
+    vec2 span = pallBox(dir, PallMin, PallMax);
+    float t0 = span.x, t1 = min(span.y, len);
+    if (t1 <= t0) return 1.0;
+    float tau = 0.0, ds = (t1 - t0) / 6.0, dense;
+    vec2 column, height;
+    for (int i = 0; i < 6; i++) {
+        vec3 q = dir * (t0 + (float(i) + 0.5) * ds);
+        if (PallSlot0[1].w > 0.5) {
+            vec4 f = pallField(Sampler5, PallSlot0, q, column, height, dense);
+            tau += (f.x + f.y) * ds;
+        }
+        if (PallSlot1[1].w > 0.5) {
+            vec4 f = pallField(Sampler5, PallSlot1, q, column, height, dense);
+            tau += (f.x + f.y) * ds;
+        }
+    }
+    return exp(-tau);
 }
 
 void main() {
@@ -80,4 +116,5 @@ void main() {
     fog = Normal.x;
     nearest = Normal.y;
     opacity = Normal.z;
+    pallFront = pall(Position / unfold);
 }

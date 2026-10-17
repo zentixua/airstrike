@@ -22,6 +22,13 @@ public final class CameraShake {
     private static double approach;
     /** Перед приходом волны размах дрожи доходит до этой доли удара. */
     static final double APPROACH_SHARE = 0.45;
+    /** Толчок грунта от наземного ядерного взрыва: сколько тиков ещё, сколько всего и размах, °. */
+    private static int seismic, seismicTotal;
+    private static double seismicAmp;
+    /** Скорость толчка в грунте, м/с (продольная волна в наносах — 1–2 км/с): приходит раньше волны в воздухе. */
+    public static final double SEISMIC_SPEED = 1500;
+    /** Слабее стольких градусов толчок не ощущается. */
+    static final double SEISMIC_MIN = 0.3;
 
     private CameraShake() {}
 
@@ -75,22 +82,52 @@ public final class CameraShake {
         approach = Math.max(approach, approachAmplitude(psi, eta));
     }
 
+    /**
+     * Толчок грунта от наземного ядерного взрыва: резкий удар снизу и дрожь на 1,5–3 с, раньше волны в воздухе
+     * ({@link #seismicTicks}). Размах — {@link #seismicAmplitude}.
+     */
+    public static void seismic(double deg) {
+        if (deg < SEISMIC_MIN) return;
+        int t = (int) Mth.clamp(30 + deg * 6, 30, 66);
+        if (deg >= seismicAmp * Math.max(0, (double) seismic / Math.max(1, seismicTotal))) {
+            seismicAmp = deg;
+            seismic = seismicTotal = t;
+        }
+    }
+
+    /**
+     * Размах толчка грунта, °, на {@code metres} от наземного взрыва {@code kt} килотонн: по приведённой дальности
+     * Z = R / W^⅓ (как давление волны) — 3° на 500 м/кт^⅓, спадает как Z^−1,3, не больше 6°; слабее
+     * {@link #SEISMIC_MIN} — 0. У 15 кт: 1 км — 4°, 3 км — 1°, 5 км — 0,5°, дальше 7 км не ощущается.
+     */
+    public static double seismicAmplitude(double metres, double kt) {
+        double z = Math.max(1, metres) / Math.cbrt(Math.max(1e-3, kt));
+        double a = Math.min(6, 3 * Math.pow(z / 500, -1.3));
+        return a < SEISMIC_MIN ? 0 : a;
+    }
+
+    /** Через сколько тиков после подрыва толчок грунта дойдёт до {@code metres} (масштаб удара — блоков на метр). */
+    public static double seismicTicks(double metres, double scale) {
+        return metres / SEISMIC_SPEED * 20 * scale;
+    }
+
     public static void tick() {
         ticks++;
         approach = 0;
+        if (seismic > 0) seismic--;
         if (shake > 0) shake--;
         if (quake > 0) quake--;
         if (nuke > 0) nuke--;
     }
 
     public static void reset() {
-        shake = quake = nuke = 0;
+        shake = quake = nuke = seismic = 0;
         approach = 0;
     }
 
     public static void apply(ViewportEvent.ComputeCameraAngles e) {
         double k = IncomingConfig.CLIENT.cameraShake.get();
-        if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 && approach <= 0 || Minecraft.getInstance().isPaused()) return;
+        if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 && seismic <= 0 && approach <= 0 || Minecraft.getInstance().isPaused()) return;
         double t = ticks + e.getPartialTick();
         // амплитуды: курс/тангаж, °
         double yaw = 0, pitch = 0;
@@ -112,6 +149,14 @@ public final class CameraShake {
             yaw += approach * wobble(t, 7.3, 0.9);
             pitch += approach * 0.9 * wobble(t, 9.1, 2.6);
             roll += approach * 0.5 * wobble(t, 5.9, 4.0);
+        }
+        if (seismic > 0) {
+            // толчок снизу: резкий, частый, больше тангажом и креном, гаснет за пару секунд
+            double age = seismicTotal - seismic + e.getPartialTick();
+            double a = seismicAmp * Math.exp(-age / (seismicTotal * 0.3)) * Math.min(1, age / 2);
+            yaw += a * 0.5 * wobble(t, 13.7, 1.9);
+            pitch += a * wobble(t, 16.3, 0.6);
+            roll += a * 0.8 * wobble(t, 11.9, 3.3);
         }
         if (nuke > 0) {
             // первые полсекунды — удар (вдвое сильнее и резче), дальше затухание по экспоненте

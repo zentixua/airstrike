@@ -16,6 +16,7 @@ import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.far.FarRenderer;
 import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.fx.particle.FxPool;
+import ua.zentix.incoming.client.nuclear.NukePall;
 import ua.zentix.incoming.client.render.DhDepth;
 import ua.zentix.incoming.client.render.FarDraw;
 
@@ -94,6 +95,14 @@ public final class FxLayer {
             SourceProbes.shader = null;
             Incoming.LOG.error("Source probe shader failed to load: glare of hidden distant fire is not dimmed", ex);
         }
+        try {
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_pall"), DefaultVertexFormat.POSITION), s -> PallPass.march = s);
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_pall_resolve"), DefaultVertexFormat.POSITION), s -> PallPass.resolve = s);
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_pall_composite"), DefaultVertexFormat.POSITION), s -> PallPass.composite = s);
+        } catch (IOException ex) {
+            PallPass.march = PallPass.resolve = PallPass.composite = null;
+            Incoming.LOG.error("Nuclear dust pall shaders failed to load: no dust pall", ex);
+        }
     }
 
     /** Раз в тик клиента (не на паузе): секундная сводка времени кадра. */
@@ -104,6 +113,7 @@ public final class FxLayer {
             lastClean = cleanMax / 1e6;
             lastCleanCpu = cleanCpu / 1e6;
             lastCollected = collected;
+            PallPass.second();
             frameNanos = frameMax = cleanMax = cleanCpu = 0;
             frames = ticks = collected = 0;
         }
@@ -158,25 +168,40 @@ public final class FxLayer {
             for (int i = 0; i < 4; i++) QUADS.vertex(i % 2, i / 2, -16, 0, 0, 0, 0, 0, 0, 1, 1, LightTexture.FULL_BRIGHT, 0);
             QUADS.seenBy(0);
         }
+        PallPass.Frame pall = NukePall.frame(level, view.camera(), view.partial(), FRUSTUM);
         lastQuads = QUADS.size();
-        if (QUADS.size() == 0) return;
+        if (QUADS.size() == 0 && pall == null) {
+            PallPass.reset();
+            return;
+        }
         int models = FarRenderer.renderModels();
         int scene = SceneDepth.update(e.getProjectionMatrix());
         int seen = PROBES.update(scene, FarDraw.view(e, view.camera(), VIEW), e.getProjectionMatrix(), view.pixel());
         LightTexture light = mc.gameRenderer.lightTexture();
         FarDraw.begin(e, view.camera());
         try {
+            // пелена — до квадратов: они ложатся на неё со своей долей пелены перед ними (fx.vsh)
+            boolean pallDrawn = pall != null && scene >= 0 && PallPass.draw(pall, scene, VIEW, e.getProjectionMatrix(), view.camera());
+            if (!pallDrawn) PallPass.reset();
+            PallPass.Frame front = pallDrawn ? pall : PallPass.empty();
             RenderSystem.setShader(() -> s);
             RenderSystem.setShaderTexture(0, atlas);
             RenderSystem.setShaderTexture(1, scene >= 0 ? scene : atlas);
             RenderSystem.setShaderTexture(3, models > 0 ? models : atlas);
             RenderSystem.setShaderTexture(4, seen >= 0 ? seen : atlas);
+            RenderSystem.setShaderTexture(5, pallDrawn ? PallPass.table() : atlas);
+            RenderSystem.setShaderTexture(6, pallDrawn ? PallPass.frame() : atlas);
             light.turnOnLightLayer();
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);
             s.safeGetUniform("FxProbes").set(seen >= 0 ? 1f : 0f);
             s.safeGetUniform("FxBalls").set(LIGHTS.balls);
             s.safeGetUniform("FxBallLight").set(LIGHTS.light);
+            s.safeGetUniform("PallSlot0").set(front.slot0);
+            s.safeGetUniform("PallSlot1").set(front.slot1);
+            s.safeGetUniform("PallMin").set(front.min.x, front.min.y, front.min.z);
+            s.safeGetUniform("PallMax").set(front.max.x, front.max.y, front.max.z);
+            s.safeGetUniform("PallAmbient").set(front.ambient.x, front.ambient.y, front.ambient.z, front.ambient.w);
             RenderSystem.enableBlend();
             RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                     GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
