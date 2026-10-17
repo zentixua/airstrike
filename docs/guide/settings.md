@@ -16,7 +16,7 @@ Each player has their own, stored in `config/incoming-client.toml`.
 | Projectile camera on launch | off | the camera shows every launch by itself |
 | Binocular zoom | 4 | from 1.5 to 10 |
 | Mushroom cloud detail | MEDIUM | lower is lighter on a weak computer |
-| Nuclear dust pall | MEDIUM | dust and smoke over the area after a nuclear blast; lower is lighter on a weak graphics card, and MEDIUM and HIGH lower their own detail when the card falls behind (not while Flashback exports a video); OFF: only the dust wall and falling ash |
+| Nuclear dust pall | MEDIUM | dust and smoke over the area after a nuclear blast, and the firestorm over a burning town; lower is lighter on a weak graphics card, and MEDIUM and HIGH lower their own detail when the card falls behind (not while Flashback exports a video); OFF: only the dust wall and falling ash |
 | Deafness and ringing ears | on | muffled hearing after a nearby blast wave |
 | Muffle distant and hidden strikes | on | distant strikes lose high tones, hidden ones sound muffled, and inside the dust pall all distant sounds are muffled |
 

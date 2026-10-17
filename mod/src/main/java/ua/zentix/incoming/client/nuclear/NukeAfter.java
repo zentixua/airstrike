@@ -72,6 +72,11 @@ final class NukeAfter {
     private double windDistance;
     /** Доверие модели: сколько горит в своих чанках против модели там же (1 — как в модели, 0 — пожаров нет). */
     private double trust = 1;
+    /**
+     * Доверие для огненного шторма ({@link FireStorm}): то же, но только пока огонь в своих чанках молод (до спада
+     * модели): настоящий огонь ванили потом прогорает по-своему, а шторм горит до утра.
+     */
+    private double visual = 1;
     private double modelLoaded, seenLoaded, modelRest = 1;
     /** Места руин рядом с подрывом (из обломков, что прислал сервер), выборка не больше {@link #RUINS_KEPT}. */
     private final List<BlockPos> ruins = new ArrayList<>();
@@ -162,7 +167,10 @@ final class NukeAfter {
         modelRest = rest;
         seenLoaded = seen[0];
         // сверка: модель против огня в своих чанках, плавно (огонь встаёт с волной и гаснет не сразу)
-        if (modelHere >= TRUST_MIN) trust += 0.2 * (Math.min(4, seen[0] / modelHere) - trust);
+        if (modelHere >= TRUST_MIN) {
+            trust += 0.2 * (Math.min(4, seen[0] / modelHere) - trust);
+            if (t < f.lastArrival() + FireField.RISE + 0.7 * FireField.TAU) visual = trust;
+        }
         for (int q = 0; q < QUADRANTS; q++) {
             roarVolume[q] = power[q] <= 0 ? 0 : (float) Math.min(ROAR_MAX, V_REF * Math.pow(power[q] / I_REF, 0.25));
             if (roarVolume[q] < 0.02f) roarVolume[q] = 0;
@@ -269,6 +277,14 @@ final class NukeAfter {
         if (at.distanceTo(ear) > COLLAPSE_RANGE) return;
         boolean small = random.nextFloat() < 0.35f;
         ClientSounds.at(small ? ModSounds.DEBRIS_FALL.get() : ModSounds.NUKE_COLLAPSE.get(), at, small ? 3 : 6, 0.8f + random.nextFloat() * 0.3f);
+    }
+
+    /**
+     * Горят ли пожары у сервера на деле — для огненного шторма, 0..1: 0, когда в своих чанках, где модель ждёт огня, его
+     * нет (пожары выключены или погашены); сверка — только пока огонь молод, дальше — как была.
+     */
+    double visualTrust() {
+        return Math.min(1, visual / 0.3);
     }
 
     /** Петли стихают (подрыв убран, огонь кончился). */

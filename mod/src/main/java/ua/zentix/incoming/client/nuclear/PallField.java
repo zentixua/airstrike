@@ -145,6 +145,21 @@ public final class PallField {
         return reach;
     }
 
+    /** Радиус зоны поджига по земле, блоки (0 — пожаров нет): над ней мгла, в ней огненный шторм ({@link FireStorm}). */
+    double fireReach() {
+        return fireReach;
+    }
+
+    /** Когда мгла гаснет (утро) — тики после подрыва; к нему гаснет и огненный шторм. */
+    double end() {
+        return end;
+    }
+
+    /** Верх мглы над пожарами, блоки (у 15 кт — 260 м): до него встают столбы дыма шторма. */
+    double hazeTop() {
+        return d.blocks(HAZE_TOP_M * Math.cbrt(d.yieldKt() / 15));
+    }
+
     /** Радиус узла i, блоки (середины узлов от 0 до {@link #reach}). */
     double radius(int i) {
         return (i + 0.5) / BINS * reach;

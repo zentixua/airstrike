@@ -200,6 +200,10 @@ public final class FxLayer {
             RenderSystem.setShaderTexture(4, seen >= 0 ? seen : atlas);
             RenderSystem.setShaderTexture(5, pallDrawn ? PallPass.table() : atlas);
             RenderSystem.setShaderTexture(6, pallDrawn ? PallPass.frame() : atlas);
+            // карты огненного шторма: свет пожаров снизу на квадратах слоя
+            int fire0 = pallDrawn ? PallPass.fireMap(0) : -1, fire1 = pallDrawn ? PallPass.fireMap(1) : -1;
+            RenderSystem.setShaderTexture(7, fire0 >= 0 ? fire0 : atlas);
+            RenderSystem.setShaderTexture(8, fire1 >= 0 ? fire1 : atlas);
             light.turnOnLightLayer();
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);
@@ -211,6 +215,8 @@ public final class FxLayer {
             s.safeGetUniform("PallMin").set(front.min.x, front.min.y, front.min.z);
             s.safeGetUniform("PallMax").set(front.max.x, front.max.y, front.max.z);
             s.safeGetUniform("PallAmbient").set(front.ambient.x, front.ambient.y, front.ambient.z, front.ambient.w);
+            s.safeGetUniform("PallFire0").set(fire0 >= 0 ? front.fire0.params : PallPass.empty().fire0.params);
+            s.safeGetUniform("PallFire1").set(fire1 >= 0 ? front.fire1.params : PallPass.empty().fire1.params);
             RenderSystem.enableBlend();
             RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                     GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);

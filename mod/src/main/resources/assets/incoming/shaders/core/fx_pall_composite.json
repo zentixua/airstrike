@@ -4,7 +4,9 @@
     "samplers": [
         { "name": "Sampler0" },
         { "name": "Sampler1" },
-        { "name": "Sampler2" }
+        { "name": "Sampler2" },
+        { "name": "Sampler3" },
+        { "name": "Sampler4" }
     ],
     "uniforms": [
         { "name": "InvViewProj", "type": "matrix4x4", "count": 16, "values": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] },
@@ -12,6 +14,8 @@
         { "name": "PallSlot0", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
         { "name": "PallSlot1", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
         { "name": "PallSun", "type": "float", "count": 4, "values": [0.0, 1.0, 0.0, 0.0] },
-        { "name": "PallFrame", "type": "float", "count": 4, "values": [0.0, 0.0, 2.0, 0.0] }
+        { "name": "PallFrame", "type": "float", "count": 4, "values": [0.0, 0.0, 2.0, 0.0] },
+        { "name": "PallFire0", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallFire1", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
     ]
 }

@@ -40,22 +40,25 @@ public final class ClientNuclear {
          * ({@link PallField#daylight}).
          */
         public final PallField pall;
+        /** Огненный шторм над горящим городом ({@link FireStorm}): по возрасту подрыва, до утра пелены. */
+        public final FireStorm storm;
         /** Сколько тиков прошло до прихода пакета (у пришедших при входе в мир — с самого подрыва). */
         private final long before;
         private long age;
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d), new WaterPuffs(d, WaterPuffs.count(d)), null);
+            this(d, live, clientNow, new CloudPuffs(d), new WaterPuffs(d, WaterPuffs.count(d)), null, null);
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
         Active(Active a, long clientNow) {
-            this(a.d, false, clientNow, a.puffs, a.water, a.pall);
+            this(a.d, false, clientNow, a.puffs, a.water, a.pall, a.storm);
             puffs.untrack();
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water, @Nullable PallField pall) {
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water, @Nullable PallField pall,
+                @Nullable FireStorm storm) {
             this.d = d;
             this.live = live;
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
@@ -73,6 +76,7 @@ public final class ClientNuclear {
             }
             // первый замер часов — сразу: вошедший после сна не видит мглы и кадр до тика
             if (level != null) this.pall.daylight(ticks(0), level.getGameTime(), level.getDayTime());
+            this.storm = storm != null ? storm : new FireStorm(d, this.pall);
             this.sounds = new NukeSounds.Schedule(this);
         }
 
@@ -275,7 +279,11 @@ public final class ClientNuclear {
             a.sounds.tick();
             a.pall.daylight(a.ticks(0), level.getGameTime(), level.getDayTime());
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
-            if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
+            if (heights != null) {
+                a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
+                // смерчи огненного шторма — по рельефу под ними
+                a.storm.track(a.ticks(1) / 20.0, heights);
+            }
             NukeWater.tick(a, level, eye);
             NukeDust.front(a, eye);
             if (a.ticks(0) > lifeTicks(a.d) && !a.pall.visible(a.ticks(0))) {

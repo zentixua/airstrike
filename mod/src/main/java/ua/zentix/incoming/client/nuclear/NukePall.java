@@ -35,6 +35,8 @@ public final class NukePall {
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f(), CULL = new Vector3f();
     private static final float[] GLOW = new float[8];
     private static final Vector3f SKY = new Vector3f();
+    /** Подрывы слотов кадра — для огненного шторма после света кадра. */
+    private static final ClientNuclear.Active[] SLOTTED = new ClientNuclear.Active[2];
     /**
      * Плоскости пирамиды видимости, по которым пелена отсекается, — все, кроме дальней: дальняя плоскость — 4 прорисовки,
      * а пелена видна и дальше (над LOD Distant Horizons, на горизонте).
@@ -68,6 +70,7 @@ public final class NukePall {
     /** Тик клиента: пелена у камеры — звук и пепел; шум для объёма — в фоне с первого подрыва. */
     static void tick(ClientLevel level, Vec3 cam) {
         List<ClientNuclear.Active> all = ClientNuclear.detonations();
+        FireStorms.tick(all);
         if (all.isEmpty()) {
             sigma = muffle = 0;
             NukeAsh.tick(level, cam, 0, 0, null);
@@ -148,9 +151,11 @@ public final class NukePall {
         f.max.set(-Float.MAX_VALUE);
         int k = 0;
         float bottom = (float) (level.getMinBuildHeight() - eye.y);
-        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, f)) k++;
+        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, f)) SLOTTED[k++] = visible.get(i);
         if (k == 0) return null;
         light(level, eye, partial, f);
+        float clouds = level.effects().getCloudHeight();
+        FireStorms.frame(SLOTTED, k, eye, partial, frustum, Float.isNaN(clouds) ? 1e6f : (float) (clouds - eye.y), f);
         float s = sigma;
         f.clip = s > 1e-4f ? 12 / s : 1e6f;
         return f;
@@ -244,6 +249,11 @@ public final class NukePall {
         return t * t * (3 - 2 * t);
     }
 
+    /** Огненный шторм в кадре — да или нет: сценарий клиента меряет пелену с ним и без (в игре он есть всегда). */
+    public static void firestorm(boolean on) {
+        FireStorms.enabled = on;
+    }
+
     /** Ослабление пелены у камеры, 1/блок (для строки сценария). */
     public static float sigma() {
         return sigma;
@@ -254,8 +264,9 @@ public final class NukePall {
         Minecraft mc = Minecraft.getInstance();
         PallPass.Frame f = FRAME;
         return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks), muffle %.2f, ash %d, quality %s, "
-                        + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), frames: %s",
+                        + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), frames: %s; firestorm: %s",
                 sigma, sigma > 1e-5f ? 3.912 / sigma : Double.POSITIVE_INFINITY, muffle, NukeAsh.alive(), quality(),
-                f.skyLight.y, f.glowOnSmoke, f.glow0.x, f.glow0.y, f.hot0.x, f.hot0.y, f.hot0.z, mc.level == null ? "-" : PallPass.describe());
+                f.skyLight.y, f.glowOnSmoke, f.glow0.x, f.glow0.y, f.hot0.x, f.hot0.y, f.hot0.z, mc.level == null ? "-" : PallPass.describe(),
+                FireStorms.describe());
     }
 }

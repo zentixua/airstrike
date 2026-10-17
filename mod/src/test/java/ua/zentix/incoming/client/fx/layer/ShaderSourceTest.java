@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -21,7 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * разбором GLSL (glsl-processor 0.2.3), печатая их заново. Условное выражение внутри другого он печатает без скобок:
  * {@code a * (c ? x : y)} выходит {@code a * c ? x : y} — другим выражением (свет стены пыли на пелене стал от плотности
  * не зависеть и выходил в тысячи раз ярче: белый кадр). Условие — только целой правой частью, возвратом или аргументом
- * вызова; внутри выражения — {@code if} или {@code mix}.
+ * вызова; внутри выражения — {@code if} или {@code mix}. Увеличение отдельной инструкцией ({@code n++;}) он печатает без
+ * «;» — шейдер не собирается (ERROR «Failed to recompile vanilla shader», остаётся прежний): только {@code n += 1;}.
  */
 class ShaderSourceTest {
     private static final Pattern TOKEN = Pattern.compile(
@@ -29,19 +31,53 @@ class ShaderSourceTest {
     /** Где кончается условное выражение слева: оно здесь целое. */
     private static final Set<String> WHOLE = Set.of(",", ";", "{", "}", "=", "+=", "-=", "*=", "/=", "return", "?", ":");
 
+    /** Инструкция-увеличение: {@code n++;}, {@code --k;} ({@code i++} в заголовке {@code for} — без «;» следом). */
+    private static final Pattern INCREMENT = Pattern.compile("(\\w\\+\\+|\\w--|\\+\\+\\w|--\\w)\\s*;");
+
     @Test
     void noConditionalInsideAnExpression() throws IOException, URISyntaxException {
+        List<String> bad = everyShader(ShaderSourceTest::nested);
+        assertTrue(bad.isEmpty(), "«?:» внутри выражения (Veil потеряет скобки): " + bad);
+    }
+
+    @Test
+    void noIncrementStatement() throws IOException, URISyntaxException {
+        List<String> bad = everyShader(ShaderSourceTest::increments);
+        assertTrue(bad.isEmpty(), "«n++;» (Veil потеряет «;», пишите «n += 1;»): " + bad);
+    }
+
+    @Test
+    void findsTheIncrementsVeilBreaks() {
+        assertEquals(List.of(1, 3), increments("""
+                n++;
+                for (int i = 0; i < 4; i++) {
+                    --k;
+                    n += 1; // n++; в комментарии
+                }
+                """));
+    }
+
+    /** Строки всех шейдеров мода, которые нашла проверка, — «файл:строка». */
+    private static List<String> everyShader(Function<String, List<Integer>> check) throws IOException, URISyntaxException {
         Path root = Path.of(ShaderSourceTest.class.getResource("/assets/incoming/shaders").toURI());
         List<String> bad = new ArrayList<>();
         int files = 0;
         try (Stream<Path> walk = Files.walk(root)) {
             for (Path p : walk.filter(f -> f.toString().matches(".*\\.(fsh|vsh|glsl)")).toList()) {
                 files++;
-                for (int line : nested(Files.readString(p))) bad.add(root.relativize(p) + ":" + line);
+                for (int line : check.apply(Files.readString(p))) bad.add(root.relativize(p) + ":" + line);
             }
         }
         assertTrue(files > 5, "шейдеров " + files);
-        assertTrue(bad.isEmpty(), "«?:» внутри выражения (Veil потеряет скобки): " + bad);
+        return bad;
+    }
+
+    /** Строки с инструкцией-увеличением. */
+    private static List<Integer> increments(String source) {
+        String[] lines = blankComments(source).split("\n", -1);
+        List<Integer> found = new ArrayList<>();
+        for (int i = 0; i < lines.length; i++) if (INCREMENT.matcher(lines[i]).find()) found.add(i + 1);
+        return found;
     }
 
     @Test
