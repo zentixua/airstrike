@@ -96,6 +96,12 @@ public final class FxLayer {
             Incoming.LOG.error("Source probe shader failed to load: glare of hidden distant fire is not dimmed", ex);
         }
         try {
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_water"), DefaultVertexFormat.POSITION), s -> WaterDecal.shader = s);
+        } catch (IOException ex) {
+            WaterDecal.shader = null;
+            Incoming.LOG.error("Water decal shader failed to load: no dark blast ring on water", ex);
+        }
+        try {
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_pall"), DefaultVertexFormat.POSITION), s -> PallPass.march = s);
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_pall_resolve"), DefaultVertexFormat.POSITION), s -> PallPass.resolve = s);
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_pall_composite"), DefaultVertexFormat.POSITION), s -> PallPass.composite = s);
@@ -154,6 +160,7 @@ public final class FxLayer {
         if (warmup) FarRenderer.warmup();
         FRUSTUM.set(FarDraw.viewProjection(e, view.camera(), VIEW_PROJECTION));
         QUADS.begin(view.left(), view.up());
+        WaterDecal.begin(level, e.getCamera());
         LIGHTS.begin();
         PROBES.begin();
         QUADS.nearestTexels(true);
@@ -170,7 +177,7 @@ public final class FxLayer {
         }
         PallPass.Frame pall = NukePall.frame(level, view.camera(), view.partial(), FRUSTUM);
         lastQuads = QUADS.size();
-        if (QUADS.size() == 0 && pall == null) {
+        if (QUADS.size() == 0 && pall == null && !WaterDecal.active()) {
             PallPass.reset();
             return;
         }
@@ -180,6 +187,8 @@ public final class FxLayer {
         LightTexture light = mc.gameRenderer.lightTexture();
         FarDraw.begin(e, view.camera());
         try {
+            // наклейка на воду — под пеленой и квадратами: пыль, брызги и дым над водой ложатся на неё
+            if (WaterDecal.active()) WaterDecal.draw(e, view, scene, FOG);
             // пелена — до квадратов: они ложатся на неё со своей долей пелены перед ними (fx.vsh)
             boolean pallDrawn = pall != null && scene >= 0 && PallPass.draw(pall, scene, VIEW, e.getProjectionMatrix(), view.camera());
             if (!pallDrawn) PallPass.reset();

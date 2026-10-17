@@ -55,6 +55,11 @@ leaves a pale shadow of its shape on the wood or masonry behind it. These marks 
 replaced. In the same instant lit lamps and substations of the [power grid](blackout.md) short out with sparks, and
 grass, leaves and wood in the light start to smoke before the wave comes.
 
+Over water the wave raises no dust. It runs across the water as a dark ring of ripples, with a wall of spray behind it
+where the wind is strong, and white foam near the centre. A burst on the water or just above it throws up a hollow
+column of water about a kilometre high at 15 kt. A ring of mist forms on the water for a few seconds, and when the
+column falls, a white base surge rolls out for minutes.
+
 Far away the blast comes as a sharp double crack and a deep boom, and then echoes back from the hills, forests and
 towns around you: every slope that faces both the burst and you sends it back, later the farther it is. Animals around
 the burst go quiet for a few minutes. Indoors the echoes are as muffled as the blast itself. Mobs run away from the

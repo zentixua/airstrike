@@ -33,6 +33,8 @@ public final class ClientNuclear {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
+        /** Подрыв на воде: столб, кольцо тумана, базисная волна ({@link NukeWater}). */
+        final WaterPuffs water;
         /**
          * Пелена после волны ({@link NukePall}): «до утра» — от времени суток в миг подрыва и по часам мира после него
          * ({@link PallField#daylight}).
@@ -44,25 +46,31 @@ public final class ClientNuclear {
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d), null);
+            this(d, live, clientNow, new CloudPuffs(d), new WaterPuffs(d, WaterPuffs.count(d)), null);
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
         Active(Active a, long clientNow) {
-            this(a.d, false, clientNow, a.puffs, a.pall);
+            this(a.d, false, clientNow, a.puffs, a.water, a.pall);
             puffs.untrack();
             pall.rewound();
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, @Nullable PallField pall) {
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water, @Nullable PallField pall) {
             this.d = d;
             this.live = live;
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
             this.puffs = puffs;
+            this.water = water;
             ClientLevel level = Minecraft.getInstance().level;
             // пришедший позже — время суток подрыва по нынешним часам: прыжка часов до входа он не видел (nuclear.md)
             this.pall = pall != null ? pall : new PallField(d, level == null ? 0 : level.getDayTime() - before);
             this.sounds = new NukeSounds.Schedule(this);
+        }
+
+        /** Свои тики клиента от прихода пакета (после перемотки повтора — от неё). */
+        long age() {
+            return age;
         }
 
         /** Тики после подрыва (с долей кадра). */
@@ -260,6 +268,7 @@ public final class ClientNuclear {
             a.pall.daylight(a.ticks(0), level.getDayTime());
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
             if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
+            NukeWater.tick(a, level, eye);
             NukeDust.front(a, eye);
             if (a.ticks(0) > lifeTicks(a.d) && !a.pall.visible(a.ticks(0))) {
                 a.sounds.stop();

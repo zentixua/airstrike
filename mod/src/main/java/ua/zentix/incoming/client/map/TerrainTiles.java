@@ -478,6 +478,15 @@ public final class TerrainTiles {
 
     /** Высота земли в колонке: по самой подробной готовой плитке, чанки клиента первыми. */
     public static OptionalInt height(int x, int z) {
+        return column(x, z, false);
+    }
+
+    /** Глубина воды над дном в колонке (0 — суша, до 16 — глубже не различается), как {@link #height}. */
+    public static OptionalInt waterDepth(int x, int z) {
+        return column(x, z, true);
+    }
+
+    private static OptionalInt column(int x, int z, boolean water) {
         for (int i = layers.size() - 1; i >= 0; i--) {
             Map<Key, Tile> tiles = layers.get(i).tiles;
             for (int l = 0; l <= MAX_LEVEL; l++) {
@@ -486,7 +495,7 @@ public final class TerrainTiles {
                 if (t == null || t.columns == null) continue;
                 int px = Math.floorMod(x, span) >> l, pz = Math.floorMod(z, span) >> l;
                 int j = pz * SIZE + px;
-                if (t.columns.has(j)) return OptionalInt.of(t.columns.height[j]);
+                if (t.columns.has(j)) return OptionalInt.of(water ? t.columns.depth[j] : t.columns.height[j]);
             }
         }
         return OptionalInt.empty();
