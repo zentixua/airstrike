@@ -3,6 +3,7 @@ package ua.zentix.incoming.nuclear.model;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WaterModelTest {
@@ -86,19 +87,71 @@ class WaterModelTest {
         }
     }
 
-    /** Столб «Бейкера» (23 кт): радиус 300 м, стенки 90 м; встаёт за секунды, падая — оседает; у 1 кт — меньше. */
+    /** Столб «Бейкера» (23 кт): радиус 300 м, стенки 90 м; встаёт за секунды, падая — оседает до воды; у 1 кт — меньше. */
     @Test
     void columnMatchesBaker() {
         assertEquals(300, WaterModel.columnRadius(23), 1e-6);
         assertEquals(90, WaterModel.columnWall(23), 1e-6);
         double max = WaterModel.COLUMN_TOP * WaterModel.SURFACE_COLUMN;
         assertEquals(0, WaterModel.columnTop(0, 23));
+        assertNull(WaterModel.column(0, 23));
         assertTrue(WaterModel.columnTop(2, 23) > 0.5 * max, "за 2 с — выше половины");
         assertTrue(WaterModel.columnTop(9, 23) > 0.95 * max, "к 9 с — почти весь");
         assertEquals(0, WaterModel.columnFall(9, 23));
         assertEquals(1, WaterModel.columnFall(40, 23), 1e-9);
-        assertEquals(0.5 * max, WaterModel.columnTop(60, 23), 1e-3 * max, "упавший — вдвое ниже");
+        assertEquals(0, WaterModel.columnTop(40, 23), "упавший — у воды");
+        assertNull(WaterModel.column(40, 23), "упал — столба нет");
         assertTrue(WaterModel.columnRadius(1) < 0.4 * WaterModel.columnRadius(23));
+    }
+
+    /**
+     * Мелкий подводный подрыв 100 кт (Glasstone, Dolan, §2.63): столб выше 5000 футов за 2 с; к 12 с — 3300 футов
+     * в поперечнике со стенками 500 футов; к 20 с оседает и сужается до 2000 футов. Высота у подрыва на поверхности —
+     * доля подводной ({@link WaterModel#SURFACE_COLUMN}).
+     */
+    @Test
+    void columnMatchesGlasstoneHundredKilotons() {
+        double ft = 0.3048, under = 1 / WaterModel.SURFACE_COLUMN;
+        double two = WaterModel.columnTop(2, 100) * under;
+        assertTrue(two > 5000 * ft && two < 6000 * ft, "за 2 с: " + two / ft + " футов");
+        WaterModel.Column twelve = WaterModel.column(12, 100), twenty = WaterModel.column(20, 100);
+        assertEquals(3300 * ft, 2 * (twelve.mid() + twelve.half()), 0.05 * 3300 * ft, "поперечник к 12 с");
+        assertEquals(500 * ft, 2 * twelve.half(), 0.05 * 500 * ft, "стенка к 12 с");
+        assertEquals(2000 * ft, 2 * (twenty.mid() + twenty.half()), 0.05 * 2000 * ft, "поперечник к 20 с");
+        assertEquals(2 * twelve.half(), 2 * twenty.half(), 1e-9, "стенка той же толщины");
+        assertTrue(WaterModel.columnTop(20.5, 100) < WaterModel.columnTop(20, 100), "к 20 с оседает");
+        assertTrue(WaterModel.columnTop(12, 100) > 0.99 * WaterModel.columnTop(11, 100), "к 12 с ещё стоит");
+    }
+
+    /**
+     * Корона — наверху столба: её верх — верх столба, середина — над водой; шире стенки, когда струи затормозили, и
+     * не выше четверти столба, пока он низкий; вода столба убывает, пока он падает.
+     */
+    @Test
+    void crownSitsOnTheColumn() {
+        double prevWater = 1;
+        for (double t = 0.05; t < 40; t += 0.25) {
+            WaterModel.Column c = WaterModel.column(t, 15);
+            if (c == null) {
+                assertTrue(t > 30, t + " с: столб пропал рано");
+                continue;
+            }
+            assertEquals(WaterModel.columnTop(t, 15), c.top(), 1e-9, t + " с");
+            assertTrue(c.wallTop() >= 0.75 * c.top() - 1e-9, t + " с: корона ниже четверти столба");
+            assertTrue(c.crownR() >= c.mid() + c.half() - 1e-9, t + " с: корона уже стенки");
+            assertTrue(c.mid() - c.half() > 0, t + " с: столб полый");
+            assertTrue(c.water() <= prevWater + 1e-12 && c.water() > 0, t + " с: вода " + c.water());
+            prevWater = c.water();
+        }
+        WaterModel.Column risen = WaterModel.column(6, 15);
+        assertTrue(risen.crownR() > 1.3 * (risen.mid() + risen.half()), "поднявшийся столб раскрыт короной");
+        WaterModel.Column early = WaterModel.column(0.1, 15);
+        assertTrue(early.crownR() < 1.1 * (early.mid() + early.half()), "струи ещё летят — короны нет");
+        // корона падает с наружной завесой: оседающий столб — без шапки, верх — край стенки
+        WaterModel.Column falling = WaterModel.column(15, 15);
+        assertTrue(WaterModel.columnTop(15, 15) < WaterModel.columnTop(9, 15), "к 15 с столб оседает");
+        assertEquals(falling.mid() + falling.half(), falling.crownR(), 1e-9, "оседающий столб без короны");
+        assertTrue(falling.crownH() <= falling.half() + 1e-9, "верх оседающего столба — край стенки");
     }
 
     /**
@@ -126,15 +179,5 @@ class WaterModelTest {
         }
         assertTrue(WaterModel.surgeDensity(start + 5, 23) > 0.9);
         assertTrue(WaterModel.surgeDensity(start + 240, 23) < 0.4, "через 4 минуты редеет");
-    }
-
-    /** Кольцо тумана (облако конденсации) — на 1–4 с у «Бейкера», дольше у мощного подрыва. */
-    @Test
-    void mistRingLastsSeconds() {
-        assertEquals(0, WaterModel.mistRing(0.1, 23));
-        assertEquals(1, WaterModel.mistRing(1.5, 23), 1e-9);
-        assertEquals(1, WaterModel.mistRing(2.5, 23), 1e-9);
-        assertEquals(0, WaterModel.mistRing(5, 23));
-        assertTrue(WaterModel.mistRing(4, 1000) > 0.9, "у 1 Мт ещё стоит");
     }
 }

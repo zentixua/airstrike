@@ -25,8 +25,8 @@ import java.util.OptionalInt;
 /**
  * Ядерная волна на воде (DESIGN-nuke §6, «Вода»): тёмное кольцо фронта на воде — рябь под ветром за фронтом, с пеной
  * у эпицентра (наклейка на воду в слое эффектов, {@link WaterDecal}: профиль кольца по модели считается здесь, на кадр);
- * стена брызг за фронтом у камеры (частицы, {@link FxBudget#SPRAY}); подрыв на воде — столб, кольцо тумана и базисная
- * волна ({@link WaterPuffs}). Пыль у земли над водой не встаёт: стена и шлейф там — брызги и водяная пыль
+ * стена брызг за фронтом у камеры (частицы, {@link FxBudget#SPRAY}); подрыв на воде — столб воды с короной в объёме
+ * гриба ({@link MushroomField}) и базисная волна в пелене ({@link PallField#water}). Пыль у земли над водой не встаёт: стена и шлейф там — брызги и водяная пыль
  * ({@link CloudPuffs#water}), частицы пыли у камеры — только над сушей ({@link NukeDust#front}).
  * <p>
  * Вода ли где-то — только из того, что у клиента уже есть: чанки клиента, плитки рельефа карты ({@link FarTerrain#water}).
@@ -124,10 +124,10 @@ public final class NukeWater {
      * тики видел бы над морем бурую пыль (до решения под эпицентром — суша).
      */
     static void resolve(ClientNuclear.Active a, @Nullable ClientLevel level) {
-        WaterPuffs w = a.water;
+        BurstWater w = a.water;
         if (w.settled()) return;
         Under u = under(level, a.d);
-        w.wet(u.water() * WaterModel.wetBurst(a.d.hobMetres(), a.d.yieldKt()));
+        w.set(u.water(), u.water() * WaterModel.wetBurst(a.d.hobMetres(), a.d.yieldKt()));
         a.puffs.burst(u.water(), w.wet());
         a.pall.water(u.water(), w.wet());
         if (settles(u, a.age(), a.live)) w.settle(u.source());
@@ -246,14 +246,20 @@ public final class NukeWater {
         return most > 0.004f;
     }
 
-    /** Строка сценария: вода под подрывами, колец на воде в последнем кадре, мест брызг за тик, частиц брызг и пыли у земли. */
+    /**
+     * Строка сценария: вода под подрывами, столб (верх, наружный радиус, доля воды, что ещё не упала; м модели), колец на
+     * воде в последнем кадре, мест брызг за тик, частиц брызг и пыли у земли.
+     */
     public static String describe() {
         StringBuilder sb = new StringBuilder();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
-            int[] n = a.water.visible(a.seconds(0));
-            CloudPuffs.Wall w = a.puffs.wall(a.seconds(0));
-            sb.append(String.format(Locale.ROOT, " [#%d t=%.1fs wet=%.2f (%s) column=%d mist=%d surge=%d wall=%.0f spray-ground=%d]", a.d.id(),
-                    a.seconds(0), a.water.wet(), a.water.source(), n[0], n[1], n[2], w.head(), a.puffs.wetGround()));
+            double t = a.seconds(0);
+            WaterModel.Column c = a.water.wet() > 0 ? WaterModel.column(t, a.d.yieldKt()) : null;
+            String column = c == null ? "none" : String.format(Locale.ROOT, "top %.0f m, r %.0f m, water %.2f", c.top(), c.outer(), c.water());
+            CloudPuffs.Wall w = a.puffs.wall(t);
+            sb.append(String.format(Locale.ROOT, " [#%d t=%.1fs wet=%.2f (%s) column %s, surge r %.0f m, wall=%.0f spray-ground=%d]", a.d.id(),
+                    t, a.water.wet(), a.water.source(), column, WaterModel.surgeRadius(t, a.d.yieldKt()) * (a.water.wet() > 0 ? 1 : 0),
+                    w.head(), a.puffs.wetGround()));
         }
         Minecraft mc = Minecraft.getInstance();
         int live = mc.level == null ? 0 : ua.zentix.incoming.client.fx.particle.FxPool.INSTANCE.live(FxBudget.SPRAY);

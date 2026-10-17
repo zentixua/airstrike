@@ -318,13 +318,15 @@ public final class IncomingConfig {
                     .translation("incoming.config.auto_camera").define("auto_camera", false);
             zoom = b.comment("Designator binocular zoom.")
                     .translation("incoming.config.zoom").defineInRange("zoom", 4.0, 1.5, 10.0);
-            nukeCloudQuality = b.comment("Dust wall detail: LOW / MEDIUM / HIGH = 600 / 1200 / 2000 puffs in the dust wall of a nuclear blast wave",
-                            "(fewer in the spray column of a burst on water). The mushroom cloud is a volume: nuke_dust_quality.")
+            nukeCloudQuality = b.comment("Dust wall detail: LOW / MEDIUM / HIGH = 600 / 1200 / 2000 puffs in the dust wall of a nuclear blast wave.",
+                            "The mushroom cloud and the water column of a burst on water are a volume: nuke_dust_quality.")
                     .translation("incoming.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
-            nukeDustQuality = b.comment("Mushroom cloud and the dust and smoke pall after a nuclear blast wave, as a volume: OFF / LOW / MEDIUM / HIGH.",
+            nukeDustQuality = b.comment("Mushroom cloud (with the water column of a burst on water) and the dust and smoke pall after a nuclear blast wave",
+                            "(over water, spray and the base surge), as a volume: OFF / LOW / MEDIUM / HIGH.",
                             "LOW is lighter on a weak graphics card; MEDIUM and HIGH lower their own detail (not below LOW) while the volume takes more",
                             "than about 2 ms of graphics card time a frame, but not while Flashback exports a video.",
-                            "OFF leaves only the dust wall and falling ash: no pall, and it does not muffle sounds. The mushroom cloud stays, at LOW.")
+                            "OFF leaves only the dust wall and falling ash: no pall or base surge, and it does not muffle sounds. The mushroom cloud",
+                            "and water column stay, at LOW.")
                     .translation("incoming.config.nuke_dust_quality").defineEnum("nuke_dust_quality", DustQuality.MEDIUM);
             nukeTinnitus = b.comment("Ringing ears and muffled hearing after a nearby blast wave.")
                     .translation("incoming.config.nuke_tinnitus").define("nuke_tinnitus", true);

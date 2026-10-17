@@ -130,8 +130,7 @@ public final class NukeRenderer {
                         gr, gg, gb, ga * (1 - 0.7f * haze));
             };
             a.puffs.sprites(a.seconds(view.partial()), view.partial(), view.ambient(), sink);
-            // подрыв на воде: столб, кольцо тумана, базисная волна — над водой под эпицентром; кольцо фронта на воде
-            a.water.sprites(a.seconds(view.partial()), view.ambient(), a.d.groundY() - 0.1, sink);
+            // кольцо фронта на воде
             NukeWater.decal(a, view.partial());
         }
     }

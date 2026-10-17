@@ -81,9 +81,11 @@ Over water the wave raises no dust. It runs across the water as a dark ring of r
 where the wind is strong, and white foam near the centre. Behind the wave the air over the water fills with white spray
 instead of a dust pall. It thins within a minute and is gone in about three. Dust that the wind carries from the shore
 out over the water stays brown, and spray carried ashore stays white. A burst on the water or just above it throws up
-a hollow column of water about a kilometre high at 15 kt. A ring of mist forms on the water for a few seconds, and when
-the column falls, a white base surge rolls out for minutes. It is a bright mist: in its thick part you see only some
-50 m, and it thins out over a quarter of an hour.
+a hollow column of water, about a kilometre high at 15 kt within a few seconds. Its top opens into a crown of spray,
+and the rising mushroom cloud covers it after about ten seconds. Right behind the wave a thin white cloud of
+condensation hangs over the water for a second or two. The column then narrows and falls back into the water over
+about twenty seconds, and the falling water rolls out as a white base surge for minutes. It is a bright mist: in its
+thick part you see only some 50 m, and it thins out over a quarter of an hour.
 
 Far away the blast comes as a sharp double crack and a deep boom, and then echoes back from the hills, forests and
 towns around you: every slope that faces both the burst and you sends it back, later the farther it is. Animals around

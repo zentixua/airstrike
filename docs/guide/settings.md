@@ -15,8 +15,8 @@ Each player has their own, stored in `config/incoming-client.toml`.
 | Show strikes in flight | on | list of your projectiles and marks in the world |
 | Projectile camera on launch | off | the camera shows every launch by itself |
 | Binocular zoom | 4 | from 1.5 to 10 |
-| Blast dust and spray detail | MEDIUM | puffs in the dust wall of a nuclear blast wave and in the spray column of a burst on water; lower is lighter on a weak computer |
-| Mushroom cloud and dust pall | MEDIUM | the mushroom cloud, the dust and smoke over the area after a nuclear blast, and the firestorm over a burning town, drawn as a volume; lower is lighter on a weak graphics card, and MEDIUM and HIGH lower their own detail when the card falls behind (not while Flashback exports a video); OFF: no pall and no firestorm, only the dust wall and falling ash, and the mushroom cloud at LOW |
+| Blast dust and spray detail | MEDIUM | puffs in the dust wall of a nuclear blast wave; lower is lighter on a weak computer |
+| Mushroom cloud and dust pall | MEDIUM | the mushroom cloud with the water column of a burst on water, the dust and smoke over the area after a nuclear blast, the base surge over water, and the firestorm over a burning town, drawn as a volume; lower is lighter on a weak graphics card, and MEDIUM and HIGH lower their own detail when the card falls behind (not while Flashback exports a video); OFF: no pall, no base surge and no firestorm, only the dust wall and falling ash, and the mushroom cloud and water column at LOW |
 | Deafness and ringing ears | on | muffled hearing after a nearby blast wave |
 | Muffle distant and hidden strikes | on | distant strikes lose high tones, hidden ones sound muffled, and inside the dust pall all distant sounds are muffled |
 

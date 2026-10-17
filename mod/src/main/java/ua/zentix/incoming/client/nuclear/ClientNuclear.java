@@ -34,8 +34,8 @@ public final class ClientNuclear {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
-        /** Подрыв на воде: столб, кольцо тумана, базисная волна ({@link NukeWater}). */
-        final WaterPuffs water;
+        /** Вода под подрывом ({@link NukeWater#resolve}): столб в объёме гриба, базисная волна в пелене. */
+        final BurstWater water;
         /**
          * Пелена после волны ({@link NukePall}): «до утра» — от времени суток в миг подрыва и по часам мира после него
          * ({@link PallField#daylight}).
@@ -51,7 +51,7 @@ public final class ClientNuclear {
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d), new WaterPuffs(d, WaterPuffs.count(d)), null, null, null);
+            this(d, live, clientNow, new CloudPuffs(d), new BurstWater(), null, null, null);
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
@@ -60,7 +60,7 @@ public final class ClientNuclear {
             puffs.untrack();
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water, @Nullable PallField pall,
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, BurstWater water, @Nullable PallField pall,
                 @Nullable FireStorm storm, @Nullable PallGround ground) {
             this.d = d;
             this.live = live;
