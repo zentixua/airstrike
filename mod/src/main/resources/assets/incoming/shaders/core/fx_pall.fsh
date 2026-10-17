@@ -106,12 +106,16 @@ void slot(mat4 S, vec4 G, vec4 H, vec3 p, vec3 sunDir, inout Sample s) {
     float d = f.x * shape, h = f.y * mix(1.0, shape, 0.5);
     // свет стены пыли (CloudPuffs.wallColor): шар и шапка сверху, пожары под пылью — как у её клубов на том же месте
     float r = length(p.xz - S[0].xy), up = clamp(height.x, 0.0, 1.0);
-    float lit = pallLit(r, up, G.x, G.z), burn = pallBurn(r, up, G.y, G.w);
+    // пожары под пылью днём едва видны, как их зарево на мгле (NukePall: fireLight): за волной стена проходит за секунды,
+    // а пелена висит над горящим городом минуты — днём во всю силу она выходила бы ровно-оранжевой
+    float lit = pallLit(r, up, G.x, G.z), burn = pallBurn(r, up, G.y, G.w) * (1.0 - 0.75 * PallSun.w);
     float heat = max(lit, burn);
     // тень соседнего клуба: шум на пятую плитки к главному свету против среднего — к солнцу или, пока он ярче, к шару
-    // и шапке над эпицентром (ночью это весь свет пыли)
+    // и шапке над эпицентром или к пожарам под пылью (ночью это весь свет пыли)
     float key = clamp(heat * PallGlowOnSmoke / (heat * PallGlowOnSmoke + 0.5 * PallSun.w + 0.02), 0.0, 1.0);
     vec3 toLight = vec3(S[0].x, S[0].z + H.w, S[0].y) - p;
+    // светят пожары внизу — тень клуба к ним, а не к шапке
+    if (burn > lit) toLight = vec3(0.0, -1.0, 0.0);
     float sunStep = 0.2 * S[3].y;
     vec3 keyDir = mix(sunDir, toLight / max(length(toLight), 1e-3), key);
     float toward = pallShape(noiseAt(S, p + keyDir / max(length(keyDir), 1e-3) * sunStep, warp), fill);

@@ -46,7 +46,7 @@ class ShaderSourceTest {
 
     @Test
     void findsTheConditionalsVeilBreaks() {
-        assertEquals(List.of(1, 2, 3), nested("""
+        assertEquals(List.of(1, 2, 3, 8), nested("""
                 wall += (a + b) * (burn > lit ? FIRE : H.rgb) * heat;
                 float t = max((burn > lit ? x : y) + clump, 0.0);
                 float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);
@@ -54,6 +54,7 @@ class ShaderSourceTest {
                 float z = along(DhInvProj, ndc, DhDepth.y > 0.5 ? lod * 2.0 - 1.0 : lod);
                 vec4 tex = n > 0.5 ? a : n < -0.5 ? b : c; // (x ? y : z) в комментарии
                 return ok ? v : vec4(0.0);
+                return(c ? a : b) * y;
                 """));
     }
 
@@ -82,7 +83,8 @@ class ShaderSourceTest {
                     break;
                 }
             }
-            boolean group = i >= 0 && tokens.get(i).equals("(") && (i == 0 || !tokens.get(i - 1).matches("[A-Za-z_]\\w*"));
+            boolean group = i >= 0 && tokens.get(i).equals("(")
+                    && (i == 0 || tokens.get(i - 1).equals("return") || !tokens.get(i - 1).matches("[A-Za-z_]\\w*"));
             if (group) {
                 int line = (int) s.substring(0, at.get(q)).chars().filter(c -> c == '\n').count() + 1;
                 if (!lines.contains(line)) lines.add(line);
