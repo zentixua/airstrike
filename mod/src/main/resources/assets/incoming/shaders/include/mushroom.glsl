@@ -200,14 +200,15 @@ float mushWall(Mush m, vec3 q, float rho) {
 }
 
 // Расстояния со знаком до края шапки, ножки, юбки и столба воды без клубов в месте q тела, блоки (у ножки — по радиусу на
-// этой высоте; её верх и низ — mushStemSigma; столба нет — далеко): стенка столба и корона над ней — одна поверхность
+// этой высоте; её верх и низ — mushStemSigma; столба нет — далеко): стенка столба и корона на ней — одна поверхность;
+// корона — кольцо, в сечении эллипс с серединой на середине стенки (WaterModel.Column)
 vec4 mushDist(Mush m, vec3 q) {
     float rho = length(q.xz);
     float ring = mushEllipseDist(rho - m.ringR, q.y - m.capY, m.ringA, m.ringB);
     float dome = mushEllipseDist(rho, q.y - m.domeY, m.domeR, m.domeH);
     float column = 1e9;
     if (m.colSigma > 0.0) {
-        float crown = mushEllipseDist(rho, q.y - m.colTop, m.crownR, m.crownH);
+        float crown = mushEllipseDist(rho - m.colMid, q.y - m.colTop, m.crownR - m.colMid, m.crownH);
         column = mushSmin(mushWall(m, q, rho), crown, MUSH_BLEND * mushColumnUnit(m));
     }
     return vec4(mushSmin(ring, dome, MUSH_BLEND * mushCapUnit(m)), rho - mushStemAt(m, q.y),
@@ -222,13 +223,14 @@ float mushStemSigma(Mush m, float h) {
 }
 
 // Ослабление шапки, ножки, юбки и столба воды в месте q без шума — среднее по клубам (край размыт на размах клубов): для
-// толщи к свету и квадратов слоя
+// толщи к свету и квадратов слоя; без столба его край не считается (стенка нулевой толщины — край нулевой ширины)
 vec4 mushMean(Mush m, vec3 q) {
     vec4 d = mushDist(m, q);
-    return vec4(m.capSigma * mushEdge(d.x, 0.5 * MUSH_CAP_LOBES * mushCapUnit(m)),
+    vec4 s = vec4(m.capSigma * mushEdge(d.x, 0.5 * MUSH_CAP_LOBES * mushCapUnit(m)),
             mushStemSigma(m, q.y) * mushEdge(d.y, 0.5 * MUSH_STEM_LOBES * mushStemAt(m, q.y)),
-            m.skirtSigma * mushEdge(d.z, 0.5 * MUSH_SKIRT_LOBES * mushSkirtUnit(m)),
-            m.colSigma * mushEdge(d.w, 0.5 * MUSH_COLUMN_LOBES * mushColumnUnit(m)));
+            m.skirtSigma * mushEdge(d.z, 0.5 * MUSH_SKIRT_LOBES * mushSkirtUnit(m)), 0.0);
+    if (m.colSigma > 0.0) s.w = m.colSigma * mushEdge(d.w, 0.5 * MUSH_COLUMN_LOBES * mushColumnUnit(m));
+    return s;
 }
 
 // Сколько до вещества гриба от места q, блоки мира, не больше (0 — уже в нём или рядом): шаг луча по пустому. Мера
@@ -254,7 +256,8 @@ float mushGap(Mush m, vec3 q) {
         gap = min(gap, (mushEllipse(rho - m.skirtR, q.y, m.skirtW, m.skirtH) - 1.0) * u - MUSH_SKIRT_REACH * u);
     }
     if (m.colSigma > 0.0) {
-        float crown = (mushEllipse(rho, q.y - m.colTop, m.crownR, m.crownH) - 1.0) * min(m.crownR, m.crownH);
+        float a = m.crownR - m.colMid;
+        float crown = (mushRing(rho, q.y - m.colTop, m.colMid, a, m.crownH) - 1.0) * min(a, m.crownH);
         gap = min(gap, min(mushWall(m, q, rho), crown) - MUSH_COLUMN_REACH * mushColumnUnit(m));
     }
     return max(gap, 0.0) / (1.0 + length(m.drift) / max(m.endTop, 1.0));

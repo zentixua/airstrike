@@ -34,9 +34,9 @@ public final class WaterModel {
     /** Масштаб «Бейкера», кт: столб и волна растут как кубический корень мощности. */
     private static final double BAKER_KT = 23;
     /**
-     * Столб у «Бейкера»: наружный радиус (м; 2000 футов в поперечнике), высота (м), постоянная подъёма (с; у 100 кт
-     * столб выше 5000 футов за 2 с, а начальная скорость — 2500 футов в секунду); у подрыва на поверхности — доля его
-     * высоты.
+     * Столб у «Бейкера»: наружный радиус (м; 2000 футов в поперечнике), высота (м), постоянная подъёма (с; подобрана так,
+     * что у мелкого подводного 100 кт столб выше 5000 футов за 2 с: начальная скорость по этому закону — ~3700 футов
+     * в секунду, у купола брызг «Бейкера» в Glasstone, Dolan — 2500); у подрыва на поверхности — доля его высоты.
      */
     static final double COLUMN_RADIUS = 300, COLUMN_TOP = 1800, COLUMN_RISE = 1.6, SURFACE_COLUMN = 0.6;
     /** Толщина стенки столба — доля его наружного радиуса (у 100 кт — 500 футов при 3300 футах в поперечнике). */
@@ -154,13 +154,19 @@ public final class WaterModel {
     }
 
     /**
-     * Столб в момент t, м: середина стенки и её полутолщина по радиусу, верх стенки (середина короны), полуоси короны
-     * (по радиусу и высоте), доля воды, что ещё не упала. Стенка — от воды до середины короны.
+     * Столб в момент t, м: середина стенки и её полутолщина по радиусу, верх стенки (середина короны), наружный край короны
+     * и её полувысота, доля воды, что ещё не упала. Стенка — от воды до середины короны; корона — кольцо на верху стенки:
+     * в сечении эллипс с серединой на середине стенки (раскрывшись шире столба, она сверху сужает и его полость).
      */
     public record Column(double mid, double half, double wallTop, double crownR, double crownH, double water) {
         /** Верх короны над водой, м. */
         public double top() {
             return wallTop + crownH;
+        }
+
+        /** Полуось сечения короны по радиусу, м: от середины стенки до её наружного края. */
+        public double crownA() {
+            return crownR - mid;
         }
 
         /** Наружный край короны или стенки, м. */
@@ -172,7 +178,8 @@ public final class WaterModel {
     /**
      * Столб воды в момент t; null — ещё не встал или упал. Корона раскрывается, когда струи тормозят (доля подъёма), и
      * падает с наружной завесой, пока столб сужается ({@link #COLUMN_SHRINK}): дальше верх стенки — скруглённый край
-     * в её толщину; не выше четверти столба, пока он низкий. Толщина стенки — та же.
+     * в её толщину (сечение короны — круг в толщину стенки). Пока столб ниже короны (первые доли секунды, конец падения),
+     * её середина под водой: над водой — её верх. Толщина стенки — та же.
      */
     public static Column column(double t, double yieldKt) {
         double top = columnTop(t, yieldKt), fall = columnFall(t, yieldKt);
@@ -180,8 +187,17 @@ public final class WaterModel {
         double s = bakerScale(yieldKt), r = columnRadius(yieldKt), half = 0.5 * columnWall(yieldKt);
         double shrink = smooth(SHRINK_FROM * s, SHRINK_TO * s, t), outer = r * (1 - COLUMN_SHRINK * shrink);
         double open = (1 - Math.exp(-t / (COLUMN_RISE * s))) * (1 - shrink);
-        double crownH = Math.min(Math.max(CROWN_H * r * open, half), 0.25 * top), crownR = outer * (1 + (CROWN_R - 1) * open);
+        double crownH = Math.max(CROWN_H * r * open, half), crownR = outer * (1 + (CROWN_R - 1) * open);
         return new Column(outer - half, half, top - crownH, crownR, crownH, 1 - fall);
+    }
+
+    /**
+     * Сколько воды столба видно брызгами, 0..1: пока светит шар, вода в нём и у него — пар (его ничем не закрыть), и
+     * столб проступает, когда шар остывает, — за 4–20 t_max его второго максимума, как пыль ножки ({@link MushroomModel}):
+     * у 15 кт — за 0,5–2,5 с.
+     */
+    public static double columnShow(double t, double yieldKt) {
+        return smooth(4, 20, t / FireballModel.secondMaximumSeconds(yieldKt));
     }
 
     /** Когда встаёт базисная волна, с. */

@@ -217,20 +217,20 @@ public final class MushroomField {
     }
 
     /**
-     * Радиус рамки со столбом воды, м: стенка и корона с клубами — как у частей гриба, по мере эллипса короны
-     * ({@code mushGap}); стенка — по расстоянию.
+     * Радиус рамки со столбом воды, м: стенка и корона с клубами — как у частей гриба, по мере эллипса сечения кольца
+     * короны ({@code mushGap}); стенка — по расстоянию.
      */
     static double reach(MushroomModel.Shape s, @Nullable WaterModel.Column c) {
         if (c == null) return reach(s);
-        double r = REACH_COLUMN * columnUnit(c);
-        return Math.max(reach(s), Math.max(c.mid() + c.half() + r, c.crownR() * (1 + r / Math.min(c.crownR(), c.crownH()))));
+        double r = REACH_COLUMN * columnUnit(c), a = c.crownA();
+        return Math.max(reach(s), Math.max(c.mid() + c.half() + r, c.mid() + a * (1 + r / Math.min(a, c.crownH()))));
     }
 
     /** Верх рамки со столбом воды над водой, м. */
     static double top(MushroomModel.Shape s, @Nullable WaterModel.Column c) {
         if (c == null) return top(s);
         double r = REACH_COLUMN * columnUnit(c);
-        return Math.max(top(s), c.wallTop() + Math.max(r, c.crownH() * (1 + r / Math.min(c.crownR(), c.crownH()))));
+        return Math.max(top(s), c.wallTop() + c.crownH() * (1 + r / Math.min(c.crownA(), c.crownH())));
     }
 
     /** Единица клубов столба, м ({@code mushColumnUnit}): толщина стенки. */
@@ -302,11 +302,12 @@ public final class MushroomField {
         // пожары под грибом: верх дыма шторма и радиус зоны пожаров (свет — fire, после света кадра); дымка воздуха —
         // по настоящей дальности, как у дальнего (в блоках гриб меньше в effects_scale раз)
         put(into, o, 11, d.blocks(0.3 * FireballModel.riseSpeed(y) * t), a.pall.hazeTop(), a.pall.fireReach(), airSigma / d.scale());
-        // столб воды: ослабление стенки — её толща поперёк на её толщину, × вода, что ещё не упала, × насколько подрыв
-        // «водяной»; струи стенки идут с водой — шум по высоте сдвинут на верх столба (вверх, пока растёт, вниз, когда падает)
+        // столб воды: ослабление стенки — её толща поперёк на её толщину, × вода, что ещё не упала и уже не пар, × насколько
+        // подрыв «водяной»; струи стенки идут с водой — шум по высоте сдвинут на верх столба (вверх, пока растёт, вниз,
+        // когда падает)
         if (c != null) {
-            double half = d.blocks(c.half());
-            put(into, o, 13, d.blocks(c.mid()), half, d.blocks(c.wallTop()), COLUMN_TAU * c.water() * wet / Math.max(2 * half, 1));
+            double half = d.blocks(c.half()), water = c.water() * WaterModel.columnShow(t, y) * wet;
+            put(into, o, 13, d.blocks(c.mid()), half, d.blocks(c.wallTop()), COLUMN_TAU * water / Math.max(2 * half, 1));
             matter(into, o, 14, CloudPuffs.SPRAY, G_WATER);
             put(into, o, 15, d.blocks(c.crownR()), d.blocks(c.crownH()), d.blocks(c.top()), d.blocks(COLUMN_TILE * WaterModel.columnRadius(y)));
         }

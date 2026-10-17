@@ -529,8 +529,8 @@ public final class ClientScenario {
         Incoming.LOG.info("SCENARIO detonation at tick {}: ground {} at {}, eye {} blocks away", tick, String.format(java.util.Locale.ROOT, "%.1f", d.groundY()),
                 xyz(d.burst()), Math.round(Math.hypot(d.burst().x - waterEye.x, d.burst().z - waterEye.z)));
         if (!lake && "far".equals(System.getenv("INCOMING_WATER"))) {
-            // издалека: в 4 км от подрыва по линии через берег, в 400 блоках над морем, узкий угол — столб целиком, его
-            // корона, сужение и падение, пока стена брызг не дошла до зрителя
+            // издалека: в 4 км от подрыва по линии через зрителя у берега (в ~2,5 км за берегом), на высоте 400 (~340 блоков
+            // над морем), узкий угол — столб целиком, его корона, сужение и падение, пока стена брызг не дошла до зрителя
             double ax = waterEye.x - waterBurst.x, az = waterEye.z - waterBurst.z, l = Math.hypot(ax, az);
             waterEye = new Vec3(waterBurst.x + ax / l * 4000, 400, waterBurst.z + az / l * 4000);
             Minecraft.getInstance().options.fov().set(30);

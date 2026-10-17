@@ -124,8 +124,8 @@ class WaterModelTest {
     }
 
     /**
-     * Корона — наверху столба: её верх — верх столба, середина — над водой; шире стенки, когда струи затормозили, и
-     * не выше четверти столба, пока он низкий; вода столба убывает, пока он падает.
+     * Корона — кольцо наверху столба: её верх — верх столба, сечение — не тоньше стенки и не площе 2,5 : 1 (и у низкого
+     * столба: её середина тогда под водой); шире стенки, когда струи затормозили; вода столба убывает, пока он падает.
      */
     @Test
     void crownSitsOnTheColumn() {
@@ -137,8 +137,8 @@ class WaterModelTest {
                 continue;
             }
             assertEquals(WaterModel.columnTop(t, 15), c.top(), 1e-9, t + " с");
-            assertTrue(c.wallTop() >= 0.75 * c.top() - 1e-9, t + " с: корона ниже четверти столба");
-            assertTrue(c.crownR() >= c.mid() + c.half() - 1e-9, t + " с: корона уже стенки");
+            assertTrue(c.crownA() >= c.half() - 1e-9 && c.crownH() >= c.half() - 1e-9, t + " с: корона тоньше стенки");
+            assertTrue(c.crownA() <= 2.5 * c.crownH(), t + " с: корона плоская: " + c.crownA() + " на " + c.crownH());
             assertTrue(c.mid() - c.half() > 0, t + " с: столб полый");
             assertTrue(c.water() <= prevWater + 1e-12 && c.water() > 0, t + " с: вода " + c.water());
             prevWater = c.water();
@@ -152,6 +152,15 @@ class WaterModelTest {
         assertTrue(WaterModel.columnTop(15, 15) < WaterModel.columnTop(9, 15), "к 15 с столб оседает");
         assertEquals(falling.mid() + falling.half(), falling.crownR(), 1e-9, "оседающий столб без короны");
         assertTrue(falling.crownH() <= falling.half() + 1e-9, "верх оседающего столба — край стенки");
+    }
+
+    /** Столб проступает, когда шар остывает: у 15 кт за 0,5–2,5 с, у 1 Мт — позже (шар светит дольше). */
+    @Test
+    void columnShowsAsTheBallCools() {
+        assertEquals(0, WaterModel.columnShow(0.4, 15), 1e-9, "пока шар светит, вода у него — пар");
+        assertEquals(1, WaterModel.columnShow(2.6, 15), 1e-9, "шар остыл — столб виден весь");
+        assertTrue(WaterModel.columnShow(1.5, 15) > 0.3 && WaterModel.columnShow(1.5, 15) < 0.8);
+        assertTrue(WaterModel.columnShow(2.6, 1000) < 0.5, "у 1 Мт шар светит дольше");
     }
 
     /**
