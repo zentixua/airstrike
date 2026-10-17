@@ -300,7 +300,7 @@
       {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-360, 2], "above": 0}, "eta": 2.8},
       {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-335, 8], "above": 0}, "eta": 3.3}
      ],
-     "cover": {"n20": {"subject": "impact", "weapon": "rocket", "near": {"at": [-385, 10], "above": 0}, "need": "FPV"}}}
+     "cover": {"n20": {"subject": "framed", "weapon": "rocket", "need": "FPV"}}}
    ],
    "after": [{"do": "fight.stop"}, {"do": "fight.remove"}]
   },
