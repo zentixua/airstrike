@@ -61,6 +61,12 @@ public final class DhUpdates {
      * ({@link #sendHeld}) уходит за столько до прихода фронта — LOD меняется не раньше него.
      */
     public static final int LEAD = DhQueue.LEAD;
+    /**
+     * Сколько DH держит отданную копию чанка не в мире, нс, не меньше: до записи в базу (без подтверждения — до срока
+     * {@link DhQueue#TIMEOUT_NANOS}) и ещё {@link DhQueue#CACHE_NANOS} в своём кэше: память копии, отданной к фронту, —
+     * столько после отдачи.
+     */
+    public static final long HOLD_NANOS = DhQueue.TIMEOUT_NANOS + DhQueue.CACHE_NANOS;
     /** Миры, ждущие подтверждений держанных копий: поток DH ({@link #saved}) находит по миру его очередь. */
     private static final Map<Object, DhUpdates> LISTENING = new ConcurrentHashMap<>();
 
@@ -233,12 +239,19 @@ public final class DhUpdates {
         }
         if (due.isEmpty() && offered.isEmpty()) return;
         int budget = PER_TICK;
-        // собранные чанки — первыми: отметки чанков в мире подождут тик, а собранные держат память
-        for (ChunkAccess c; budget > 0 && (c = offered.poll()) != null; budget--) {
+        // собранные чанки — первыми: отметки чанков в мире подождут тик, а собранные держат память; чанк, отданный DH
+        // меньше RESEND тиков назад (держанной копией или прошлой собранной), — в конец: DH пропустил бы его молча
+        for (int i = 0, n = offered.size(); budget > 0 && i < n; i++) {
+            ChunkAccess c = offered.poll();
             long key = c.getPos().toLong();
+            if (sent.containsKey(key) && now - sent.get(key) < RESEND) {
+                offered.add(c);
+                continue;
+            }
             if (offeredCount.addTo(key, -1) <= 1) offeredCount.remove(key);
             sink.overwrite(level, c);
             sent.put(key, now);
+            budget--;
         }
         // отправленных за RESEND тиков — не больше (PER_TICK + окно держанных копий) × RESEND
         sent.long2LongEntrySet().removeIf(e -> now - e.getLongValue() >= RESEND);

@@ -42,6 +42,11 @@ final class DhQueue {
      * выключена — события нет; чанк не изменился — DH его не пишет) копия уходит из окна по сроку.
      */
     static final long TIMEOUT_NANOS = 5_000_000_000L;
+    /**
+     * {@code ChunkUpdateQueueManager.queuedChunkWrapperByChunkPos}: копию чанка, отданную DH, его кэш держит ещё столько
+     * после последнего обращения ({@code expireAfterAccess(10, SECONDS)}), нс.
+     */
+    static final long CACHE_NANOS = 10_000_000_000L;
 
     /** Отданные держанные копии без подтверждения: чанк → когда отданы ({@code System.nanoTime}). */
     private final Long2LongOpenHashMap out = new Long2LongOpenHashMap();

@@ -14,6 +14,7 @@ import ua.zentix.incoming.grid.ChunkLights;
 import ua.zentix.incoming.grid.PowerGrid;
 import ua.zentix.incoming.nuclear.Detonation;
 
+import java.util.ArrayDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -29,9 +30,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * <p>
  * Память — в месте руин заранее ({@code NuclearPrep.PLANS_CAP}) после планов: копии собираются, когда планы с диска всей
  * зоны отданы и готовы (или больше не строятся), из того, что оставили планы, снимки и чтения, ближние к эпицентру
- * первыми; не помещаются — дальние уходят, их LOD — путём {@link FarLods} после волны. Копия чанка, который тем временем
- * загрузился, уходит: руины и LOD ему ставит мир. Запросы {@link FarLods} руин чанка с копией и света его квартала
- * берёт копия ({@link #claim}). Подрыв без полёта ({@code nuke now}) и чанки за тяжёлой зоной — путём {@link FarLods}.
+ * первыми; не помещаются — дальние уходят, их LOD — путём {@link FarLods} после волны. Отданная копия занимает место ещё
+ * {@link DhUpdates#HOLD_NANOS}: её держит DH. Копия чанка, который тем временем загрузился, уходит: руины и LOD ему
+ * ставит мир. Запросы {@link FarLods} руин чанка с копией и света его квартала берёт копия ({@link #claim}); копия,
+ * которая взяла запрос и уходит не в DH (место, остановка по куче, конец подготовки), отдаёт его обратно
+ * {@link FarLods}: он просит руины чанка один раз. Подрыв без полёта ({@code nuke now}) и чанки за тяжёлой зоной — путём
+ * {@link FarLods}.
  */
 final class FrontLods {
     /** Чтений с диска в работе сразу и новых за тик — как у {@link FarLods}: поток ввода-вывода общий с загрузкой мира. */
@@ -59,10 +63,10 @@ final class FrontLods {
         ProtoChunk chunk;
         int[] lamps = NO_LAMPS;
         /**
-         * В копии руины; квартал сменил свет ({@link FarLods}: LOD уходит и без изменений против диска); в ней были
-         * горящие лампы сети; ушла с погашенными.
+         * В копии руины; квартал сменил свет ({@link FarLods}: LOD уходит и без изменений против диска); запрос руин
+         * взят копией; в ней были горящие лампы сети; ушла с погашенными.
          */
-        boolean ruined, lights, lit, dark;
+        boolean ruined, lights, ruins, lit, dark;
         long bytes;
         /** Приход фронта к середине чанка ({@link ScarQueue#due}); до подрыва — 0. */
         long due;
@@ -85,6 +89,9 @@ final class FrontLods {
     private int reading;
     /** Байт в держанных копиях. */
     private long readyBytes;
+    /** Отданные копии, которые ещё держит DH ({@link DhUpdates#HOLD_NANOS}): когда отданы и байт; их байт всего. */
+    private final ArrayDeque<long[]> inDh = new ArrayDeque<>();
+    private long dhBytes;
     @Nullable
     private DiskShots.Format format;
     @Nullable
@@ -105,9 +112,9 @@ final class FrontLods {
         candidates.add(chunk);
     }
 
-    /** Байт под копиями: держанные и чтения в работе. */
+    /** Байт под копиями: держанные, отданные, которые ещё держит DH, и чтения в работе. */
     long bytes() {
-        return readyBytes + (long) reading * READ_BYTES;
+        return readyBytes + dhBytes + (long) reading * READ_BYTES;
     }
 
     /**
@@ -125,7 +132,9 @@ final class FrontLods {
             clear(level);
             return;
         }
-        fit(room);
+        long nanos = System.nanoTime();
+        for (long[] e; (e = inDh.peek()) != null && nanos - e[0] >= DhUpdates.HOLD_NANOS; inDh.poll()) dhBytes -= e[1];
+        fit(level, room);
         if (build) start(level, plans, room, now);
         if (d != null) release(level, now);
     }
@@ -161,12 +170,13 @@ final class FrontLods {
     }
 
     /** Копии сверх места: держанные уходят с конца очереди — дальние от эпицентра (чтения в работе доходят). */
-    private void fit(long room) {
+    private void fit(ServerLevel level, long room) {
         for (int i = candidates.size() - 1; i >= 0 && bytes() > room && readyBytes > 0; i--) {
             long chunk = candidates.getLong(i);
             Copy c = copies.get(chunk);
             if (c == null || c.state != READY || c.index != i) continue;
             drop(chunk, c);
+            giveBack(level, chunk, c);
             evicted++;
         }
     }
@@ -270,9 +280,13 @@ final class FrontLods {
         boolean dark = PowerGrid.get(level).dark(ChunkPos.getX(chunk), ChunkPos.getZ(chunk), Math.max(now, c.due));
         int lamps = dark ? ChunkLights.darken(c.chunk.getSections(), c.lamps) : 0;
         if (!c.ruined && lamps == 0 && !c.lights) {
+            // LOD и так тот же; лампы в нём горят — свет квартала потом сверяется, как у ушедшей (claim)
             readyBytes -= c.bytes;
             c.chunk = null;
-            c.state = NOTHING;
+            c.lit = c.lamps.length > 0;
+            c.lamps = NO_LAMPS;
+            c.dark = dark;
+            c.state = c.lit ? SENT : NOTHING;
             unchanged++;
             return;
         }
@@ -286,7 +300,10 @@ final class FrontLods {
             schedule.add(chunk, now + 1);
             return;
         }
+        // память копии — пока её держит DH
         readyBytes -= c.bytes;
+        dhBytes += c.bytes;
+        inDh.add(new long[] {System.nanoTime(), c.bytes});
         c.chunk = null;
         c.lit = c.lamps.length > 0;
         c.lamps = NO_LAMPS;
@@ -304,6 +321,15 @@ final class FrontLods {
         copies.remove(chunk);
         readyBytes -= c.bytes;
         schedule.remove(chunk);
+    }
+
+    /**
+     * Копия, снятая не в DH: запросы руин и света, которые она взяла, — обратно {@link FarLods} (он просит руины чанка
+     * один раз, по приходу волны). Сама копия уже снята — запрос её не найдёт.
+     */
+    private static void giveBack(ServerLevel level, long chunk, Copy c) {
+        if (c.ruins) FarLods.request(level, chunk, true);
+        if (c.lights) FarLods.request(level, chunk, false);
     }
 
     /**
@@ -329,6 +355,7 @@ final class FrontLods {
             }
             case READY -> {
                 if (lights) c.lights = true;
+                else c.ruins = true;
                 return OURS;
             }
             case SENT -> {
@@ -358,11 +385,22 @@ final class FrontLods {
      */
     void clear(ServerLevel level) {
         if (d != null && !reported && (announced || next > 0)) report(level);
+        // взятые запросы держанных и читаемых копий — обратно FarLods, когда копий уже нет
+        LongArrayList back = new LongArrayList();
+        java.util.ArrayList<Copy> backCopies = new java.util.ArrayList<>();
+        for (var e : copies.long2ObjectEntrySet()) {
+            Copy c = e.getValue();
+            if ((c.state == READY || c.state == BUILDING) && (c.ruins || c.lights)) {
+                back.add(e.getLongKey());
+                backCopies.add(c);
+            }
+        }
         copies.clear();
         schedule.clear();
         candidates.clear();
         next = 0;
         readyBytes = 0;
+        for (int i = 0; i < back.size(); i++) giveBack(level, back.getLong(i), backCopies.get(i));
     }
 
     private void report(ServerLevel level) {

@@ -15,6 +15,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
 
 /**
@@ -115,7 +116,8 @@ public final class DhChunks {
         if (listening || !available()) return;
         listening = true;
         try {
-            Api.listen();
+            String refused = Api.listen();
+            if (refused != null) Incoming.LOG.warn("Distant Horizons: no notice of saved LODs ({}) — LODs sent ahead of the blast wave are paced by a timeout instead", refused);
         } catch (LinkageError | RuntimeException e) {
             Incoming.LOG.warn("Distant Horizons: no notice of saved LODs — LODs sent ahead of the blast wave are paced by a timeout instead", e);
         }
@@ -139,13 +141,16 @@ public final class DhChunks {
             return configs == null ? 1 : configs.multiThreading().threadCount().getValue();
         }
 
-        static void listen() {
-            DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
+        /** Подписка; null — встала, иначе — почему DH её не принял. */
+        @Nullable
+        static String listen() {
+            DhApiResult<Void> r = DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
                 @Override
                 public void onChunkModified(DhApiEventParam<EventParam> input) {
                     DhUpdates.saved(input.value.levelWrapper.getWrappedMcObject(), input.value.chunkX, input.value.chunkZ);
                 }
             });
+            return r == null || r.success ? null : String.valueOf(r.message);
         }
 
         static void forgetGenerators() {
