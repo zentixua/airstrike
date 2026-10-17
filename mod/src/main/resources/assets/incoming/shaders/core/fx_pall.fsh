@@ -851,9 +851,10 @@ float mushCapLobes(Mush m, vec3 q, float cone, float k) {
 
 // Ослабление шапки, ножки, юбки и столба воды гриба m в месте q тела с клубами, 1/блок; lobes — сдвиг края шапки
 // клубами (доля размаха), depth — глубина под краем шапки без клубов в её единицах (0 у края), near — сколько до края
-// с клубами у ближайшей части, блоки (оценка: клубы меняются не круче своей плитки — шагу луча вполовину её). Клубы
-// шапки, юбки и короны — круглые купола (сдвиг края в блоках одинаков во все стороны); ножки и стенки столба — струи
-// вдоль подъёма (шум вдвое растянут по высоте)
+// с клубами у ближайшей части, блоки (оценка: клубы меняются не круче своей плитки — шагу луча вполовину её; часть
+// дальше своего охвата клубов — до него: без этого шаг у её края, куда пустил mushGap, был бы шагом по пустому, и луч,
+// идущий вдоль короны или кольца шапки, перешагивал их наружные клубы). Клубы шапки, юбки и короны — круглые купола
+// (сдвиг края в блоках одинаков во все стороны); ножки и стенки столба — струи вдоль подъёма (шум вдвое растянут по высоте)
 vec4 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float depth, out float near) {
     lobes = 0.0;
     depth = 0.0;
@@ -868,6 +869,8 @@ vec4 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float d
         sigma.x = m.capSigma * mushEdge(shifted, MUSH_CAP_EDGE * uc);
         near = shifted - MUSH_CAP_EDGE * uc;
         depth = clamp(-d.x / max(uc, 1.0), 0.0, 1.0);
+    } else if (m.capSigma > 0.0) {
+        near = d.x - MUSH_CAP_REACH * uc;
     }
     if (m.stemTau > 0.0) {
         float r = mushStemAt(m, q.y);
@@ -889,6 +892,8 @@ vec4 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float d
         float shifted = d.z - MUSH_SKIRT_LOBES * uk * l;
         sigma.z = m.skirtSigma * mushEdge(shifted, MUSH_SKIRT_EDGE * uk);
         near = min(near, shifted - MUSH_SKIRT_EDGE * uk);
+    } else if (m.skirtSigma > 0.0) {
+        near = min(near, d.z - MUSH_SKIRT_REACH * uk);
     }
     float uw = mushColumnUnit(m);
     if (m.colSigma > 0.0 && d.w < MUSH_COLUMN_REACH * uw) {
@@ -900,6 +905,8 @@ vec4 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float d
         float shifted = d.w - MUSH_COLUMN_LOBES * uw * l;
         sigma.w = m.colSigma * mushEdge(shifted, MUSH_COLUMN_EDGE * uw);
         near = min(near, shifted - MUSH_COLUMN_EDGE * uw);
+    } else if (m.colSigma > 0.0) {
+        near = min(near, d.w - MUSH_COLUMN_REACH * uw);
     }
     return sigma;
 }
