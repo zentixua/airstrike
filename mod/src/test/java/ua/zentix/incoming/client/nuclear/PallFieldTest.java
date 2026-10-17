@@ -151,7 +151,7 @@ class PallFieldTest {
 
     /** Часы мира идут ровно с тиков {@code from} до {@code to}: время суток — {@code day0} плюс тики. */
     private static void clock(PallField p, long day0, int from, int to) {
-        for (int t = from; t <= to; t++) p.daylight(t, day0 + t);
+        for (int t = from; t <= to; t++) p.daylight(t, t, day0 + t);
     }
 
     /** Мгла узла у центра в момент {@code ticks}, 1/блок. */
@@ -169,7 +169,7 @@ class PallFieldTest {
         assertTrue(haze(p, 4000) > 0);
         assertEquals(0, haze(p, 6100), 1e-12);
         PallField stopped = new PallField(GROUND, 14000);
-        for (int t = 0; t <= 9000; t++) stopped.daylight(t, 14000);
+        for (int t = 0; t <= 9000; t++) stopped.daylight(t, t, 14000);
         assertTrue(haze(stopped, 8000) > 0, "часы стоят — мгла до утра по прошедшим тикам");
         assertEquals(0, haze(stopped, 10100), 1e-12);
     }
@@ -180,13 +180,13 @@ class PallFieldTest {
         PallField evening = new PallField(GROUND, 14000);
         clock(evening, 14000, 0, 3000);
         assertTrue(haze(evening, 3000) > 0);
-        evening.daylight(3001, 24000);
+        evening.daylight(3001, 3001, 24000);
         assertTrue(haze(evening, 3100) > 0, "гаснет не скачком");
         assertEquals(0, haze(evening, 3001 + PallField.HAZE_FADE_TICKS + 1), 1e-12);
 
         PallField dawn = new PallField(GROUND, 23000);
         clock(dawn, 23000, 0, 300);
-        dawn.daylight(301, 24000);
+        dawn.daylight(301, 301, 24000);
         assertFalse(dawn.visible(301 + PallField.HAZE_FADE_TICKS + 20 * 60 * 30), "мгла ждала бы следующего утра");
         // без сна — правило 5 минут: восход через минуту не гасит её, гаснет к следующему утру
         PallField natural = new PallField(GROUND, 23000);
@@ -200,19 +200,19 @@ class PallFieldTest {
     void timeCommandsMoveTheMorning() {
         PallField set = new PallField(GROUND, 18000);
         clock(set, 18000, 0, 400);
-        set.daylight(401, 1000);
+        set.daylight(401, 401, 1000);
         assertEquals(0, haze(set, 401 + PallField.HAZE_FADE_TICKS + 1), 1e-12);
 
         PallField add = new PallField(GROUND, NOON);
         clock(add, NOON, 0, 100);
-        add.daylight(101, NOON + 100 + 6000);
+        add.daylight(101, 101, NOON + 100 + 6000);
         clock(add, NOON + 6000, 102, 11000);
         assertTrue(haze(add, 10000) > 0);
         assertEquals(0, haze(add, 12100), 1e-12, "утро на 6000 тиков ближе");
 
         PallField lag = new PallField(GROUND, NOON);
         clock(lag, NOON, 0, 6100);
-        lag.daylight(6101, NOON + 5500);
+        lag.daylight(6101, 6101, NOON + 5500);
         clock(lag, NOON - 600, 6102, 7000);
         assertTrue(haze(lag, 17000) > 0, "поправка часов в сумерки — не утро");
     }
@@ -227,7 +227,7 @@ class PallFieldTest {
         long evening = 3 * PallField.DAY + 13000;
         PallField set = new PallField(GROUND, evening);
         clock(set, evening, 0, 100);
-        set.daylight(101, 18000);
+        set.daylight(101, 101, 18000);
         clock(set, 18000 - 101, 102, 6300);
         assertTrue(haze(set, 4800) > 0, "до восхода мгла держится");
         assertEquals(0, haze(set, 101 + 6000 + 1), 1e-12, "восход через 6000 тиков после /time set — мгла погасла");
@@ -235,7 +235,7 @@ class PallFieldTest {
 
         PallField day = new PallField(GROUND, evening);
         clock(day, evening, 0, 100);
-        day.daylight(101, 1000);
+        day.daylight(101, 101, 1000);
         assertEquals(0, haze(day, 101 + PallField.HAZE_FADE_TICKS + 1), 1e-12, "/time set day — уже утро");
     }
 
@@ -244,7 +244,7 @@ class PallFieldTest {
     void timeAddToDawnKeepsFiveMinutes() {
         PallField p = new PallField(GROUND, NOON);
         clock(p, NOON, 0, 100);
-        p.daylight(101, 23600);
+        p.daylight(101, 101, 23600);
         clock(p, 23600 - 101, 102, 7000);
         assertTrue(haze(p, PallField.HAZE_MIN_TICKS - PallField.HAZE_FADE_TICKS - 1) > 0, "через 4 минуты мгла ещё есть");
         assertTrue(haze(p, PallField.HAZE_MIN_TICKS - 300) > 0, "гаснет последнюю минуту, не раньше");
@@ -253,15 +253,70 @@ class PallFieldTest {
         assertTrue(haze(p, 2000) > 0);
     }
 
-    /** Перемотка повтора: утро — снова по времени суток в миг подрыва. */
+    /**
+     * Перемотка повтора: утро — снова от мига подрыва, и первый замер часов места записи сравнивается с ним: до сна мгла
+     * снова есть, после сна её нет сразу (как и было в записи), а не гаснет заново минуту.
+     */
     @Test
-    void rewindForgetsTheSkippedNight() {
+    void rewindFollowsTheClockOfThePlace() {
         PallField p = new PallField(GROUND, 14000);
         clock(p, 14000, 0, 3000);
-        p.daylight(3001, 24000);
+        p.daylight(3001, 3001, 24000);
         assertEquals(0, haze(p, 5000), 1e-12);
         p.rewound();
-        assertTrue(haze(p, 5000) > 0);
+        p.daylight(2000, 2000, 16000);
+        assertTrue(haze(p, 2000) > 0, "до сна");
+        p.rewound();
+        p.daylight(5000, 5000, 26000);
+        assertEquals(0, haze(p, 5000), 1e-12, "после сна");
+    }
+
+    /**
+     * Вошедший позже (вход в мир, смена измерения): время суток подрыва — с сервера, и сон, которого он не видел, — тот
+     * же прыжок: ночной удар, игроки проспали до утра — мглы нет, а не ждёт следующего утра (время суток подрыва по
+     * нынешним часам вышло бы 5:30 — меньше чем за 5 минут до восхода).
+     */
+    @Test
+    void lateJoinerAfterSleepSeesTheMorning() {
+        PallField late = new PallField(GROUND, 14000);
+        late.daylight(2000, 2000, 24000 + 1500);
+        assertEquals(0, haze(late, 2000), 1e-12);
+        PallField guessed = new PallField(GROUND, 24000 + 1500 - 2000);
+        guessed.daylight(2000, 2000, 24000 + 1500);
+        assertTrue(haze(guessed, 2000) > 0, "по нынешним часам — до следующего утра");
+
+        // /time set ночью на вечер: тот же восход, что у видевших прыжок
+        PallField seen = new PallField(GROUND, NOON);
+        clock(seen, NOON, 0, 1000);
+        seen.daylight(1001, 1001, 13000);
+        clock(seen, 13000 - 1001, 1002, 2000);
+        PallField joined = new PallField(GROUND, NOON);
+        joined.daylight(2000, 2000, 13000 + 999);
+        for (double t : new double[]{2000, 9000, 11000, 12000}) assertEquals(haze(seen, t), haze(joined, t), 1e-12, "тик " + t);
+    }
+
+    /** Часы стоят ({@code doDaylightCycle false}): время суток отстаёт от игрового — это не прыжок и у вошедшего позже. */
+    @Test
+    void lateJoinerWithStoppedClock() {
+        PallField late = new PallField(GROUND, 23000);
+        late.daylight(9000, 9000, 23000);
+        assertTrue(haze(late, 9000) > 0, "утро по прошедшим тикам — через 25000");
+        assertEquals(haze(new PallField(GROUND, 23000), 9000), haze(late, 9000), 1e-12);
+    }
+
+    /**
+     * Часы клиента убежали вперёд отстающего сервера (вместе игровое время и время суток) — не прыжок: подрыв за 10 секунд
+     * до восхода, пакет пришёл, когда часы клиента на 15 секунд впереди, уже за восходом, — мгла ждёт следующего утра,
+     * как у всех; поправка часов назад потом — тоже не прыжок.
+     */
+    @Test
+    void clientClockLeadIsNotAJump() {
+        PallField p = new PallField(GROUND, 23800);
+        p.daylight(0, 300, 24100);
+        p.daylight(1, 1, 23801);
+        clock(p, 23800, 2, 3000);
+        assertTrue(haze(p, 3000) > 0, "до следующего утра");
+        assertTrue(p.visible(20000));
     }
 
     /** Без пожаров (высокий подрыв: поджига на земле нет) мглы нет — пелена кончается с пылью, а не утром. */

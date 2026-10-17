@@ -60,14 +60,12 @@ public final class PallField {
     /** Тиков в игровых сутках; утро (6:00) — время суток, кратное им, день — их первая половина. */
     static final long DAY = 24000;
     /**
-     * Часы мира у клиента ушли за тик вперёд его тиков больше чем на столько (сон, {@code /time add}) — это прыжок;
-     * поправки сервера раз в секунду меньше.
+     * Время суток ушло вперёд игрового времени больше чем на столько (сон, {@code /time add}) — это прыжок. Поправки
+     * сервера ({@code ClientNuclear.ClockLead}: отставая, он отводит часы клиента назад и на сотни тиков) двигают оба
+     * вместе и прыжком не выходят.
      */
     static final long SKIP_TICKS = 100;
-    /**
-     * Назад — больше чем на столько ({@code /time set day}): сервер, догоняя отставание, отводит часы клиента назад
-     * и на сотни тиков ({@code ClientNuclear.ClockLead}).
-     */
+    /** Назад — больше чем на столько ({@code /time set day}). */
     static final long SET_TICKS = 1200;
     /** Пыль сносит долей ветра подрыва: у земли ветер слабее, тяжёлое оседает. */
     static final double DRIFT = 0.5;
@@ -95,9 +93,12 @@ public final class PallField {
      * ({@link #daylight}). Пишет тик клиента, читает и кадр — один поток.
      */
     private double end;
-    /** Прошлый замер часов мира ({@link #daylight}): время суток и тики после подрыва; NaN — замера не было. */
-    private long lastDay;
-    private double lastTicks = Double.NaN;
+    /** Часы мира в миг подрыва: игровое время и время суток. */
+    private final long burstGame, burstDay;
+    /** Прошлый замер часов мира ({@link #daylight}): игровое время и время суток; до первого — миг подрыва. */
+    private long lastGame, lastDay;
+    /** Прошлый замер — тиком раньше на глазах у клиента, а не миг подрыва (вход в мир, перемотка повтора). */
+    private boolean watched;
 
     /**
      * @param dayTime время суток мира в миг подрыва (тики, как {@code Level.getDayTime}): мгла держится до утра
@@ -106,6 +107,10 @@ public final class PallField {
         this.d = d;
         this.hazeEnd = hazeEndTicks(dayTime);
         this.end = hazeEnd;
+        this.burstGame = d.gameTime();
+        this.burstDay = dayTime;
+        this.lastGame = burstGame;
+        this.lastDay = burstDay;
         double hob = Math.max(0, d.hobMetres()), ys = Math.cbrt(d.yieldKt() / 15);
         double coverM = groundRange(BlastModel.rangeForOverpressure(BlastModel.kpa(COVER_FROM_PSI), d.yieldKt()), hob);
         double ignite = groundRange(ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility()), hob);
@@ -146,27 +151,34 @@ public final class PallField {
     }
 
     /**
-     * Тик клиента: часы мира ({@code dayTime} — время суток, {@code ticks} — тики после подрыва). Пока часы идут ровно,
-     * мгла ждёт утра, выбранного в миг подрыва ({@link #hazeEndTicks}: подрыв на рассвете — до следующего). Прыгнули
-     * (сон, {@code /time add}, {@code /time set}) — утро заново по времени суток после прыжка: уже день, а был ночью или
-     * часы прошли через восход, — мгла гаснет за минуту; иначе — к ближайшему восходу, но не раньше 5 минут после подрыва
-     * ({@link #HAZE_MIN_TICKS}). Позже, чем ждала до прыжка, мгла не гаснет. Часы стоят ({@code doDaylightCycle false}) —
-     * гаснет по прошедшим тикам.
+     * Тик клиента: часы мира — игровое время {@code gameTime} и время суток {@code dayTime}; {@code ticks} — тики после
+     * подрыва. Пока часы идут ровно, мгла ждёт утра, выбранного в миг подрыва ({@link #hazeEndTicks}: подрыв на рассвете —
+     * до следующего). Прыгнули (сон, {@code /time add}, {@code /time set}) — утро заново по времени суток после прыжка:
+     * уже день, а был ночью или часы прошли через восход, — мгла гаснет; иначе — к ближайшему восходу, но не раньше
+     * 5 минут после подрыва ({@link #HAZE_MIN_TICKS}). Позже, чем ждала до прыжка, мгла не гаснет. Часы стоят
+     * ({@code doDaylightCycle false}) — гаснет по прошедшим тикам.
+     * <p>
+     * Прыжок — сдвиг времени суток против игрового времени: оба приходят одним пакетом времени и вместе идут тиками
+     * клиента. Первый замер после входа в мир и перемотки повтора сравнивается с мигом подрыва (время суток подрыва —
+     * с сервера, {@link Detonation#dayTime}): прыжок, которого клиент не видел, — тот же, что видели все, только уже без
+     * минуты угасания (он был раньше). Кроме {@code /time set} назад на время суток позже подрыва: для вошедшего оно
+     * отстало от игрового, как у стоявших часов, и отличить их нельзя — мгла у него ждёт утра от подрыва, дольше, чем
+     * у видевших прыжок.
      */
-    public void daylight(double ticks, long dayTime) {
-        if (!Double.isNaN(lastTicks)) {
-            double jump = (dayTime - lastDay) - (ticks - lastTicks);
-            if (jump > SKIP_TICKS || jump < -SET_TICKS) {
-                // по времени суток, а не по числу часов: /time set ставит их как есть, и в мире после первых суток
-                // «назад» бывает и на ночь позже прежней (85000 → 18000 — с вечера на полночь)
-                boolean dawn = day(dayTime) && (!day(lastDay) || Math.floorDiv(dayTime, DAY) > Math.floorDiv(lastDay, DAY));
-                double by = dawn ? ticks : Math.max(ticks + Math.floorMod(-dayTime, DAY), HAZE_MIN_TICKS);
-                // раньше — не скачком: гаснет не быстрее чем за минуту (уже гаснет — как гасла)
-                if (by < end) end = Math.min(end, Math.max(by, ticks + HAZE_FADE_TICKS));
-            }
+    public void daylight(double ticks, long gameTime, long dayTime) {
+        long shift = (dayTime - gameTime) - (lastDay - lastGame);
+        // назад — только если ушло назад и время суток: у стоящих часов оно отстаёт от игрового, но не прыгает
+        if (shift > SKIP_TICKS || shift < -SET_TICKS && dayTime - lastDay < -SET_TICKS) {
+            // по времени суток, а не по числу часов: /time set ставит их как есть, и в мире после первых суток
+            // «назад» бывает и на ночь позже прежней (85000 → 18000 — с вечера на полночь)
+            boolean dawn = day(dayTime) && (!day(lastDay) || Math.floorDiv(dayTime, DAY) > Math.floorDiv(lastDay, DAY));
+            double by = dawn ? ticks : Math.max(ticks + Math.floorMod(-dayTime, DAY), HAZE_MIN_TICKS);
+            // на глазах — раньше не скачком: гаснет не быстрее чем за минуту (уже гаснет — как гасла)
+            if (by < end) end = Math.min(end, watched ? Math.max(by, ticks + HAZE_FADE_TICKS) : by);
         }
+        lastGame = gameTime;
         lastDay = dayTime;
-        lastTicks = ticks;
+        watched = true;
     }
 
     /** День — первая половина суток (с 6:00 до 18:00). */
@@ -174,10 +186,15 @@ public final class PallField {
         return Math.floorMod(dayTime, DAY) < DAY / 2;
     }
 
-    /** Перемотка повтора: часы мира — с другого места записи, утро — снова по времени суток в миг подрыва. */
+    /**
+     * Перемотка повтора: часы мира — с другого места записи; утро — снова от мига подрыва, и первый замер сравнивается
+     * с ним (прыжок часов до этого места записи — как у вошедшего в мир).
+     */
     public void rewound() {
         end = hazeEnd;
-        lastTicks = Double.NaN;
+        lastGame = burstGame;
+        lastDay = burstDay;
+        watched = false;
     }
 
     // ---------------------------------------------------------------- законы (общие с шейдером fx_pall)

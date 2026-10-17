@@ -1,6 +1,7 @@
 package ua.zentix.incoming.net;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.DecoderException;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -16,6 +17,7 @@ import ua.zentix.incoming.nuclear.model.Yield;
 import ua.zentix.incoming.target.Sightings;
 import ua.zentix.incoming.util.StreamCodecs;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -368,24 +370,20 @@ public final class S2C {
     /**
      * Ядерный подрыв: всё остальное (вспышку, шар, гриб, волну, звук, дождь) клиент считает сам по модели. Кроме
      * настроек сервера: {@code blackout} — радиус, в котором удар гасит сеть ({@code Blackouts.nukeRadius}; 0 — не
-     * гасит), там лампы коротят дугой ЭМИ. Повтор Flashback, записанный до {@code blackout}, хранит пакет без него —
-     * такой читается с 0 (в нём и не было ЭМИ), иначе ядерка в старом повторе не открывается вовсе.
+     * гасит), там лампы коротят дугой ЭМИ.
+     * <p>
+     * Формат только растёт с конца (replay.md): поля выпуска 3.1.0, потом {@code wave}, {@code blackout} и время суток
+     * подрыва ({@link Detonation#dayTime}) — каждое дописано в конец пакета и в повторе, записанном до него, читается
+     * «как до него»: скорость стены {@link Detonation#OLD_WAVE}, без ЭМИ, время суток неизвестно.
      */
     public record NukeDetonation(Detonation detonation, float blackout) implements CustomPacketPayload {
         public static final Type<NukeDetonation> TYPE = new Type<>(Incoming.id("nuke_detonation"));
-        public static final StreamCodec<ByteBuf, NukeDetonation> CODEC = new StreamCodec<>() {
-            @Override
-            public NukeDetonation decode(ByteBuf b) {
-                Detonation d = Detonation.STREAM_CODEC.decode(b);
-                return new NukeDetonation(d, b.readableBytes() >= Float.BYTES ? b.readFloat() : 0f);
-            }
-
-            @Override
-            public void encode(ByteBuf b, NukeDetonation p) {
-                Detonation.STREAM_CODEC.encode(b, p.detonation);
-                b.writeFloat(p.blackout);
-            }
-        };
+        public static final StreamCodec<ByteBuf, NukeDetonation> CODEC = StreamCodec.composite(
+                Detonation.STREAM_CODEC, NukeDetonation::detonation,
+                StreamCodecs.trailing(ByteBufCodecs.FLOAT, Detonation.OLD_WAVE), p -> p.detonation.wave(),
+                StreamCodecs.trailing(ByteBufCodecs.FLOAT, 0f), NukeDetonation::blackout,
+                StreamCodecs.trailing(ByteBufCodecs.VAR_LONG, Detonation.NO_DAY_TIME), p -> p.detonation.dayTime(),
+                (d, wave, blackout, dayTime) -> new NukeDetonation(d.withWave(wave).withDayTime(dayTime), blackout));
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -430,14 +428,43 @@ public final class S2C {
         }
     }
 
-    /** Вход в мир и смена измерения: действующие подрывы и летящие МБР этого измерения. */
+    /**
+     * Вход в мир и смена измерения: действующие подрывы и летящие МБР этого измерения. Подрывы в списке — полями выпуска
+     * 3.1.0 ({@link Detonation#STREAM_CODEC}); что подрыв знает сверх них (скорость стены {@link Detonation#wave}, время
+     * суток {@link Detonation#dayTime}), — списками в конце пакета, по подрыву на место (формат растёт с конца,
+     * replay.md): в повторе, записанном до них, списков нет — «как до них».
+     */
     public record NukeSync(List<Detonation> detonations, List<NukeWarning> warnings)
             implements CustomPacketPayload {
         public static final Type<NukeSync> TYPE = new Type<>(Incoming.id("nuke_sync"));
         public static final StreamCodec<ByteBuf, NukeSync> CODEC = StreamCodec.composite(
                 Detonation.STREAM_CODEC.apply(ByteBufCodecs.list()), NukeSync::detonations,
                 NukeWarning.CODEC.apply(ByteBufCodecs.list()), NukeSync::warnings,
-                NukeSync::new);
+                StreamCodecs.trailing(ByteBufCodecs.FLOAT.apply(ByteBufCodecs.list()), List.of()),
+                p -> p.detonations.stream().map(Detonation::wave).toList(),
+                StreamCodecs.trailing(ByteBufCodecs.VAR_LONG.apply(ByteBufCodecs.list()), List.of()),
+                p -> p.detonations.stream().map(Detonation::dayTime).toList(),
+                (detonations, warnings, waves, dayTimes) -> new NukeSync(extended(detonations, waves, dayTimes), warnings));
+
+        /** Подрывы с полями из списков в конце пакета (пустой список — поля в повторе ещё не было). */
+        private static List<Detonation> extended(List<Detonation> detonations, List<Float> waves, List<Long> dayTimes) {
+            check("waves", waves, detonations);
+            check("day times", dayTimes, detonations);
+            List<Detonation> out = new ArrayList<>(detonations.size());
+            for (int i = 0; i < detonations.size(); i++) {
+                Detonation d = detonations.get(i);
+                if (!waves.isEmpty()) d = d.withWave(waves.get(i));
+                if (!dayTimes.isEmpty()) d = d.withDayTime(dayTimes.get(i));
+                out.add(d);
+            }
+            return out;
+        }
+
+        private static void check(String what, List<?> values, List<Detonation> detonations) {
+            if (!values.isEmpty() && values.size() != detonations.size()) {
+                throw new DecoderException("nuke sync: " + values.size() + " " + what + " for " + detonations.size() + " detonations");
+            }
+        }
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

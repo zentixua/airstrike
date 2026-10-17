@@ -35,12 +35,23 @@ import ua.zentix.incoming.util.Terrain;
  * @param seed      сид случайных деталей (одинаковый у всех клиентов)
  * @param fallout   есть радиоактивный след (наземный подрыв и включены осадки)
  * @param wave      скорость стены пыли вдали от шара, доля скорости звука (настройка {@code nuclear.wave_speed} в момент подрыва)
+ * @param dayTime   время суток мира в миг подрыва (тики, как {@code Level.getDayTime}): у него мгла над пожарами ждёт
+ *                  утра; {@link #NO_DAY_TIME} — неизвестно (подрыв из сохранения или повтора прежней сборки)
  */
 public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boolean surface, long gameTime,
-                         float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout, float wave) {
+                         float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout, float wave,
+                         long dayTime) {
 
     /** Скорость стены вдали у подрывов, сохранённых до настройки {@code wave_speed}: 3 блока за тик. */
     public static final float OLD_WAVE = (float) (3 / FrontProfile.SOUND_SPEED);
+    /** Время суток подрыва неизвестно: сохранён или записан в повтор до этого поля. */
+    public static final long NO_DAY_TIME = Long.MIN_VALUE;
+
+    /** Подрыв без времени суток: место подрыва заранее ({@code NuclearWarhead.geometry}) и проверки. */
+    public Detonation(int id, Vec3 burst, double groundY, double yieldKt, boolean surface, long gameTime,
+                      float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout, float wave) {
+        this(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, NO_DAY_TIME);
+    }
 
     public static final Codec<Detonation> CODEC = RecordCodecBuilder.create(i -> i.group(
             Codec.INT.fieldOf("id").forGetter(Detonation::id),
@@ -55,14 +66,20 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
             Codec.LONG.fieldOf("seed").forGetter(Detonation::seed),
             Codec.FLOAT.fieldOf("scale").forGetter(Detonation::scale),
             Codec.BOOL.fieldOf("fallout").forGetter(Detonation::fallout),
-            Codec.FLOAT.optionalFieldOf("wave", OLD_WAVE).forGetter(Detonation::wave)
+            Codec.FLOAT.optionalFieldOf("wave", OLD_WAVE).forGetter(Detonation::wave),
+            Codec.LONG.optionalFieldOf("day_time", NO_DAY_TIME).forGetter(Detonation::dayTime)
     ).apply(i, Detonation::new));
 
+    /**
+     * Подрыв в пакете — поля выпуска 3.1.0, без {@code wave} ({@link #OLD_WAVE}) и времени суток. Формат заморожен:
+     * повторы Flashback хранят пакеты байтами (replay.md), поэтому новое поле подрыва пакет дописывает в свой конец
+     * ({@code S2C.NukeDetonation}, {@code S2C.NukeSync}), а не сюда — в {@code NukeSync} за подрывом идут другие.
+     */
     public static final StreamCodec<ByteBuf, Detonation> STREAM_CODEC = new StreamCodec<>() {
         @Override
         public Detonation decode(ByteBuf b) {
             return new Detonation(ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b), b.readDouble(), b.readDouble(), b.readBoolean(),
-                    b.readLong(), b.readFloat(), b.readFloat(), b.readFloat(), b.readLong(), b.readFloat(), b.readBoolean(), b.readFloat());
+                    b.readLong(), b.readFloat(), b.readFloat(), b.readFloat(), b.readLong(), b.readFloat(), b.readBoolean(), OLD_WAVE);
         }
 
         @Override
@@ -79,9 +96,21 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
             b.writeLong(d.seed);
             b.writeFloat(d.scale);
             b.writeBoolean(d.fallout);
-            b.writeFloat(d.wave);
         }
     };
+
+    public Detonation withWave(float wave) {
+        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime);
+    }
+
+    public Detonation withDayTime(long dayTime) {
+        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime);
+    }
+
+    /** Время суток подрыва известно ({@link #dayTime}). */
+    public boolean hasDayTime() {
+        return dayTime != NO_DAY_TIME;
+    }
 
     /** Порог дальней зоны: 0.5 psi (стёкла). */
     public static final double FAR_KPA = BlastModel.kpa(0.5);

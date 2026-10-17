@@ -53,7 +53,6 @@ public final class ClientNuclear {
         Active(Active a, long clientNow) {
             this(a.d, false, clientNow, a.puffs, a.water, a.pall);
             puffs.untrack();
-            pall.rewound();
         }
 
         private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, WaterPuffs water, @Nullable PallField pall) {
@@ -63,8 +62,17 @@ public final class ClientNuclear {
             this.puffs = puffs;
             this.water = water;
             ClientLevel level = Minecraft.getInstance().level;
-            // пришедший позже — время суток подрыва по нынешним часам: прыжка часов до входа он не видел (nuclear.md)
-            this.pall = pall != null ? pall : new PallField(d, level == null ? 0 : level.getDayTime() - before);
+            if (pall != null) {
+                pall.rewound();
+                this.pall = pall;
+            } else {
+                // время суток подрыва — с сервера; у подрыва из сохранения или повтора прежней сборки — по нынешним
+                // часам: прыжка часов до входа так не видно (nuclear.md)
+                this.pall = new PallField(d, d.hasDayTime() ? d.dayTime()
+                        : level == null ? 0 : level.getDayTime() - (level.getGameTime() - d.gameTime()));
+            }
+            // первый замер часов — сразу: вошедший после сна не видит мглы и кадр до тика
+            if (level != null) this.pall.daylight(ticks(0), level.getGameTime(), level.getDayTime());
             this.sounds = new NukeSounds.Schedule(this);
         }
 
@@ -265,7 +273,7 @@ public final class ClientNuclear {
             Active a = it.next();
             a.age++;
             a.sounds.tick();
-            a.pall.daylight(a.ticks(0), level.getDayTime());
+            a.pall.daylight(a.ticks(0), level.getGameTime(), level.getDayTime());
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
             if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
             NukeWater.tick(a, level, eye);
