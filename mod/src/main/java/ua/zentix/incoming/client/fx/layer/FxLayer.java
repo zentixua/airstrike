@@ -208,6 +208,8 @@ public final class FxLayer {
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);
             s.safeGetUniform("FxProbes").set(seen >= 0 ? 1f : 0f);
+            FxAtlas.Sprite glow = FxAtlas.glow();
+            s.safeGetUniform("FxGlow").set(glow.u0(), glow.v0(), glow.u1(), glow.v1());
             s.safeGetUniform("FxBalls").set(LIGHTS.balls);
             s.safeGetUniform("FxBallLight").set(LIGHTS.light);
             s.safeGetUniform("PallSlot0").set(front.slot0);

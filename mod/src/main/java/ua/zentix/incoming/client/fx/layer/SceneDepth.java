@@ -16,6 +16,8 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.system.MemoryUtil;
 import ua.zentix.incoming.Incoming;
@@ -137,8 +139,16 @@ public final class SceneDepth {
         Incoming.LOG.info(b.toString());
     }
 
-    /** Глубина кадра {@code fbo}: тип вложения (текстура, буфер, нет) и его имя. */
+    /** Тип «кадр окна» в {@link #attachment}: у него вложений нет, спрашивать о них — ошибка OpenGL. */
+    private static final int WINDOW = -1;
+
+    /**
+     * Глубина кадра {@code fbo}: тип вложения (текстура, буфер, нет) и его имя; у кадра окна (0) — {@link #WINDOW}, без
+     * вопросов OpenGL: {@code GL_DEPTH_ATTACHMENT} у него нет (ошибка {@code GL_INVALID_OPERATION} осталась бы тому, кто
+     * спросит после).
+     */
     private static int[] attachment(int fbo) {
+        if (fbo == 0) return new int[]{WINDOW, 0};
         int bound = GlStateManager._getInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
         GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, fbo);
         int type = GL30.glGetFramebufferAttachmentParameteri(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL30.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);
@@ -153,6 +163,7 @@ public final class SceneDepth {
             case GL11.GL_TEXTURE -> "texture";
             case GL30.GL_RENDERBUFFER -> "renderbuffer";
             case GL11.GL_NONE -> "none";
+            case WINDOW -> "window";
             default -> "0x" + Integer.toHexString(type);
         };
     }
@@ -166,13 +177,28 @@ public final class SceneDepth {
         if (w <= 0 || h <= 0) return null;
         FloatBuffer f = MemoryUtil.memAllocFloat(w * h);
         try {
-            GlStateManager._pixelStore(GL11.GL_PACK_ALIGNMENT, 4);
-            GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, format, GL11.GL_FLOAT, f);
+            texImage(format, f);
             float[] out = new float[w * h];
             f.get(out);
             return out;
         } finally {
             MemoryUtil.memFree(f);
+        }
+    }
+
+    /**
+     * Привязанная текстура (уровень 0) в {@code out} числами. Оставь другой код привязанным {@code GL_PIXEL_PACK_BUFFER},
+     * OpenGL писал бы в него (адрес {@code out} — как смещение в нём), а не в память: на время чтения он снимается
+     * и потом возвращается.
+     */
+    private static void texImage(int format, FloatBuffer out) {
+        int pack = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+        if (pack != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+        try {
+            GlStateManager._pixelStore(GL11.GL_PACK_ALIGNMENT, 4);
+            GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, format, GL11.GL_FLOAT, out);
+        } finally {
+            if (pack != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pack);
         }
     }
 
@@ -201,8 +227,7 @@ public final class SceneDepth {
         FloatBuffer b = MemoryUtil.memAllocFloat(n);
         try {
             GlStateManager._bindTexture(texture);
-            GlStateManager._pixelStore(GL11.GL_PACK_ALIGNMENT, 4);
-            GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, GL11.GL_RED, GL11.GL_FLOAT, b);
+            texImage(GL11.GL_RED, b);
             float beyond = Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
             int lod = 0;
             float nearest = Float.MAX_VALUE;

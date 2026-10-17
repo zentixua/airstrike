@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import ua.zentix.incoming.client.fx.layer.VolumeNoise;
 import ua.zentix.incoming.nuclear.Detonation;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -139,6 +141,30 @@ class PallGlslTest {
                     }
                     if (r < 1000) assertTrue(sum / 3 > 0.25, t + " с, " + r + " блоков: пелена у эпицентра тёмная, " + sum / 3);
                 }
+            }
+        }
+    }
+
+    /**
+     * Крупный ореол слой эффектов рисует по формуле ({@code glowAlpha} в {@code fx.fsh}), мелкий — из картинки
+     * {@code far/glow} ({@code tools/gen_particles.py}): это один и тот же ореол — середины пикселей картинки стоят на r от
+     * −1 до 1 через 63 шага, у каждого пикселя формула даёт его значение (с точностью 8 бит).
+     */
+    @Test
+    void glowFormulaIsThePicture() throws IOException {
+        Function f = Function.parse(read("core/fx.fsh"), "glowAlpha");
+        BufferedImage img;
+        try (InputStream in = PallGlslTest.class.getResourceAsStream("/assets/incoming/textures/far/glow.png")) {
+            assertNotNull(in, "far/glow.png");
+            img = ImageIO.read(in);
+        }
+        int n = img.getWidth();
+        assertEquals(64, n, "fx.fsh считает середины крайних пикселей по картинке 64×64");
+        for (int j = 0; j < n; j++) {
+            for (int i = 0; i < n; i++) {
+                double x = -1 + 2.0 * i / (n - 1), y = -1 + 2.0 * j / (n - 1);
+                double a = (img.getRGB(i, j) >>> 24) / 255.0;
+                assertEquals(a, f.call(Map.of("r", Math.hypot(x, y))), 0.5 / 255 + 1e-4, "пиксель " + i + ", " + j);
             }
         }
     }

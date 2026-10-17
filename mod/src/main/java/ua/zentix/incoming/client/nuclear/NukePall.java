@@ -147,6 +147,10 @@ public final class NukePall {
         f.glow1.zero();
         f.hot0.zero();
         f.hot1.zero();
+        f.ground0.clear();
+        f.ground1.clear();
+        // мир кадра — чанки в дальности прорисовки (с запасом на край по чанкам): луч в пустоту прошёл их, ничего не задев
+        f.floorFrom = Math.max(16, Minecraft.getInstance().options.getEffectiveRenderDistance() * 16 - 24);
         f.min.set(Float.MAX_VALUE);
         f.max.set(-Float.MAX_VALUE);
         int k = 0;
@@ -163,9 +167,7 @@ public final class NukePall {
 
     /** Насколько камера вне пелены подрыва (по земле), блоки; 0 — внутри. */
     private static double outside(ClientNuclear.Active a, Vec3 eye, float partial) {
-        double ticks = a.ticks(partial);
-        a.pall.drift(ticks, DRIFT);
-        double r = a.pall.reach() + Math.hypot(DRIFT[0], DRIFT[1]) + a.pall.plume(ticks);
+        double r = a.pall.extent(a.ticks(partial));
         return Math.max(0, Math.hypot(eye.x - a.d.burst().x, eye.z - a.d.burst().z) - r);
     }
 
@@ -191,7 +193,7 @@ public final class NukePall {
         double plume = p.plume(ticks);
         float cx = (float) (d.burst().x - eye.x), cz = (float) (d.burst().z - eye.z), ground = (float) (d.groundY() - eye.y);
         // рамка: снос пыли и шлейф мглы — в любую сторону от эпицентра, ниже земли под ним — долины на всю высоту
-        float r = (float) (p.reach() + Math.hypot(DRIFT[0], DRIFT[1]) + plume);
+        float r = (float) p.extent(ticks);
         LO.set(cx - r, (float) (ground - top), cz - r);
         HI.set(cx + r, (float) (ground + top * 1.05), cz + r);
         CULL.set(LO.x, Math.min(LO.y, bottom), LO.z);
@@ -207,6 +209,7 @@ public final class NukePall {
         a.puffs.pallLight(a.seconds(partial), GLOW);
         (k == 0 ? f.glow0 : f.glow1).set(GLOW[0], GLOW[1], GLOW[2], GLOW[3]);
         (k == 0 ? f.hot0 : f.hot1).set(GLOW[4], GLOW[5], GLOW[6], GLOW[7]);
+        a.ground.frame(k == 0 ? f.ground0 : f.ground1);
         f.min.min(LO);
         f.max.max(HI);
         return true;

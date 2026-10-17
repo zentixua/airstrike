@@ -75,8 +75,11 @@ public final class ClientScenario {
     /** Сценарий {@code wall}: стена пыли проходит мимо камеры; сколько кадров её прохода уже снято. */
     private boolean wall;
     private int wallStage;
-    /** Сценарий pall-front: место камеры (в воздухе, в 400 блоках к западу от эпицентра). */
-    private boolean front;
+    /**
+     * Сценарий pall-front: место камеры (в воздухе, в 400 блоках к западу от эпицентра); pall-low — камера у земли ниже
+     * земли под эпицентром ({@link #planPallFront}).
+     */
+    private boolean front, frontLow;
     private Vec3 frontAt = Vec3.ZERO;
     private int detTick = -1;
     /** Ядерный сценарий: точка в следе осадков и игровой тик, когда туда идти (−1 — не ждём). */
@@ -183,7 +186,7 @@ public final class ClientScenario {
         else if ("pall".equals(mode)) planPall();
         else if ("firestorm".equals(mode)) planFirestorm();
         else if ("wall".equals(mode)) planWall();
-        else if ("pall-front".equals(mode)) planPallFront();
+        else if ("pall-front".equals(mode) || "pall-low".equals(mode)) planPallFront("pall-low".equals(mode));
         else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("replay".equals(mode)) {
@@ -979,9 +982,16 @@ public final class ClientScenario {
      * (по умолчанию MEDIUM). {@code INCOMING_EXPORT=2560x1440} — как вывод видео Flashback: с подрыва окно сообщает
      * размер вывода ({@code Window.getWidth/getHeight}) и кадр игры — этого размера, больше окна (Flashback делает то же
      * своим миксином окна и {@code Minecraft.resizeDisplay}).
+     * <p>
+     * {@code low} (сценарий {@code pall-low}): эпицентр — на столбе в 45 блоках над землёй у камеры, камера — в 8 блоках
+     * над землёй, то есть ниже земли под эпицентром (как у кадра трейлера из долины), взгляд — на эпицентр почти по
+     * горизонту. Луч пелены, за которым нет мира (за прорисовкой и между LOD Distant Horizons), должен кончаться на
+     * рельефе, а не на плоскости земли под эпицентром: ниже неё — пустота без пелены, ровный срез по горизонту. Кадры —
+     * через 5, 20 и 60 с после фронта (pall_low_*), камера перед каждым ставится на место (волна её сносит).
      */
-    private void planPallFront() {
+    private void planPallFront(boolean low) {
         front = true;
+        frontLow = low;
         int[] towersX = {90, 150, 210, 270};
         int[] towersZ = {-1560, -1440};
         at(40, () -> {
@@ -991,6 +1001,8 @@ public final class ClientScenario {
             cmd("time set 18000");
             cmd("weather clear");
             cmd("forceload add 64 -1616 303 -1385");
+            if (low) cmd(String.format(java.util.Locale.ROOT, "forceload add %d %d %d %d", (int) FRONT_GZ.x - 8, (int) FRONT_GZ.z - 8,
+                    (int) FRONT_GZ.x + 8, (int) FRONT_GZ.z + 8));
             cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 200 %.1f -90 -3", FRONT_GZ.x - 400, FRONT_GZ.z));
             hover = true;
         });
@@ -1011,9 +1023,15 @@ public final class ClientScenario {
             Minecraft mc = Minecraft.getInstance();
             int x = (int) Math.floor(FRONT_GZ.x - 400), z = (int) Math.floor(FRONT_GZ.z);
             int ground = Math.max(mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z), 63);
-            frontAt = new Vec3(x + 0.5, ground + 120, z + 0.5);
+            int above = low ? 8 : 120;
+            frontAt = new Vec3(x + 0.5, ground + above, z + 0.5);
             cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f -90 -3", frontAt.x, frontAt.y, frontAt.z));
-            Incoming.LOG.info("SCENARIO pall-front camera at {} ({} above ground {})", xyz(frontAt), 120, ground);
+            Incoming.LOG.info("SCENARIO pall-front camera at {} ({} above ground {})", xyz(frontAt), above, ground);
+            if (low) {
+                // эпицентр на столбе: земля под ним на 45 блоков выше земли у камеры (если там не выше и так)
+                int gx = (int) Math.floor(FRONT_GZ.x), gz = (int) Math.floor(FRONT_GZ.z);
+                cmd(String.format(java.util.Locale.ROOT, "fill %d 40 %d %d %d %d minecraft:stone", gx - 3, gz - 3, gx + 3, ground + 45, gz + 3));
+            }
         });
         at(660, () -> {
             Minecraft.getInstance().options.hideGui = true;
@@ -1035,10 +1053,20 @@ public final class ClientScenario {
         int arrive = (int) Math.ceil(d.arrivalTicks(cam.distanceTo(d.burst())));
         Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}, ground {}, front at the camera in {} ticks", tick, xyz(d.burst()),
                 String.format(java.util.Locale.ROOT, "%.0f", d.groundY()), arrive);
-        for (int s : new int[]{0, 2, 5, 10, 20, 60}) {
-            int t = tick + arrive + 20 * s;
-            pallShot(t, "front_" + s + "s");
-            if (s > 0) offShot(t, "front_" + s + "s_off");
+        if (frontLow) {
+            for (int s : new int[]{5, 20, 60}) {
+                int t = tick + arrive + 20 * s;
+                // волна сносит камеру: перед кадром — снова на место
+                at(t - 4, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f -90 -3", frontAt.x, frontAt.y, frontAt.z)));
+                pallShot(t, "low_" + s + "s");
+                if (s == 60) offShot(t, "low_" + s + "s_off");
+            }
+        } else {
+            for (int s : new int[]{0, 2, 5, 10, 20, 60}) {
+                int t = tick + arrive + 20 * s;
+                pallShot(t, "front_" + s + "s");
+                if (s > 0) offShot(t, "front_" + s + "s_off");
+            }
         }
         at(tick + arrive + 1240, () -> {
             Incoming.LOG.info("SCENARIO done");
