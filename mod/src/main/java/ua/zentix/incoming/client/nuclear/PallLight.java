@@ -32,8 +32,9 @@ package ua.zentix.incoming.client.nuclear;
  * тонкий туман — грязно-серым, а сумерки в густой пыли — чернотой без клубов. Чистая степень, а не кусочная кривая sRGB:
  * перевод произведения — произведение переводов, и поток от толстого слоя цвета R в свете L на экране — ровно R·L
  * экрана (к глазу под скользящим углом толстый слой светлее, как настоящее облако).
- * Отсвет шара и пожаров на пыли, заданный на экране поверх света неба ({@link CloudPuffs#glowOnSmoke}), в линейном —
- * разность переводов ({@link #lift}); свет огня — не ярче самого пламени ({@link #flame}).
+ * Отсвет пожаров на пыли, заданный на экране поверх света неба ({@link CloudPuffs#glowOnSmoke}), в линейном — разность
+ * переводов ({@link #lift}); свет огня — не ярче самого пламени ({@link #flame}). Свет шара — уже линейный: чёрное тело
+ * ({@link CloudPuffs#ball}).
  * <p>
  * <b>Слой и клубы</b> (только в шейдере). Пол слоя — рельеф под точкой (карта {@link PallGround}): в долине пелена над ней
  * — тоже слой, и пожары с землёй — на дне, а не на уровне земли под эпицентром (там точка в долине всегда была «на дне»,
@@ -57,6 +58,8 @@ public final class PallLight {
     static final double GAMMA = 2.2;
     /** Полоса около kμ = 1, где пучок в частном решении сдвинут ({@link #beamMu}). */
     static final double BEAM_BAND = 0.05;
+    /** Ярче белого — к белому: доля яркости сверх 1, что прибавляется ко всем каналам ({@code CROSS} в {@code fx_pall}). */
+    static final double CROSS = 0.15;
 
     private PallLight() {}
 
@@ -68,6 +71,19 @@ public final class PallLight {
     /** Линейное → значение экрана ({@code pallDisplay}). */
     static double display(double linear) {
         return Math.pow(Math.max(linear, 0), 1 / GAMMA);
+    }
+
+    /**
+     * Свет непрозрачного вещества {@code linear} (r, g, b) на экране — в {@code into}, как его выводит пелена ({@code fx_pall},
+     * конец {@code main}): ярче белого — к белому ({@link #CROSS}: раскалённое бело-жёлтое, не насыщенно-оранжевое), в
+     * значения экрана ({@link #display}), ярче 0,6 — плечом по самому яркому каналу ({@code shoulder}).
+     */
+    static void screen(double[] linear, float[] into) {
+        double lum = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2], white = CROSS * Math.max(lum - 1, 0);
+        double[] d = new double[3];
+        for (int c = 0; c < 3; c++) d[c] = display(linear[c] + white);
+        double m = Math.max(d[0], Math.max(d[1], d[2])), k = m <= 0.6 ? 1 : (0.6 + 0.4 * (1 - Math.exp(-(m - 0.6) / 0.4))) / m;
+        for (int c = 0; c < 3; c++) into[c] = (float) Math.min(1, d[c] * k);
     }
 
     /**

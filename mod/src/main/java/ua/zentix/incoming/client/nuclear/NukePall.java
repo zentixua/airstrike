@@ -295,7 +295,7 @@ public final class NukePall {
         // вода слота: базисная волна и есть ли под пеленой вода (иначе шейдер карту воды не читает)
         (k == 0 ? f.water0 : f.water1).set((float) SURGE[0], (float) SURGE[1], (float) SURGE[2], water ? 1 : 0);
         // свет шара и пожаров на пыли (CloudPuffs.pallLight)
-        a.puffs.pallLight(a.seconds(partial), GLOW);
+        a.puffs.pallLight(MushroomField.shape(a, partial), GLOW);
         (k == 0 ? f.glow0 : f.glow1).set(GLOW[0], GLOW[1], GLOW[2], GLOW[3]);
         (k == 0 ? f.hot0 : f.hot1).set(GLOW[4], GLOW[5], GLOW[6], GLOW[7]);
         a.ground.frame(k == 0 ? f.ground0 : f.ground1);
@@ -339,8 +339,8 @@ public final class NukePall {
         /** Свет солнца и неба по каналам — линейный: белая горизонтальная стена в полдень — 1. */
         final float[] sun = new float[3], sky = new float[3];
         /**
-         * Свет неба на экране (белая стена), привыкание глаза к нему ({@code Sight.adapted}: свечение гриба в кадр) и сила
-         * отсвета шара на пыли при нём ({@link CloudPuffs#glowOnSmoke}).
+         * Свет неба на экране (белая стена), привыкание глаза к нему ({@code Sight.adapted}: свечение гриба и свет шара
+         * в кадр) и сила отсвета пожаров на пыли при нём ({@link CloudPuffs#glowOnSmoke}).
          */
         float base, exposure, glowOnSmoke;
     }
@@ -404,27 +404,30 @@ public final class NukePall {
     static boolean dustColor(ClientNuclear.Active a, Sky sky, double x, double y, double z, float[] into) {
         double t = a.seconds(0);
         if (!a.wall.slot(t, DUST_WALL) || DUST_WALL[3] <= 0) return false;
-        a.puffs.pallLight(t, DUST_GLOW);
+        a.puffs.pallLightNow(a, DUST_GLOW);
         Detonation d = a.d;
         double gy = y - d.groundY();
-        dustLight(DUST_WALL, DUST_GLOW, sky, x - d.burst().x, gy, z - d.burst().z, gy - a.ground.at(x, z), into);
+        dustLight(DUST_WALL, DUST_GLOW, sky, d.windDir(), x - d.burst().x, gy, z - d.burst().z, gy - a.ground.at(x, z), into);
         return true;
     }
 
     /**
      * Цвет пыли головы стены на экране — как её светит {@code fx_pall} ({@code wall}, свет в {@code main}), по средней
      * голове, без клубов (их тень — в обе стороны, в среднем ноль) и вне воды (над водой у камеры — брызги,
-     * {@link NukeWater}): рассеянный свет солнца, неба и шара — на глубине под меньшей из толщ к верху головы и к её
-     * переднему краю, пучки солнца и шара — сквозь толщу головы к ним, пожары — снизу. Днём пыль поэтому бурая в свете
-     * солнца и неба, а не в отсвете шара за стеной, ночью сторона стены от шара — в его тени, верх — в отсвете. Фаза
-     * пучков — средняя по направлениям: клуб виден со всех сторон.
+     * {@link NukeWater}): рассеянный свет солнца и неба — на глубине под меньшей из толщ к верху головы и к её переднему
+     * краю, шара — под ближней освещённой им стороной: к шару или сверху, если его пучок к верху над точкой не идёт сквозь
+     * голову (шар за головой, ближе к эпицентру, и низко), пучки солнца и шара — сквозь толщу головы к ним, пожары —
+     * снизу. Днём пыль поэтому бурая в свете солнца и неба, а не в свете шара за стеной,
+     * ночью сторона стены от шара — в его тени, верх — в его свете. Фаза пучков — средняя по направлениям: клуб виден со
+     * всех сторон.
      *
      * @param wall  стена слота ({@link BlastWall#slot})
      * @param glow  свет стены ({@link CloudPuffs#pallLight})
+     * @param wind  куда дует ветер (радианы, {@link Detonation#windDir}): по нему снесена середина шапки
      * @param gx    точка от эпицентра по x (блоки), gy — над землёй под эпицентром, gz — по z
      * @param up    точка над рельефом под ней (блоки)
      */
-    static void dustLight(float[] wall, float[] glow, Sky sky, double gx, double gy, double gz, double up, float[] into) {
+    static void dustLight(float[] wall, float[] glow, Sky sky, double wind, double gx, double gy, double gz, double up, float[] into) {
         double rx = gx, rz = gz, len = Math.hypot(rx, rz);
         double top = wall[2], reach = 4.5 * wall[1] + top, s = wall[0] - len;
         double ox = len > 1e-3 ? rx / len : 1, oz = len > 1e-3 ? rz / len : 0;
@@ -433,30 +436,36 @@ public final class NukePall {
         double below = chord(wall, rx, rz, up, 0, -1, 0, Math.max(up + 0.5 * top, 0), 2);
         double depth = Math.min(above, side), slab = depth + below;
         double toSun = chord(wall, rx, rz, up, sky.sx, sky.sy, 0, reach, 4);
-        double lx = -gx, ly = glow[7] - gy, lz = -gz, ll = Math.max(Math.sqrt(lx * lx + ly * ly + lz * lz), 1e-3);
+        double lx = Math.cos(wind) * glow[2] - gx, ly = glow[7] - gy, lz = Math.sin(wind) * glow[2] - gz;
+        double ll = Math.max(Math.sqrt(lx * lx + ly * ly + lz * lz), 1e-3);
         double toBall = chord(wall, rx, rz, up, lx / ll, ly / ll, lz / ll, reach, 4);
+        // рассеянный свет шара входит через ближнюю освещённую им сторону головы (fx_pall: capDeep): к шару — на толщу к
+        // нему; сверху — на толщу над точкой и ту толщу головы перед шаром, что его пучок к верху над точкой ещё проходит
+        // (шар низко и за головой: к верху у переднего края пучок идёт сквозь всю голову)
+        double muS = Math.max(sky.sy, 0.12), muB = Mth.clamp(ly / ll, 0.12, 1);
+        double deepB = Math.min(toBall, above + Math.max(toBall - above / muB, 0)), slabB = deepB + below;
         double r = Math.hypot(gx, gz), fireR = Math.max(glow[3], 1e-3);
-        double lit = CloudPuffs.lit(r, 1, glow[0], glow[2]);
+        // свет шара — пучок от середины шапки, как у тела гриба (CloudPuffs.ball), × привыкание глаза
+        double lit = CloudPuffs.ball(sky.exposure, glow[0], ll);
         double burn = CloudPuffs.burn(r, 0, glow[1], glow[3]) * (1 - 0.75 * sky.day);
         double smoke = 0.77 * (1 - CloudPuffs.smooth(0.92 * fireR, 1.04 * fireR, r));
-        double muS = Math.max(sky.sy, 0.12), muB = Mth.clamp(ly / ll, 0.12, 1);
         double[] lin = new double[3];
         for (int c = 0; c < 3; c++) {
             double w = Mth.lerp(smoke, DUST_W[c], SMOKE_W[c]);
             double fire = FIRE[c];
-            double ball = PallLight.lift(sky.base, glow[4 + c] * lit * sky.glowOnSmoke / DUST[c]);
-            double field = PallLight.diffuse(w, DUST_G, depth, slab, PallLight.LAND, muS, sky.sun[c], muB, ball, sky.sky[c], 0, 0);
+            double ball = glow[4 + c] * lit;
+            double field = PallLight.diffuse(w, DUST_G, depth, slab, PallLight.LAND, muS, sky.sun[c], 1, 0, sky.sky[c], 0, 0)
+                    + PallLight.diffuse(w, DUST_G, deepB, slabB, PallLight.LAND, muS, 0, muB, ball, 0, 0, 0);
             double beams = 0.25 * (sky.sun[c] * Math.exp(-toSun) + ball * Math.exp(-toBall));
             double from = 0;
             if (burn > 0) {
                 double flame = PallLight.flame(sky.base, fire * burn * sky.glowOnSmoke / DUST[c], fire);
                 from = Math.min(Math.max(PallLight.diffuse(w, DUST_G, depth, slab, PallLight.LAND, 1, 0, 1, 0, 0, flame, 0), 0), PallLight.linear(fire));
             }
-            lin[c] = PallLight.display(w * (Math.max(field, 0) + beams + from));
+            lin[c] = w * (Math.max(field, 0) + beams + from);
         }
-        // плечо, как у пелены на экране (fx_pall: shoulder)
-        double m = Math.max(lin[0], Math.max(lin[1], lin[2])), k = m <= 0.6 ? 1 : (0.6 + 0.4 * (1 - Math.exp(-(m - 0.6) / 0.4))) / m;
-        for (int c = 0; c < 3; c++) into[c] = (float) Math.min(1, lin[c] * k);
+        // на экран — как пелена (fx_pall: к белому, плечо)
+        PallLight.screen(lin, into);
     }
 
     /** Толща средней головы стены ({@link BlastWall#sigma}) от точки по направлению (vx, vy, vz) на длину len, n шагов ({@code wallChord}). */
@@ -532,10 +541,10 @@ public final class NukePall {
                     a.ground.water(a.d.burst().x + from[0], a.d.burst().z + from[1]));
         }
         return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks; mist %.4f), muffle %.2f, ash %d, quality %s, "
-                        + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), under the pall: %s, surge r %.0f top %.0f sigma %.4f, "
+                        + "light: sky %.3f, fires %.2f × %.2f, ball r %.0f blocks, black body %.3g %.3g %.3g, under the pall: %s, surge r %.0f top %.0f sigma %.4f, "
                         + "frames: %s; mushrooms %d (exposure %.0f); firestorm: %s",
                 sigma, sigma > 1e-5f ? 3.912 / sigma : Double.POSITIVE_INFINITY, mist, muffle, NukeAsh.alive(), quality(),
-                f.skyLight.y, f.glowOnSmoke, f.glow0.x, f.glow0.y, f.hot0.x, f.hot0.y, f.hot0.z, under, f.water0.x, f.water0.y, f.water0.z,
+                f.skyLight.y, f.glowOnSmoke, f.glow0.y, f.glow0.x, f.hot0.x, f.hot0.y, f.hot0.z, under, f.water0.x, f.water0.y, f.water0.z,
                 mc.level == null ? "-" : PallPass.describe(), f.mushroomCount, f.exposure, FireStorms.describe());
     }
 }

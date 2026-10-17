@@ -2,18 +2,22 @@ package ua.zentix.incoming.client.nuclear;
 
 import net.minecraft.util.Mth;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.model.BlackBody;
 import ua.zentix.incoming.nuclear.model.CloudModel;
-import ua.zentix.incoming.nuclear.model.FireballModel;
+import ua.zentix.incoming.nuclear.model.MushroomModel;
 import ua.zentix.incoming.nuclear.model.ThermalModel;
 
 /**
- * Свет подрыва на пыли (DESIGN-nuke §6): шар сверху и пожары снизу — им светятся стена пыли и пелена за ней
- * ({@code fx_pall}, числа слота — {@link #pallLight}) и пыль у камеры ({@code NukePall.dustColor}); законы свечения
- * подрыва во времени ({@link #glow}, {@link #fireballGlow}). Своих клубов здесь больше нет (имя осталось от них): гриб
+ * Свет подрыва на пыли (DESIGN-nuke §6): шар сверху и пожары снизу — им светятся стена пыли, облако Вильсона и пелена
+ * за ними ({@code fx_pall}, числа слота — {@link #pallLight}) и пыль у камеры ({@code NukePall.dustColor}). Шар — тот же
+ * источник, что светит ножку и частицы ({@link MushroomModel#light}: ламбертов шар радиуса шапки, чёрное тело её видимой
+ * температуры, L·R²/d²); пожары — {@link #glow}, {@link #burn}. Своих клубов здесь больше нет (имя осталось от них): гриб
  * и столб воды — объём ({@link MushroomField}), стена пыли, облако Вильсона и базисная волна — объём в пелене
  * ({@link BlastWall}, {@link PallField}).
  */
 public final class CloudPuffs {
+    /** Свет чёрного тела шапки: r, g, b, яркость (поток клиента). */
+    private static final double[] BALL = new double[4];
     /** Над водой: брызги и водяная пыль у земли (её цвет продолжает пелена над водой — {@code MIST} в {@code fx_pall}). */
     static final int SPRAY = 0xE6EAED;
     /** Отсвет накала в самом дыме и сила свечения клуба поверх дыма. */
@@ -22,12 +26,14 @@ public final class CloudPuffs {
     private final Detonation d;
     /** Докуда по земле световой импульс поджигает (≥ {@link ThermalModel#IGNITE}), м: там под пылью горит. */
     private final double fireGround;
-    /** Высота подрыва над землёй, м. */
-    private final double hob;
+    /** {@link #pallLight} в миг {@link #nowT} без доли тика ({@link #pallLightNow}) и был ли гриб. */
+    private final float[] now = new float[8];
+    private double nowT = Double.NaN;
+    private boolean nowLit;
 
     public CloudPuffs(Detonation d) {
         this.d = d;
-        hob = Math.max(0, d.hobMetres());
+        double hob = Math.max(0, d.hobMetres());
         double slant = ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility());
         fireGround = Math.sqrt(Math.max(0, slant * slant - hob * hob));
     }
@@ -55,21 +61,12 @@ public final class CloudPuffs {
     }
 
     /**
-     * Сколько ещё светится сам шар 0..1: гаснет на 70–130 t_max (15 кт — 9–16 с). Край шапки, смешанный с воздухом,
-     * к началу его угасания в миллион раз тусклее ({@code MushroomModel.edgeTemperature}): сверху пыль светит только шар.
+     * Свет шара на белой стене к нему в долях белой стены в полдень (без привыкания глаза) по числам слота
+     * ({@link #pallLight}: радиус и яркость чёрного тела) на расстоянии {@code d} от его середины — {@link MushroomModel#light}
+     * (у {@code fx_pall} — то же, {@code pallBallShare}, × привыкание глаза); d и радиус — в одних единицах.
      */
-    static double fireballGlow(double t, double yieldKt) {
-        return 1 - smooth(70, 130, t / FireballModel.secondMaximumSeconds(yieldKt));
-    }
-
-    /**
-     * Отсвет шара сверху на пыли у земли 0..1 ({@code pallLit} в {@code pall.glsl} — то же):
-     * на {@code r} от эпицентра по земле и доле высоты пыли {@code up} (низ темнее), {@code overhead} — свет шара 0..1,
-     * {@code lightR} — шесть радиусов шара ({@link #pallLight}); r и lightR — в одних единицах.
-     */
-    static double lit(double r, double up, double overhead, double lightR) {
-        double x = r / Math.max(lightR, 1e-3);
-        return (0.3 + 0.4 * up) * overhead / (1 + x * x);
+    static double ball(double luminance, double radius, double d) {
+        return luminance * radius * radius / Math.max(Math.max(d * d, radius * radius), 1e-6);
     }
 
     /**
@@ -90,26 +87,40 @@ public final class CloudPuffs {
     }
 
     /**
-     * Свет шара и пожаров на стене пыли и пелене за ней в момент t (секунды модели) — им {@code fx_pall} светит пыль
-     * ({@link #lit} сверху, {@link #burn} снизу), а {@code NukePall.dustColor} — пыль у камеры. В {@code into}: свет шара
-     * сверху, накал пожаров, шесть радиусов шара и край зоны пожаров (блоки), цвет шара (r, g, b в 0..1), высота шара над
-     * землёй под эпицентром (блоки). false — гриба уже (или ещё) нет (в {@code into} нули): нет и отсвета.
+     * Свет шара и пожаров на стене пыли, облаке Вильсона и пелене за ними у гриба {@code s} ({@code MushroomField.shape})
+     * — им {@code fx_pall} светит пыль (шар — пучок {@link #ball} от середины шапки, пожары — {@link #burn} снизу), а
+     * {@code NukePall.dustColor} — пыль у камеры. В {@code into}: радиус шапки (у шара — его радиус), накал пожаров, снос
+     * середины шапки по ветру и край зоны пожаров (блоки), свет чёрного тела видимой температуры шапки
+     * ({@link MushroomModel#edgeTemperature}: r, g, b линейные, в долях белой стены в полдень), высота середины шапки над
+     * землёй под эпицентром (блоки). Середина — как у тела гриба и света частиц ({@code MushroomField.centre}). false —
+     * гриба уже (или ещё) нет (в {@code into} нули): нет и отсвета.
      */
-    public boolean pallLight(double t, float[] into) {
+    public boolean pallLight(MushroomModel.Shape s, float[] into) {
         java.util.Arrays.fill(into, 0, 8, 0f);
-        if (t <= 0 || t >= lifeSeconds(d)) return false;
-        double y = d.yieldKt(), rf = FireballModel.maxRadius(y, d.surface());
-        double top = CloudModel.top(t, hob, y), capBot = Math.max(hob, CloudModel.capBottom(t, hob, y));
-        // середина шапки — там и шар, пока он светит пыль у земли
-        double yc = capBot + Math.max(rf, top - capBot) * 0.5;
-        int rgb = FireballModel.colorArgb(t, y);
-        into[0] = (float) fireballGlow(t, y);
+        if (s == null) return false;
+        double t = s.t(), y = d.yieldKt();
+        BlackBody.light(MushroomModel.edgeTemperature(t, y, d.surface()), BALL);
+        into[0] = (float) d.blocks(s.capR());
         into[1] = (float) glow(t, y);
-        into[2] = (float) d.blocks(6 * rf);
+        into[2] = (float) MushroomField.driftAlong(d, s);
         into[3] = (float) d.blocks(fireGround);
-        for (int i = 0; i < 3; i++) into[4 + i] = ((rgb >> (16 - 8 * i)) & 0xFF) / 255f;
-        into[7] = (float) d.blocks(Math.max(yc, rf));
+        for (int i = 0; i < 3; i++) into[4 + i] = (float) BALL[i];
+        into[7] = (float) d.blocks(s.capY());
         return true;
+    }
+
+    /**
+     * {@link #pallLight} гриба подрыва {@code a} в его миг без доли тика — один расчёт на миг: форма гриба и спектр
+     * чёрного тела стоят десятков микросекунд, а пыль у камеры ({@code NukePall.dustColor}) берёт свет на каждый клуб.
+     */
+    boolean pallLightNow(ClientNuclear.Active a, float[] into) {
+        double t = a.seconds(0);
+        if (t != nowT) {
+            nowLit = pallLight(MushroomField.shape(a, 0), now);
+            nowT = t;
+        }
+        System.arraycopy(now, 0, into, 0, now.length);
+        return nowLit;
     }
 
     static double smooth(double e0, double e1, double x) {

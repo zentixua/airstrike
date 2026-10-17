@@ -2,8 +2,10 @@ package ua.zentix.incoming.client.nuclear;
 
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
+import ua.zentix.incoming.client.far.Sight;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.BlastModel;
+import ua.zentix.incoming.nuclear.model.MushroomModel;
 
 import java.util.Arrays;
 
@@ -186,15 +188,19 @@ class BlastWallTest {
             s.sun[c] = NukePall.sunLight(1, s.sky[c], s.day);
         }
         s.base = ambient;
+        s.exposure = (float) Sight.adapted(1, ambient);
         s.glowOnSmoke = (float) CloudPuffs.glowOnSmoke(ambient);
         return s;
     }
 
     /**
      * Пыль у камеры — цвета стены там, как её светит кадр ({@link NukePall#dustLight}). Ночью у пожаров передняя сторона
-     * головы не тёмная (её снизу светят пожары; по ночной карте освещения пыль вышла бы почти чёрной) и цвета огня; в глубине
-     * головы, внизу, — в тени её толщи, во много раз темнее верха в отсвете шара. Днём сторона от шара — в свете солнца
-     * и неба, почти без оранжевого (шар за стеной её не светит), верх головы — бурый (красный, за ним зелёный, синий).
+     * головы не тёмная (её снизу светят пожары и сверху шар; по ночной карте освещения пыль вышла бы почти чёрной) и цвета
+     * огня. Свет шара (чёрное тело, как у тела гриба) в глубину головы не доходит: днём, когда шар ярче солнца, в глубине
+     * головы, внизу, — тень её толщи, ночью — тоже, как только шар на голове перестаёт слепить привыкший к темноте глаз
+     * (его свет — порядка белой стены; раньше пересвечено всё, что он освещает). Днём сторона от шара — в свете солнца
+     * и неба, почти без оранжевого: шар низко и за головой, его пучок к ней — сквозь всю голову; верх головы — бурый
+     * (красный, за ним зелёный, синий).
      */
     @Test
     void nearDustTakesWallLight() {
@@ -203,24 +209,41 @@ class BlastWallTest {
         float[] s = new float[BlastWall.SLOT], glow = new float[8], c = new float[3], top = new float[3];
         double t = 0.5;
         while (GROUND.metres(w.wall(t).head()) < 1500) t += 0.05;
-        assertTrue(w.slot(t, s));
-        assertTrue(puffs.pallLight(t, glow));
+        slot(puffs, w, t, s, glow);
         double head = s[0], a = s[1], h = s[2];
         assertTrue(head < glow[3], "голова в 1,5 км — не над пожарами");
         for (double up = 0.05; up <= 0.6; up += 0.1) {
-            NukePall.dustLight(s, glow, sky(false), head - 0.1 * a, up * h, 0, up * h, c);
+            NukePall.dustLight(s, glow, sky(false), GROUND.windDir(), head - 0.1 * a, up * h, 0, up * h, c);
             assertTrue(luminance(c) > 0.2, up + " высоты: ночью у пожаров пыль тёмная, " + luminance(c));
             assertTrue(c[0] > c[1] && c[1] > c[2], up + " высоты: ночью у пожаров не цвета огня, " + Arrays.toString(c));
         }
-        NukePall.dustLight(s, glow, sky(false), head - 1.5 * a, 0.9 * h, 0, 0.9 * h, top);
-        NukePall.dustLight(s, glow, sky(false), head - 1.5 * a, 0.3 * h, 0, 0.3 * h, c);
-        assertTrue(luminance(top) > 3 * luminance(c), "в глубине головы не тень: " + luminance(c) + " при верхе " + luminance(top));
         for (double up = 0.05; up <= 0.6; up += 0.1) {
-            NukePall.dustLight(s, glow, sky(true), head - 0.1 * a, up * h, 0, up * h, c);
+            NukePall.dustLight(s, glow, sky(true), GROUND.windDir(), head - 0.1 * a, up * h, 0, up * h, c);
             assertTrue(c[0] - c[2] < 0.1, up + " высоты: днём сторона от шара в его отсвете, " + Arrays.toString(c));
         }
-        NukePall.dustLight(s, glow, sky(true), head - 1.5 * a, 0.9 * h, 0, 0.9 * h, top);
+        NukePall.dustLight(s, glow, sky(true), GROUND.windDir(), head - 1.5 * a, 0.9 * h, 0, 0.9 * h, top);
         assertTrue(top[0] > top[1] && top[1] > top[2], "днём верх головы не бурый: " + Arrays.toString(top));
         assertTrue(luminance(top) > 0.5 && luminance(top) < 0.85, "днём верх головы " + luminance(top));
+        NukePall.dustLight(s, glow, sky(true), GROUND.windDir(), head - 1.5 * a, 0.3 * h, 0, 0.3 * h, c);
+        assertTrue(luminance(top) > 3 * luminance(c), "днём в глубине головы не тень: " + luminance(c) + " при верхе " + luminance(top));
+        // ночью: свет шара на голове, привыкший к темноте глаз, — уже порядка белой стены
+        double night = sky(false).exposure;
+        while (CloudPuffs.ball(0.2126 * glow[4] + 0.7152 * glow[5] + 0.0722 * glow[6], glow[0], Math.hypot(s[0], glow[7])) * night > 3) {
+            t += 0.05;
+            slot(puffs, w, t, s, glow);
+        }
+        assertTrue(t < 12, "шар слепит ночью до " + t + " с");
+        head = s[0];
+        a = s[1];
+        h = s[2];
+        NukePall.dustLight(s, glow, sky(false), GROUND.windDir(), head - 1.5 * a, 0.9 * h, 0, 0.9 * h, top);
+        NukePall.dustLight(s, glow, sky(false), GROUND.windDir(), head - 1.5 * a, 0.3 * h, 0, 0.3 * h, c);
+        assertTrue(luminance(top) > 2.5 * luminance(c), t + " с, ночью в глубине головы не тень: " + luminance(c) + " при верхе " + luminance(top));
+    }
+
+    /** Стена и свет шара и пожаров у 15 кт в момент t: в {@code wall} и {@code glow}. */
+    private static void slot(CloudPuffs puffs, BlastWall w, double t, float[] wall, float[] glow) {
+        assertTrue(w.slot(t, wall));
+        assertTrue(puffs.pallLight(MushroomModel.shape(t, 15, 0, true, GROUND.metres(w.wall(t).head())), glow));
     }
 }

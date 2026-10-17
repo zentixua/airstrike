@@ -211,12 +211,16 @@ public final class MushroomField {
      */
     static void centre(ClientNuclear.Active a, MushroomModel.Shape s, double[] out) {
         Detonation d = a.d;
-        double[] w = DRIFT;
-        drift(d, s.t(), w);
-        double share = MushroomModel.driftShare(d.blocks(s.capY()), Math.max(d.blocks(s.endTop()), 1));
-        out[0] = d.burst().x + w[0] * share;
+        double along = driftAlong(d, s);
+        out[0] = d.burst().x + Math.cos(d.windDir()) * along;
         out[1] = d.groundY() + d.blocks(s.capY());
-        out[2] = d.burst().z + w[1] * share;
+        out[2] = d.burst().z + Math.sin(d.windDir()) * along;
+    }
+
+    /** Снос середины шапки по ветру, блоки: ось гриба на её высоте ({@link #centre}). */
+    static double driftAlong(Detonation d, MushroomModel.Shape s) {
+        double share = MushroomModel.driftShare(d.blocks(s.capY()), Math.max(d.blocks(s.endTop()), 1));
+        return d.blocks(d.windSpeed() * s.t()) * share;
     }
 
     /** Снос ветром на всю долю, блоки: x, z — в {@code out}. */
