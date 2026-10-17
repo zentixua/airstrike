@@ -354,17 +354,42 @@
    "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "strikes": [{"weapon": "missile", "route": "south_a", "eta": 3.0}, {"weapon": "missile", "route": "south_b", "eta": 3.5}], "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
   },
   {
-   "id": "T21", "title": "Ночь: удар по Городу 1 разными средствами", "from": "chain", "clock": "night", "siren": true, "minutes": 12,
+   "id": "T21", "title": "Ночь: ковёр «Града» по Городу 1, город отвечает; проспект", "from": "chain", "clock": "night", "siren": true, "minutes": 12,
    "stage": [
     {"do": "crowd", "group": "street", "at": {"at": [-135, -35], "above": 0}, "n": 10, "spread": 5, "roam": 1, "prefix": "Str", "creative": true},
+    {"do": "launchers", "rack": "n41_north", "at": {"line": [-161, -257], "step": [45, 71], "n": 2}, "weapon": "rocket", "count": 1, "spread": 0, "to": "south_launchers", "load": 2},
     {"do": "settle"}
    ],
    "shots": [
-    {"plans": ["n41"], "seconds": 10, "cover": {"n41": {"subject": "first", "weapon": "rocket", "need": "HIT", "smoky": 1.0, "density": {"min": 4.0, "span": 6.7}}}},
+    {"plans": ["n41"], "seconds": 10,
+     "cues": [{"at": 0.4, "do": "launchers.fire", "rack": "n41_north"}, {"at": 2.4, "do": "launchers.fire", "rack": "n41_north"}],
+     "cover": {"n41": {"subject": "first", "weapon": "rocket", "need": "HIT", "smoky": 1.0, "density": {"min": 4.0, "span": 4.8}}}},
     {"plans": ["n41b"], "seconds": 6,
      "cues": [{"at": 0, "do": "crowd.flee", "group": "street", "to": {"at": [-70, -35], "above": 0}, "stagger": [0, 0.6]}],
-     "cover": {"n41b": {"subject": "impact", "weapon": "missile", "need": "HIT", "smoky": 1.0}}}
+     "cover": {"n41b": {"subject": "impact", "weapon": "rocket", "near": {"at": [-107, -37], "above": 0}, "need": "HIT", "smoky": 1.0}}}
    ]
+  },
+  {
+   "id": "T21c", "title": "Штаб Волкова на берегу: ПВО Севера сбивает шахеды над горящим городом", "from": "branch:T21", "clock": "night", "siren": true, "minutes": 8,
+   "stage": [
+    {"do": "sam", "at": "c1_sam_w", "load": 0},
+    {"do": "sam", "at": "c1_sam", "load": 0},
+    {"do": "sam", "at": "c1_sam_e", "load": 0},
+    {"do": "crowd", "group": "hq", "at": {"at": [-318, 406], "above": 0}, "n": 4, "spread": 3, "roam": 0, "prefix": "Off", "names": ["Volkov"], "creative": true},
+    {"do": "settle"},
+    {"do": "crowd.watch", "group": "hq", "at": {"at": [-200, 110], "above": 20}, "jitter": 4}
+   ],
+   "shots": [
+    {"plans": ["n30a"], "seconds": 6,
+     "strikes": [{"weapon": "drone", "route": "herd_w", "eta": 6.6}, {"weapon": "drone", "route": "herd_c", "eta": 7.0}, {"weapon": "drone", "route": "herd_e", "eta": 7.4},
+      {"weapon": "drone", "route": "herd_w", "eta": 7.8}, {"weapon": "drone", "route": "herd_c", "eta": 8.2}, {"weapon": "drone", "route": "herd_e", "eta": 8.6}],
+     "ready": [{"do": "sam.config", "kill": 0.5, "engage": 160, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 3}, {"do": "sam", "at": "c1_sam", "load": 3}, {"do": "sam", "at": "c1_sam_e", "load": 3}],
+     "when": {"kind": "interceptor", "at": "c1_sam", "r": 120},
+     "expect": {"kills": [2, 6], "interceptors": 4},
+     "end": [{"do": "sam.config"}],
+     "cover": {"n30a": {"subject": "scene"}}}
+   ],
+   "after": [{"do": "crowd.remove", "group": "hq"}, {"do": "sam.clear", "at": "c1_sam", "r": 100}]
   },
   {
    "id": "T22", "title": "Городок смотрит, как горит Север", "from": "chain", "clock": "night", "siren": true, "minutes": 10,

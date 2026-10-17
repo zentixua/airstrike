@@ -195,6 +195,12 @@ def take_dirs(plan, root=None, overrides=()):
     return dirs
 
 
+def shot_name(take):
+    """План записи по имени дубля монтажа: «n31@wide» — второй кусок того же плана из другого вывода (своя папка через
+    --take n31@wide=ПАПКА), кадры и журнал — плана n31."""
+    return take.split("@", 1)[0]
+
+
 def load_takes(plan, dirs):
     """Дубли всех склеек; нет дубля (не задана папка, в папке нет плана, нет кадров) — монтаж останавливается и
     называет каждый такой план с его склейками: заглушек нет."""
@@ -212,7 +218,7 @@ def load_takes(plan, dirs):
         if not os.path.isdir(d):
             missing.append(f"{name} (склейки {cuts}): нет папки {d}")
             continue
-        t = T.load_take(name, d)
+        t = T.load_take(shot_name(name), d)
         if not t.frames:
             missing.append(f"{name} (склейки {cuts}): в {d} нет кадров плана {name}")
             continue
@@ -1002,7 +1008,7 @@ def render(ed, takes, dirs, args, segs, out):
     """Картинка (edit.render_frames: цвет, кинокаше, титры) и звук; ffmpeg → mp4."""
     shots = {}
     for name in {p.take for p in ed.pieces if p.take}:
-        s = E.load_recording(dirs[name]).get(name)
+        s = E.load_recording(dirs[name]).get(shot_name(name))
         if s is None:
             raise MontageError(f"монтаж {ed.plan['name']}: у дубля {name} в {dirs[name]} нет кадров PNG")
         shots[name] = s

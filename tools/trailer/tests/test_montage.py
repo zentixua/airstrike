@@ -356,3 +356,11 @@ class TitleFitTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShotNameTest(unittest.TestCase):
+    """Второй кусок того же плана из другого вывода: дубль «n31@wide» читает кадры плана n31."""
+
+    def test_variant_reads_its_plan(self):
+        self.assertEqual("n31", M.shot_name("n31@wide"))
+        self.assertEqual("n31", M.shot_name("n31"))

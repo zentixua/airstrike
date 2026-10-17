@@ -74,12 +74,15 @@ class NewisleCutTest(unittest.TestCase):
         json.dumps(plan)
 
     def test_sheet_90_fits_track_and_gates(self):
-        """Лист на 90 с: все планы есть в дублях, длина ролика — 90 с, музыка на ударах трека, ворота монтажа чисты."""
+        """Лист: все планы есть в дублях (второй кусок плана «n31@wide» — план n31), вторая часть трека накрывает ролик до
+        конца (длина может расти — Артём 17.10), музыка на ударах трека, ворота монтажа чисты."""
         known = {p for t in TAKES["takes"] for s in t.get("shots", []) for p in s.get("plans", [])}
         known |= {p for t in TAKES["takes"] for p in (t.get("cover") or {})}
         need = [s["plan"] for s in SHEET["shots"] if "plan" in s]
-        self.assertEqual([], [p for p in need if p not in known], "план листа без дубля")
-        self.assertAlmostEqual(90.0, sum(s["dur"] for s in SHEET["shots"]), delta=0.5)
+        self.assertEqual([], [p for p in need if p.split("@")[0] not in known], "план листа без дубля")
+        wave_part = SHEET["music"]["parts"][-1]
+        self.assertLessEqual(sum(s["dur"] for s in SHEET["shots"]) - wave_part["at"], wave_part["end"] - wave_part["track"] + 0.5,
+                             "трек кончается раньше ролика")
         plan = C.plan_of(SHEET, {p: f"/r/{p}" for p in need}, music="m.mp3")
         war, wave = plan["music"]
         self.assertEqual(("n38", 144, 192, 4, 0.4), (war["start"], war["from"], war["to"], war["grid"], war["ring"]))

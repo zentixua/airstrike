@@ -1185,6 +1185,34 @@
   "notes": "крыша 73 блоков над землёй, у края, до цели 105"
  },
  {
+  "id": "n30a",
+  "title": "Night: Volkov's staff on the shore watch the North shoot the shaheds down",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -317.5,
+     67.6,
+     416.5
+    ],
+    "yaw": -159.0,
+    "pitch": -2.2,
+    "fov": 30.0
+   }
+  ],
+  "target": [
+   -200.0,
+   72.0,
+   140.0
+  ],
+  "distance": 290.0,
+  "sight": true,
+  "ok": true,
+  "notes": "камера в 10 блоках за рядом офицеров (−322…−313, 406) на высоте их голов; лучи к ним и к ЗРК c1_sam_w, c1_sam чистые на nw-T20-a0"
+ },
+ {
   "id": "n30",
   "title": "Second key",
   "time": "night",
