@@ -28,7 +28,13 @@ with a nuclear warhead takes off 90 seconds after the alarm starts.
 
 Everyone within 20 km of the target hears a siren in advance. Then come the flash, the fireball and the mushroom cloud.
 The blast wave rolls out over the land as a wall of dust and smoke and breaks buildings as it reaches them: their pieces
-fly with the dust. The ground shakes harder and harder as the wall comes closer.
+fly with the dust. The ground shakes harder and harder as the wall comes closer. After a ground burst a short jolt
+comes through the ground first, seconds before the wave.
+
+Behind the wave a pall of dust rises over the town, up to about 200 m high at 15 kt and lower toward the edge. In the
+thick of it you see only some 40 m and sounds are muffled. The dust settles over a few minutes and drifts downwind.
+Above the fires smoke stays until morning, lit orange from below at night, and ash and scraps of burnt paper fall
+around you.
 
 ![Fireball and blast wave over a town](img/nuke-wave.jpg)
 

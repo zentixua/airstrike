@@ -5,6 +5,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -41,6 +42,13 @@ import java.util.UUID;
  * радиация по сущностям (ближние первыми), ударная волна, разрушения и воронка.
  */
 public final class NuclearWarhead {
+    /**
+     * Сценарий клиента ({@code tools/client_scenario.sh}, сервер — в той же JVM): ветер и сид подрыва — по его номеру, а не
+     * из {@code level.random}, чтобы кадры пелены и гриба сравнивались от прогона к прогону. В игре — как было.
+     */
+    private static final boolean SCENARIO = System.getProperty("incoming.scenario") != null;
+    private static final long SCENARIO_SEED = 0x5CE7A510L;
+
     private NuclearWarhead() {}
 
     /**
@@ -59,9 +67,11 @@ public final class NuclearWarhead {
         NuclearEvents events = NuclearEvents.get(level);
         // готовились к этому подрыву — его место, земля и видимость те же, что у руин заранее
         Detonation g = NuclearWorld.get(level).planned(geometry(level, target, yieldKt, airBurst, scale));
-        Detonation d = new Detonation(events.nextId(), g.burst(), g.groundY(), yieldKt, g.surface(),
-                level.getGameTime(), (float) (level.random.nextDouble() * Math.PI * 2), 5 + level.random.nextFloat() * 10,
-                g.visibility(), level.random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get(),
+        int id = events.nextId();
+        RandomSource random = SCENARIO ? RandomSource.create(SCENARIO_SEED + id) : level.random;
+        Detonation d = new Detonation(id, g.burst(), g.groundY(), yieldKt, g.surface(),
+                level.getGameTime(), (float) (random.nextDouble() * Math.PI * 2), 5 + random.nextFloat() * 10,
+                g.visibility(), random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get(),
                 IncomingConfig.SERVER.nukeWaveSpeed.get().floatValue());
         events.add(d);
         PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
