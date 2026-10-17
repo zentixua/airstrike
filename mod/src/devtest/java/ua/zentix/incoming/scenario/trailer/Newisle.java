@@ -323,15 +323,11 @@ final class Newisle {
         }
         boolean siren = !take.has("siren") || take.get("siren").getAsBoolean();
         long clock = data.clock(take.get("clock").getAsString());
-        // масштаб ядерных радиусов (effects_scale, «для малых миров»): Newisle — остров, Город 2 в 0,9 км от эпицентра;
-        // 0,5 — картина ~2 кт при тех же 15 кт в чате и на пульте (17.10)
-        double nukeScale = take.has("nuke_scale") ? take.get("nuke_scale").getAsDouble() : 1.0;
         film.run(() -> {
             Film.cmd("time set " + clock);
             Film.cmd("weather clear");
             // сирена у цели — настройка мира: n49–n50 (первый удар) — без тревоги, дальше — с ней
             IncomingConfig.SERVER.siren.set(siren);
-            IncomingConfig.SERVER.nukeEffectsScale.set(nukeScale);
         });
         if (take.has("artem")) artem(take.getAsJsonObject("artem"));
         for (JsonElement a : list(take, "stage")) step(a.getAsJsonObject());

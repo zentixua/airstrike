@@ -504,7 +504,7 @@
    "shots": [
     {"plans": ["n30"], "seconds": 6, "camera": "player", "chat": true, "when": {"kind": "none"},
      "cues": [
-      {"at": 0.7, "do": "nuke.order", "by": "Volkov", "at_place": "gz", "kt": 15},
+      {"at": 0.7, "do": "nuke.order", "by": "Volkov", "at_place": "gz", "kt": 2},
       {"at": 4.5, "do": "silo.open"},
       {"at": 4.65, "do": "nuke.key"},
       {"at": 4.8, "do": "silo.close"}
@@ -523,14 +523,14 @@
     {"do": "hidden", "at": "camera:n32", "look": "silo"}
    ],
    "shots": [
-    {"plans": ["n32"], "seconds": 5, "ready": [{"do": "nuke.order", "by": "player", "pad": {"at": [-885, -17]}, "at_place": "gz", "kt": 15}],
+    {"plans": ["n32"], "seconds": 5, "ready": [{"do": "nuke.order", "by": "player", "pad": {"at": [-885, -17]}, "at_place": "gz", "kt": 2}],
      "when": {"kind": "icbm", "above": 0},
      "cover": {"n32": {"subject": "flight", "weapon": "nuke", "need": "FLIGHT70", "spare": ["tracker"]}}}
    ],
    "after": [{"do": "nuke.clear"}]
   },
   {
-   "id": "T24", "title": "Конец света: бой в Городе 2 встаёт у вспышки, мирные бегут, одеяло пыли", "from": "chain", "clock": "night", "siren": true, "minutes": 16, "nuke_scale": 0.5,
+   "id": "T24", "title": "Конец света: бой в Городе 2 встаёт у вспышки, мирные бегут, одеяло пыли", "from": "chain", "clock": "night", "siren": true, "minutes": 16,
    "stage": [
     {"do": "silo.build", "at": "silo", "depth": 30, "size": 5},
     {"do": "silo.open"},
@@ -541,7 +541,7 @@
     {"do": "grid.node", "at": {"at": [-745, 640], "above": 0}, "r": 90},
     {"do": "settle"},
     {"do": "fight.arm"},
-    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 15},
+    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 2},
     {"do": "wait", "s": 2}
    ],
    "shots": [
@@ -551,7 +551,7 @@
    "after": [{"do": "fight.remove"}, {"do": "crowd.remove", "group": "civil"}, {"do": "crowd.remove", "group": "south"}, {"do": "crowd.remove", "group": "north"}, {"do": "crowd.remove", "group": "roof"}]
   },
   {
-   "id": "T25", "title": "Финал: толпа на холме у Города 2, ты среди неё — одеяло пыли идёт на вас", "from": "branch:T22", "clock": "night", "siren": true, "minutes": 12, "nuke_scale": 0.5,
+   "id": "T25", "title": "Финал: толпа на холме у Города 2, ты среди неё — одеяло пыли идёт на вас", "from": "branch:T22", "clock": "night", "siren": true, "minutes": 12,
    "artem": {"mark": "camera:n66", "stand": [-557.5, 910.5], "look": "c1_core", "hints": ["Ночь, открытый склон у залива юго-восточнее Города 2. Встань в толпе лицом к Городу 1 (через залив, на северо-восток).", "Нажми Enter — начнём.", "Смотри на Город 1. Будет вспышка — можешь пригнуться и отвернуться, потом смотри на гриб. Волна пойдёт через город на вас: стой и смотри, пока экран не станет чёрным. Двигайся, как живой человек, — на тебе держится кадр."]},
    "stage": [
     {"do": "silo.build", "at": "silo", "depth": 30, "size": 5},
@@ -559,7 +559,7 @@
     {"do": "crowd", "group": "hill", "at": "c2_hill", "n": 14, "spread": 5, "roam": 0.5, "prefix": "Hill", "creative": true},
     {"do": "settle"},
     {"do": "crowd.watch", "group": "hill", "at": {"at": [-167, -4], "above": 120}, "jitter": 12},
-    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 15},
+    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 2},
     {"do": "wait", "s": 2}
    ],
    "shots": [
