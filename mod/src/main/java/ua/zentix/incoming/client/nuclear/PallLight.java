@@ -30,7 +30,8 @@ package ua.zentix.incoming.client.nuclear;
  * пелена переводит в них свой цвет ({@link #display}, γ = {@value #GAMMA}), а цвета экрана — цвет стены пыли и брызг,
  * небо — в линейные ({@link #linear}). Без этого середина тонов выходила темнее (0,3 линейного на экране — 0,58),
  * тонкий туман — грязно-серым, а сумерки в густой пыли — чернотой без клубов. Чистая степень, а не кусочная кривая sRGB:
- * перевод произведения — произведение переводов, и толстый слой цвета R в свете L на экране — ровно R·L экрана.
+ * перевод произведения — произведение переводов, и поток от толстого слоя цвета R в свете L на экране — ровно R·L
+ * экрана (к глазу под скользящим углом толстый слой светлее, как настоящее облако).
  * Отсвет, что стена пыли прибавляет на экране к свету неба ({@link CloudPuffs#wallColor} складывает их на экране), в
  * линейном — разность переводов ({@link #lift}); свет огня — не ярче самого пламени ({@link #flame}).
  * <p>
@@ -54,6 +55,8 @@ public final class PallLight {
     static final double SKY = 0.5;
     /** Степень экрана: значение экрана v — линейное v^γ ({@link #linear}, {@link #display}). */
     static final double GAMMA = 2.2;
+    /** Полоса около kμ = 1, где пучок в частном решении сдвинут ({@link #beamMu}). */
+    static final double BEAM_BAND = 0.05;
 
     private PallLight() {}
 
@@ -111,6 +114,19 @@ public final class PallLight {
     }
 
     /**
+     * Косинус пучка в частном решении ({@code pallBeamMu}): у пучка, что гаснет так же, как рассеянный свет (kμ = 1),
+     * знаменатель частного решения k²μ² − 1 обнуляется. В полосе |k²μ² − 1| &lt; {@value #BEAM_BAND} пучок сдвинут
+     * к её краю — весь: в частном решении, в своём пропускании и на земле. Решение остаётся решением уравнения, косинус
+     * — в пределах 2,5%; зажатый знаменатель при прежнем μ решением не был: у дыма (k &gt; 1) около полудня свет в слое
+     * выходил в разы не тот.
+     */
+    static double beamMu(double k, double mu) {
+        double d = k * k * mu * mu - 1;
+        if (Math.abs(d) >= BEAM_BAND) return mu;
+        return Math.sqrt(d < 0 ? 1 - BEAM_BAND : 1 + BEAM_BAND) / k;
+    }
+
+    /**
      * Рассеянный свет в слое ({@code pallDiffuse}): I₀ + c·I₁ на глубине {@code tau} слоя толщи {@code tc}. c = g'·μv —
      * рассеянное к глазу (без ω'), c = ±2/3 — поток вверх или вниз, делённый на π (на белой стене — её свет).
      *
@@ -128,23 +144,21 @@ public final class PallLight {
         double k = k(w, g);
         double p = 2.0 / 3 * k / q;
         double e = Math.exp(-k * tc);
-        // частное решение пучка: k²μ² − 1 у пучка, что гаснет как рассеянный свет (kμ = 1), — не ближе 0,05 к нулю, со
-        // своим знаком (у тёмного дыма k > 1)
-        double d1 = k * k * mu1 * mu1 - 1, d2 = k * k * mu2 * mu2 - 1;
-        double s1 = Math.max(Math.abs(d1), 0.05) * Math.signum(d1 + 1e-6), s2 = Math.max(Math.abs(d2), 0.05) * Math.signum(d2 + 1e-6);
-        double a1 = 0.75 * w * mu1 * mu1 * f1 * (1 + g * (1 - w)) / s1;
-        double b1 = 0.75 * w * mu1 * f1 - 3 * mu1 * (1 - w) * a1;
-        double a2 = 0.75 * w * mu2 * mu2 * f2 * (1 + g * (1 - w)) / s2;
-        double b2 = 0.75 * w * mu2 * f2 - 3 * mu2 * (1 - w) * a2;
-        double e1 = Math.exp(-tc / mu1), e2 = Math.exp(-tc / mu2);
+        // пучок, что гаснет как рассеянный свет (kμ = 1), — со сдвинутым косинусом (beamMu)
+        double m1 = beamMu(k, mu1), m2 = beamMu(k, mu2);
+        double a1 = 0.75 * w * m1 * m1 * f1 * (1 + g * (1 - w)) / (k * k * m1 * m1 - 1);
+        double b1 = 0.75 * w * m1 * f1 - 3 * m1 * (1 - w) * a1;
+        double a2 = 0.75 * w * m2 * m2 * f2 * (1 + g * (1 - w)) / (k * k * m2 * m2 - 1);
+        double b2 = 0.75 * w * m2 * f2 - 3 * m2 * (1 - w) * a2;
+        double e1 = Math.exp(-tc / m1), e2 = Math.exp(-tc / m2);
         double r1 = top - a1 - a2 + 2.0 / 3 * (b1 + b2);
-        double r2 = bottom + ground * (mu1 * f1 * e1 + mu2 * f2 * e2) - ((1 - ground) * a1 + 2.0 / 3 * (1 + ground) * b1) * e1
+        double r2 = bottom + ground * (m1 * f1 * e1 + m2 * f2 * e2) - ((1 - ground) * a1 + 2.0 / 3 * (1 + ground) * b1) * e1
                 - ((1 - ground) * a2 + 2.0 / 3 * (1 + ground) * b2) * e2;
         double m11 = 1 + p, m12 = e * (1 - p), m21 = e * (1 - ground - (1 + ground) * p), m22 = 1 - ground + (1 + ground) * p;
         double det = m11 * m22 - m12 * m21;
         double c1 = (r1 * m22 - m12 * r2) / det, c2 = (m11 * r2 - m21 * r1) / det;
         double x = Math.exp(-k * tau), y = Math.exp(-k * (tc - tau));
-        double t1 = Math.exp(-tau / mu1), t2 = Math.exp(-tau / mu2);
+        double t1 = Math.exp(-tau / m1), t2 = Math.exp(-tau / m2);
         double i0 = c1 * x + c2 * y + a1 * t1 + a2 * t2;
         double i1 = k / q * (c2 * y - c1 * x) + b1 * t1 + b2 * t2;
         return i0 + c * i1;

@@ -80,6 +80,51 @@ class PallLightTest {
     }
 
     /**
+     * Пучок, что гаснет так же, как рассеянный свет (kμ ≈ 1; у дыма k > 1 — солнце около полудня): свет в слое —
+     * решение уравнения, а не формула с зажатым знаменателем. Сдвинутый пучок ({@link PallLight#beamMu}) против точной
+     * формулы при настоящем косинусе (у самого kμ = 1 её знаменатель — до 10⁻⁴, в двойной точности она ещё точна): в
+     * слое, вверх и вниз, — не дальше 0,01 на пучок силы 1. Зажатый знаменатель давал там поток вверх ×3,8 и ноль вниз
+     * у пола.
+     */
+    @Test
+    void beamThatFadesLikeDiffuseLightStillSolvesTheSlab() {
+        for (double w : new double[]{0.55, 0.52, 0.48, 0.4368}) {
+            double g = 0.375, k = PallLight.k(w, g);
+            assertTrue(k > 1, "у дыма k > 1: " + k);
+            for (double mu = 0.85; mu <= 1; mu += 0.0005) {
+                if (Math.abs(k * k * mu * mu - 1) < 1e-4) continue;
+                for (double tc : new double[]{1, 6, 10}) {
+                    for (double ground : new double[]{0.06, 0.2}) {
+                        for (double share : new double[]{0, 0.5, 1}) {
+                            for (double c : new double[]{-2.0 / 3, 0.3, 2.0 / 3}) {
+                                double tau = share * tc;
+                                double got = PallLight.diffuse(w, g, tau, tc, ground, mu, 1, 1, 0, 0, 0, c);
+                                assertEquals(exactBeam(w, g, tau, tc, ground, mu, c), got, 0.01,
+                                        "ω' " + w + ", μ " + mu + ", τc " + tc + ", τ " + tau + ", земля " + ground + ", c " + c);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Свет одного пучка силы 1 в слое — частное решение при настоящем косинусе, без сдвига (у kμ ≠ 1 оно точное). */
+    private static double exactBeam(double w, double g, double tau, double tc, double ground, double mu, double c) {
+        double q = 1 - w * g, k = PallLight.k(w, g), p = 2.0 / 3 * k / q, e = Math.exp(-k * tc);
+        double a = 0.75 * w * mu * mu * (1 + g * (1 - w)) / (k * k * mu * mu - 1);
+        double b = 0.75 * w * mu - 3 * mu * (1 - w) * a;
+        double e1 = Math.exp(-tc / mu);
+        double r1 = -a + 2.0 / 3 * b;
+        double r2 = ground * mu * e1 - ((1 - ground) * a + 2.0 / 3 * (1 + ground) * b) * e1;
+        double m11 = 1 + p, m12 = e * (1 - p), m21 = e * (1 - ground - (1 + ground) * p), m22 = 1 - ground + (1 + ground) * p;
+        double det = m11 * m22 - m12 * m21;
+        double c1 = (r1 * m22 - m12 * r2) / det, c2 = (m11 * r2 - m21 * r1) / det;
+        double x = Math.exp(-k * tau), y = Math.exp(-k * (tc - tau)), t1 = Math.exp(-tau / mu);
+        return c1 * x + c2 * y + a * t1 + c * (k / q * (c2 * y - c1 * x) + b * t1);
+    }
+
+    /**
      * Свет огня ({@link PallLight#flame}): пока отсвет на экране не дошёл до цвета пламени — тот же, что {@link PallLight#lift},
      * дальше — излучение самого пламени, в каждом канале не ярче его.
      */

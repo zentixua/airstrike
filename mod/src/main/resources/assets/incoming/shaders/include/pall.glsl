@@ -143,7 +143,7 @@ float pallShape(vec2 n, float fill) {
 
 // Мелкие клубы (VolumeNoise.detail): r — канал клубов плитки вчетверо мельче; множитель густоты 0,3..1,7, в среднем по
 // плитке — 1 (канал равномерен), поэтому средняя густота поля остаётся его густотой. Пелена — каскад: крупные клубы,
-// внутри них мелкие; мельче того, что луч различает (пиксель, шаг), мелкие — их среднее, 1 (fx_pall: noiseAt).
+// внутри них мелкие; мельче того, что луч различает (пиксель, шаг), мелкие — их среднее, 1 (fx_pall: fineAt).
 float pallDetail(float r) {
     return 0.3 + 1.4 * smoothstep(0.2, 0.8, r);
 }
@@ -238,6 +238,10 @@ float pallLinear(float v) {
     return pow(max(v, 0.0), 2.2);
 }
 
+vec3 pallLinear3(vec3 v) {
+    return vec3(pallLinear(v.r), pallLinear(v.g), pallLinear(v.b));
+}
+
 float pallDisplay(float v) {
     return pow(max(v, 0.0), 0.4545455);
 }
@@ -266,33 +270,42 @@ float pallK(float w, float g) {
     return sqrt(max(3.0 * (1.0 - w) * (1.0 - w * g), 1e-6));
 }
 
+// Косинус пучка в частном решении (pallDiffuse): у пучка, что гаснет так же, как рассеянный свет (kμ = 1), знаменатель
+// частного решения k²μ² − 1 обнуляется. В полосе |k²μ² − 1| < 0,05 пучок сдвинут к её краю — весь: в частном решении,
+// в своём пропускании и на земле. Решение остаётся решением уравнения, косинус — в пределах 2,5%; зажатый знаменатель
+// при прежнем μ решением не был: у дыма (k > 1) около полудня свет в слое выходил в разы не тот
+float pallBeamMu(float k, float mu) {
+    float d = k * k * mu * mu - 1.0;
+    if (abs(d) >= 0.05) return mu;
+    if (d < 0.0) return 0.9746794 / k;
+    return 1.0246951 / k;
+}
+
 // Рассеянный свет на глубине tau слоя толщи tc (альбедо w, асимметрия g, земля под ним — альбедо ground): I0 + c·I1.
 // c = g·μ глаза — то, что точка рассеивает к глазу (без ω); c = ±2/3 — поток вверх или вниз, делённый на π. Источники:
 // два пучка сверху (косинус к вертикали mu, сила f — что отражает белая стена к пучку), небо сверху top и свет снизу
 // bottom (излучение вверх, сверх отражённого землёй). Решение — в затухающих экспонентах: e^(−kτ) от верха и e^(−k(tc − τ))
 // от низа — без переполнения в толстом слое; k ≥ 10⁻³ — и у непоглощающего тумана (k = 0) матрица не вырождена.
-// Знаменатель частного решения k²μ² − 1 — не ближе 0,05 к нулю, со своим знаком (у тёмного дыма k > 1): пучок, что гаснет
-// так же, как рассеянный свет (kμ = 1), не делит на 0.
+// Пучок, что гаснет так же, как рассеянный свет (kμ = 1), — со сдвинутым косинусом (pallBeamMu): не делит на 0.
 float pallDiffuse(float w, float g, float tau, float tc, float ground, float mu1, float f1, float mu2, float f2, float top, float bottom, float c) {
     float q = 1.0 - w * g;
     float k = sqrt(max(3.0 * (1.0 - w) * q, 1e-6));
     float p = 0.6666667 * k / q;
     float e = exp(-k * tc);
-    float d1 = k * k * mu1 * mu1 - 1.0, d2 = k * k * mu2 * mu2 - 1.0;
-    float s1 = max(abs(d1), 0.05) * sign(d1 + 0.000001), s2 = max(abs(d2), 0.05) * sign(d2 + 0.000001);
-    float a1 = 0.75 * w * mu1 * mu1 * f1 * (1.0 + g * (1.0 - w)) / s1;
-    float b1 = 0.75 * w * mu1 * f1 - 3.0 * mu1 * (1.0 - w) * a1;
-    float a2 = 0.75 * w * mu2 * mu2 * f2 * (1.0 + g * (1.0 - w)) / s2;
-    float b2 = 0.75 * w * mu2 * f2 - 3.0 * mu2 * (1.0 - w) * a2;
-    float e1 = exp(-tc / mu1), e2 = exp(-tc / mu2);
+    float m1 = pallBeamMu(k, mu1), m2 = pallBeamMu(k, mu2);
+    float a1 = 0.75 * w * m1 * m1 * f1 * (1.0 + g * (1.0 - w)) / (k * k * m1 * m1 - 1.0);
+    float b1 = 0.75 * w * m1 * f1 - 3.0 * m1 * (1.0 - w) * a1;
+    float a2 = 0.75 * w * m2 * m2 * f2 * (1.0 + g * (1.0 - w)) / (k * k * m2 * m2 - 1.0);
+    float b2 = 0.75 * w * m2 * f2 - 3.0 * m2 * (1.0 - w) * a2;
+    float e1 = exp(-tc / m1), e2 = exp(-tc / m2);
     float r1 = top - a1 - a2 + 0.6666667 * (b1 + b2);
-    float r2 = bottom + ground * (mu1 * f1 * e1 + mu2 * f2 * e2) - ((1.0 - ground) * a1 + 0.6666667 * (1.0 + ground) * b1) * e1
+    float r2 = bottom + ground * (m1 * f1 * e1 + m2 * f2 * e2) - ((1.0 - ground) * a1 + 0.6666667 * (1.0 + ground) * b1) * e1
             - ((1.0 - ground) * a2 + 0.6666667 * (1.0 + ground) * b2) * e2;
     float m11 = 1.0 + p, m12 = e * (1.0 - p), m21 = e * (1.0 - ground - (1.0 + ground) * p), m22 = 1.0 - ground + (1.0 + ground) * p;
     float det = m11 * m22 - m12 * m21;
     float c1 = (r1 * m22 - m12 * r2) / det, c2 = (m11 * r2 - m21 * r1) / det;
     float x = exp(-k * tau), y = exp(-k * (tc - tau));
-    float t1 = exp(-tau / mu1), t2 = exp(-tau / mu2);
+    float t1 = exp(-tau / m1), t2 = exp(-tau / m2);
     float i0 = c1 * x + c2 * y + a1 * t1 + a2 * t2;
     float i1 = k / q * (c2 * y - c1 * x) + b1 * t1 + b2 * t2;
     return i0 + c * i1;

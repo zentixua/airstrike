@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -159,7 +160,8 @@ class PallGlslTest {
                 assertEquals(PallLight.k(w, g), k.call(Map.of("w", w, "g", g)), 1e-12, "w = " + w + ", g = " + g);
                 for (double tc : new double[]{0.01, 0.7, 3, 12}) {
                     for (double share : new double[]{0, 0.4, 1}) {
-                        for (double mu1 : new double[]{0.12, 0.6, 1}) {
+                        // 0,95 и 0,975 — в полосе kμ ≈ 1 у тёмного дыма (сдвиг пучка, pallBeamMu)
+                        for (double mu1 : new double[]{0.12, 0.6, 0.95, 0.975, 1}) {
                             for (double f2 : new double[]{0, 0.5}) {
                                 for (double top : new double[]{0, 0.2}) {
                                     for (double bottom : new double[]{0, 0.7}) {
@@ -324,6 +326,35 @@ class PallGlslTest {
         }
     }
 
+    /**
+     * Как {@code fx_pall} складывает свет, и как он и {@code fx_pall_composite} переводят его в экран, — по тексту
+     * шейдеров: части проверены по отдельности, а собирает их {@code main}, который тест не считает. Огонь в точке — все
+     * огни вместе под одним пределом пламени (каждый в своём пределе, а сумма была ярче огня); пожары под пылью — тоже в
+     * пределе; толща над точкой — весь столб слоя; свет пелены в экран — один раз на канал, тень на мире — один раз.
+     */
+    @Test
+    void pallPutsItsLightTogetherOnce() {
+        String march = read("core/fx_pall.fsh"), composite = read("core/fx_pall_composite.fsh");
+        assertTrue(march.contains("vec3 fire = min(below + under * (glow + s.fire / max(s.albedo, vec3(1e-7))) + around, flame);"),
+                "огонь в точке — одной суммой под пределом пламени");
+        assertTrue(march.contains("vec3 emit = s.albedo * (field + beams + fire);"), "свет точки — рассеянный, пучки и огонь");
+        assertTrue(march.contains("+ min(below * exp(-sootK * self) + (0.5 + 0.75 * PALL_SOOT_G * mv) * glow + around, flame);"),
+                "огонь на дыме шторма — одной суммой под пределом пламени");
+        assertTrue(march.contains("s.burn += pallFlame("), "пожары под пылью — не ярче пламени");
+        assertTrue(march.contains("s.tau += f.column.x + f.column.y + f.column.z;"), "толща над точкой — весь столб слоя");
+        assertEquals(3, occurrences(march, "pallDisplay("), "свет пелены в экран — один раз на канал");
+        assertTrue(march.contains("shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * cover"),
+                "на выходе — экран с плечом");
+        assertEquals(1, occurrences(composite, "pallDisplay("), "тень на мире в экран — один раз");
+        assertTrue(composite.contains("pall.a *= pallDisplay(shade("), "тень на мире — в экран");
+    }
+
+    private static int occurrences(String text, String what) {
+        int n = 0;
+        for (int i = text.indexOf(what); i >= 0; i = text.indexOf(what, i + 1)) n++;
+        return n;
+    }
+
     /** Константа {@code const float name = a;} шейдера. */
     private static double scalar(String source, String name) {
         Matcher m = Pattern.compile("const\\s+float\\s+" + name + "\\s*=\\s*([^;]+);").matcher(source);
@@ -357,15 +388,20 @@ class PallGlslTest {
 
     /**
      * Функция GLSL из чисел в число: объявления {@code float a = …, b = …;}, {@code if (условие) return …;},
-     * {@code return …;}; в выражениях — числа, переменные (у vec2 — {@code n.x}), + − * /, сравнения и встроенные
-     * {@code smoothstep, clamp, min, max, exp, log2, pow, abs, sqrt}.
+     * {@code return …;}; в выражениях — числа, переменные (у vec2 — {@code n.x}), + − * /, сравнения, встроенные
+     * {@code smoothstep, clamp, min, max, exp, log2, pow, abs, sqrt, sign} и такие же функции того же файла.
      */
-    private record Function(List<String> tokens) {
+    private record Function(List<String> tokens, List<String> params, String source) {
         private static final Pattern TOKEN = Pattern.compile("\\s*(\\d+\\.?\\d*(?:[eE][-+]?\\d+)?|\\.\\d+|[A-Za-z_]\\w*(?:\\.[xyzw]+)?|<=|>=|==|[-+*/(),;{}<>=])");
 
         static Function parse(String source, String name) {
-            Matcher m = Pattern.compile("float\\s+" + name + "\\s*\\([^)]*\\)\\s*\\{").matcher(source);
+            Matcher m = Pattern.compile("float\\s+" + name + "\\s*\\(([^)]*)\\)\\s*\\{").matcher(source);
             if (!m.find()) throw new AssertionError("в pall.glsl нет float " + name);
+            List<String> params = new ArrayList<>();
+            for (String p : m.group(1).split(",")) {
+                String[] w = p.strip().split("\\s+");
+                if (!w[0].isEmpty()) params.add(w[w.length - 1]);
+            }
             int depth = 1, i = m.end();
             for (; depth > 0; i++) {
                 if (source.charAt(i) == '{') depth++;
@@ -380,22 +416,25 @@ class PallGlslTest {
                 at = t.end();
             }
             if (!body.substring(at).isBlank()) throw new AssertionError(name + ": не разобрать «" + body.substring(at).trim() + "»");
-            return new Function(tokens);
+            return new Function(tokens, params, source);
         }
 
         double call(Map<String, Double> args) {
-            return new Run(tokens, new HashMap<>(args)).body();
+            return new Run(tokens, new HashMap<>(args), source).body();
         }
     }
 
     private static final class Run {
+        private static final Set<String> BUILTIN = Set.of("smoothstep", "clamp", "min", "max", "exp", "log2", "pow", "abs", "sqrt", "sign");
         private final List<String> t;
         private final Map<String, Double> vars;
+        private final String source;
         private int i;
 
-        Run(List<String> tokens, Map<String, Double> vars) {
+        Run(List<String> tokens, Map<String, Double> vars, String source) {
             this.t = tokens;
             this.vars = vars;
+            this.source = source;
         }
 
         double body() {
@@ -472,11 +511,21 @@ class PallGlslTest {
                     while (take(","));
                     expect(")");
                 }
-                return builtin(w, a);
+                return function(w, a);
             }
             Double v = vars.get(w);
             if (v == null) throw new AssertionError("нет переменной " + w);
             return v;
+        }
+
+        /** Встроенная функция или функция того же файла (её параметры — по порядку). */
+        private double function(String name, List<Double> a) {
+            if (BUILTIN.contains(name)) return builtin(name, a);
+            Function f = Function.parse(source, name);
+            if (f.params.size() != a.size()) throw new AssertionError(name + ": параметров " + f.params.size() + ", а дано " + a.size());
+            Map<String, Double> args = new HashMap<>();
+            for (int k = 0; k < a.size(); k++) args.put(f.params.get(k), a.get(k));
+            return f.call(args);
         }
 
         private static double builtin(String name, List<Double> a) {
