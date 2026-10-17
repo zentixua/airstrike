@@ -2,7 +2,6 @@ package ua.zentix.incoming.client.nuclear;
 
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
-import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.FireballModel;
 import ua.zentix.incoming.nuclear.model.WaterModel;
@@ -10,12 +9,24 @@ import ua.zentix.incoming.nuclear.model.WaterModel;
 /**
  * Клубы подрыва на воде (DESIGN-nuke §6, «Вода»; «Бейкер», Crossroads 1946): полый столб воды с шапкой брызг, кольцо
  * тумана — облако конденсации, которое бубликом ложится на воду за фронтом в первые секунды, — и базисная волна: туман
- * упавшей воды столба, что катится от подрыва кольцом минутами. Те же клубы, что у гриба ({@link CloudPuffs}): постоянные
- * случайные параметры по сиду подрыва, место и вид в каждый момент — по {@link WaterModel}. Метры модели → блоки через
- * {@link Detonation#blocks}; высота — от поверхности воды под эпицентром.
+ * упавшей воды столба, что катится от подрыва кольцом минутами. Клубы — постоянные случайные параметры по сиду подрыва,
+ * место и вид в каждый момент — по {@link WaterModel}; свет на них — как на дыме ({@link CloudPuffs#smoke}). Метры модели
+ * → блоки через {@link Detonation#blocks}; высота — от поверхности воды под эпицентром.
  */
 final class WaterPuffs {
     enum Kind { COLUMN, MIST, SURGE }
+
+    /** Куда идут клубы кадра. */
+    @FunctionalInterface
+    interface Sink {
+        /**
+         * Клуб в мире: центр и размер (сторона квадрата; сам клуб на текстуре занимает ~60% её) в блоках, поворот,
+         * цвет дыма и его непрозрачность, цвет и сила свечения изнутри (свет поверх дыма, ничего не закрывает), номер
+         * текстуры в атласе.
+         */
+        void puff(double x, double y, double z, double size, float rot, float r, float g, float b, float a, float gr, float gg, float gb, float ga,
+                  int tex);
+    }
 
     private record Puff(Kind kind, float a, float b, float c, float size, int tex, float rot, float spin, float shade) {}
 
@@ -25,8 +36,10 @@ final class WaterPuffs {
     private static final float COLUMN_SHARE = 0.3f, MIST_SHARE = 0.25f;
     /** Верхние клубы столба (эта доля) — шапка брызг шире столба. */
     private static final float CROWN = 0.8f;
-    /** Под это число клубов подобраны размеры (как у гриба). */
+    /** Под это число клубов подобраны размеры. */
     private static final double REFERENCE_PUFFS = 600;
+    /** Клубов у подрыва на воде. */
+    private static final int PUFFS = 1125;
 
     private final Detonation d;
     private final Puff[] puffs;
@@ -37,13 +50,9 @@ final class WaterPuffs {
     /** Откуда известна вода под эпицентром; null — ещё решается ({@code NukeWater#tick}). */
     private NukeWater.Source source;
 
-    /**
-     * Сколько клубов у подрыва: три четверти клубов гриба по настройке качества; у высокого воздушного подрыва — ни
-     * одного (шар воды не касается, {@link WaterModel#wetBurst}).
-     */
+    /** Сколько клубов у подрыва: {@link #PUFFS}, у высокого воздушного — ни одного (шар воды не касается, {@link WaterModel#wetBurst}). */
     static int count(Detonation d) {
-        if (WaterModel.wetBurst(d.hobMetres(), d.yieldKt()) <= 0) return 0;
-        return IncomingConfig.CLIENT.nukeCloudQuality.get().puffs * 3 / 4;
+        return WaterModel.wetBurst(d.hobMetres(), d.yieldKt()) <= 0 ? 0 : PUFFS;
     }
 
     WaterPuffs(Detonation d, int n) {
@@ -191,7 +200,7 @@ final class WaterPuffs {
      * Видимые клубы в момент t (секунды модели); ambient — свет неба 0..1. Высота клубов — от поверхности воды под
      * эпицентром ({@code waterY}, блоки).
      */
-    void sprites(double t, float ambient, double waterY, CloudPuffs.Sink out) {
+    void sprites(double t, float ambient, double waterY, Sink out) {
         if (wet <= 0.01 || t <= 0) return;
         Moment m = moment(t);
         Spot s = new Spot();

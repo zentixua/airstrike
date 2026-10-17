@@ -209,6 +209,8 @@ public final class FxLayer {
             int ground0 = pallDrawn ? PallPass.groundMap(0) : -1, ground1 = pallDrawn ? PallPass.groundMap(1) : -1;
             RenderSystem.setShaderTexture(9, ground0 >= 0 ? ground0 : atlas);
             RenderSystem.setShaderTexture(10, ground1 >= 0 ? ground1 : atlas);
+            // грибы кадра: что гриб закрывает перед квадратом (без пелены на кадре шейдер их не читает)
+            RenderSystem.setShaderTexture(11, pallDrawn ? PallPass.mushroomMap() : atlas);
             light.turnOnLightLayer();
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);

@@ -1,6 +1,7 @@
 #version 150
 
 #moj_import <incoming:pall.glsl>
+#moj_import <incoming:mushroom.glsl>
 
 // Слой эффектов (client/fx/layer): дым, пламя, искры, вспышки и всё дальнее одним проходом после мира.
 in vec3 Position;
@@ -52,6 +53,8 @@ uniform mat4 PallWall0;
 uniform mat4 PallWall1;
 uniform vec4 PallWilson0;
 uniform vec4 PallWilson1;
+// грибы кадра (mushroom.glsl): что гриб закрывает перед квадратом
+uniform sampler2D Sampler11;
 
 out vec2 texCoord0;
 out vec4 vertexColor;
@@ -93,14 +96,16 @@ vec3 firelight(sampler2D map, mat4 S, mat4 F, vec3 p) {
 }
 
 // Пелена перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем; квадрат
-// ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно).
+// ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно);
+// грибы — так же, по своему полю без шума.
 float pall(vec3 p) {
     float len = length(p);
     if (PallAmbient.w < 0.5 || len < 1e-3) return 1.0;
     vec3 dir = p / len;
+    float mush = mushTransmit(Sampler11, dir, len, 6);
     vec2 span = pallBox(dir, PallMin, PallMax);
     float t0 = span.x, t1 = min(span.y, len);
-    if (t1 <= t0) return 1.0;
+    if (t1 <= t0) return mush;
     float tau = 0.0, ds = (t1 - t0) / 6.0;
     for (int i = 0; i < 6; i++) {
         vec3 q = dir * (t0 + (float(i) + 0.5) * ds);
@@ -119,7 +124,7 @@ float pall(vec3 p) {
             + pallWallTau(Sampler10, PallSlot1, PallWall1, PallGround1, PallWater1, dir, t0, t1, 4);
     vec4 w0 = pallWilson(PallSlot0, PallWilson0, dir, t1), w1 = pallWilson(PallSlot1, PallWilson1, dir, t1);
     tau += w0.y + w0.w + w1.y + w1.w;
-    return exp(-tau);
+    return exp(-tau) * mush;
 }
 
 void main() {

@@ -198,7 +198,7 @@ class BlastWallTest {
      */
     @Test
     void nearDustTakesWallLight() {
-        CloudPuffs puffs = new CloudPuffs(GROUND, 750);
+        CloudPuffs puffs = new CloudPuffs(GROUND);
         BlastWall w = new BlastWall(GROUND, false);
         float[] s = new float[BlastWall.SLOT], glow = new float[8], c = new float[3], top = new float[3];
         double t = 0.5;

@@ -67,6 +67,8 @@ public final class ClientScenario {
     private boolean nuke;
     /** Сценарий {@code pall}: пелена после волны; эпицентр. */
     private boolean pall;
+    /** Сценарий {@code mushroom}: гриб объёмом издалека. */
+    private boolean mushroom;
     private Vec3 pallAt = Vec3.ZERO;
     /** Сценарий firestorm ({@link #planFirestorm}): ночь или день, высоты точек съёмки, точка внутри у смерча. */
     private boolean firestorm, fsNight;
@@ -185,6 +187,7 @@ public final class ClientScenario {
         if ("nuke".equals(mode)) planNuke();
         else if ("nuke-water".equals(mode) || "nuke-lake".equals(mode)) planNukeWater("nuke-lake".equals(mode));
         else if ("pall".equals(mode)) planPall();
+        else if ("mushroom".equals(mode)) planMushroom();
         else if ("firestorm".equals(mode)) planFirestorm();
         else if ("wall".equals(mode)) planWall();
         else if ("pall-front".equals(mode) || "pall-low".equals(mode)) planPallFront("pall-low".equals(mode));
@@ -261,6 +264,7 @@ public final class ClientScenario {
         if (nuke) nukeEvents();
         if (water) waterEvents();
         if (pall) pallEvents();
+        if (mushroom) mushroomEvents();
         if (firestorm) firestormEvents();
         if (wall) wallEvents();
         if (front) frontEvents();
@@ -569,6 +573,38 @@ public final class ClientScenario {
             pallAt = new Vec3(x + 0.5, 320, z - 4000 + 0.5);
         });
         at(660, () -> cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %.1f %.1f %.1f 15 ground", pallAt.x, pallAt.y, pallAt.z)));
+    }
+
+    /**
+     * Гриб объёмом ({@code MushroomField}): наземные 15 кт в 10 км к северу, зритель в воздухе в 200 блоках над землёй
+     * смотрит на эпицентр чуть вверх; кадры {@code pall_mushroom_<секунды>s} от 2 с до 4 минут — шар сворачивается
+     * в кольцо, шапка поднимается и растекается, ножка, юбка. Ночью ({@code INCOMING_MUSHROOM=night}) — свечение по
+     * температуре; по умолчанию — утро, солнце сбоку. Качество — {@code INCOMING_PALL} (по умолчанию MEDIUM).
+     */
+    private void planMushroom() {
+        mushroom = true;
+        boolean night = "night".equals(System.getenv("INCOMING_MUSHROOM"));
+        at(40, () -> {
+            String q = System.getenv().getOrDefault("INCOMING_PALL", "MEDIUM");
+            ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.valueOf(q));
+            cmd(night ? "time set 18000" : "time set 1500");
+            cmd("weather clear");
+            cmd("tp @s 0.5 270 0.5 180 -14");
+            hover = true;
+        });
+        at(400, () -> cmd("incoming nuke now at 0.5 320 -10000.5 15 ground"));
+    }
+
+    /** Сценарий {@code mushroom}: кадры — от прихода подрыва к клиенту. */
+    private void mushroomEvents() {
+        if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
+        detTick = tick;
+        Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}", tick, xyz(ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d.burst()));
+        for (int s : new int[]{2, 5, 10, 20, 40, 70, 120, 240}) pallShot(tick + 20 * s, "mushroom_" + s + "s");
+        at(tick + 20 * 240 + 20, () -> {
+            Incoming.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
     }
 
     /** Сценарий {@code pall}: кадры — от прихода подрыва к клиенту. */

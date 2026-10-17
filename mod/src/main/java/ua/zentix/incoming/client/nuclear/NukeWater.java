@@ -26,8 +26,8 @@ import java.util.OptionalInt;
  * Ядерная волна на воде (DESIGN-nuke §6, «Вода»): тёмное кольцо фронта на воде — рябь под ветром за фронтом, с пеной
  * у эпицентра (наклейка на воду в слое эффектов, {@link WaterDecal}: профиль кольца по модели считается здесь, на кадр);
  * стена брызг за фронтом у камеры (частицы, {@link FxBudget#SPRAY}); подрыв на воде — столб, кольцо тумана и базисная
- * волна ({@link WaterPuffs}). Пыль у земли над водой не встаёт: стена и шлейф там — брызги и водяная пыль
- * ({@link CloudPuffs#water}), частицы пыли у камеры — только над сушей ({@link NukeDust#front}).
+ * волна ({@link WaterPuffs}). Пыль у земли над водой не встаёт: голова стены там — брызги и водяная пыль ({@link BlastWall},
+ * вода — по карте под пеленой, {@link PallGround}), частицы пыли у камеры — только над сушей ({@link NukeDust#front}).
  * <p>
  * Вода ли где-то — только из того, что у клиента уже есть: чанки клиента, плитки рельефа карты ({@link FarTerrain#water}).
  * Вода под эпицентром далеко за прорисовкой (ни чанка, ни плитки) — по высоте: земля ровно на уровне моря — море.
@@ -112,15 +112,14 @@ public final class NukeWater {
         return u.sure() || age > (live ? GUESS_TICKS : GUESS_TICKS_PAST);
     }
 
-    /** Тик подрыва после {@link #resolve}: вода под пылью у земли ({@link CloudPuffs#water}), брызги у камеры. */
+    /** Тик подрыва после {@link #resolve}: брызги у камеры. */
     static void tick(ClientNuclear.Active a, ClientLevel level, Vec3 eye) {
-        if (!level.dimensionType().hasCeiling()) a.puffs.water(a.seconds(1), FarTerrain.water(level));
         front(a, level, eye);
     }
 
     /**
-     * Вода под эпицентром, пока не известна наверняка и подрыв молод, — заново: пелене (базисная волна, вода там, где её карта ничего не знает), пыли у земли
-     * и брызгам. Зовётся и при создании подрыва до его карты под пеленой: иначе вошедший в разгар подрыва в море первые
+     * Вода под эпицентром, пока не известна наверняка и подрыв молод, — заново: пелене (базисная волна, вода там, где её карта
+     * ничего не знает), грибу (пар и брызги) и брызгам. Зовётся и при создании подрыва до его карты под пеленой: иначе вошедший в разгар подрыва в море первые
      * тики видел бы над морем бурую пыль (до решения под эпицентром — суша).
      */
     static void resolve(ClientNuclear.Active a, @Nullable ClientLevel level) {
@@ -246,14 +245,14 @@ public final class NukeWater {
         return most > 0.004f;
     }
 
-    /** Строка сценария: вода под подрывами, колец на воде в последнем кадре, мест брызг за тик, частиц брызг и пыли у земли. */
+    /** Строка сценария: наклейка на воду, мест брызг за тик, частиц брызг и пыли у земли; по подрывам — вода под ним, клубы на воде, голова стены. */
     public static String describe() {
         StringBuilder sb = new StringBuilder();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             int[] n = a.water.visible(a.seconds(0));
             BlastWall.Wall w = a.wall.wall(a.seconds(0));
-            sb.append(String.format(Locale.ROOT, " [#%d t=%.1fs wet=%.2f (%s) column=%d mist=%d surge=%d wall=%.0f spray-ground=%d]", a.d.id(),
-                    a.seconds(0), a.water.wet(), a.water.source(), n[0], n[1], n[2], w.head(), a.puffs.wetGround()));
+            sb.append(String.format(Locale.ROOT, " [#%d t=%.1fs wet=%.2f (%s) column=%d mist=%d surge=%d wall=%.0f]", a.d.id(),
+                    a.seconds(0), a.water.wet(), a.water.source(), n[0], n[1], n[2], w.head()));
         }
         Minecraft mc = Minecraft.getInstance();
         int live = mc.level == null ? 0 : ua.zentix.incoming.client.fx.particle.FxPool.INSTANCE.live(FxBudget.SPRAY);

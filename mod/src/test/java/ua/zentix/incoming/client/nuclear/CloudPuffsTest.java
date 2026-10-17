@@ -3,27 +3,21 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import ua.zentix.incoming.nuclear.Detonation;
-
-import java.util.ArrayList;
-import java.util.List;
+import ua.zentix.incoming.nuclear.model.BlackBody;
+import ua.zentix.incoming.nuclear.model.FireballModel;
+import ua.zentix.incoming.nuclear.model.MushroomModel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CloudPuffsTest {
-    /** Ночное небо: столько света неба остаётся на дыме (нижний предел в рендерере). */
-    private static final float NIGHT = 0.12f;
-    /** Дым ножки (цвет клуба ножки) и самый тусклый её клуб (низ, край): доля полного накала. */
-    private static final int STEM = 0x8E7F70;
-    private static final double STEM_EDGE = 0.75 * 0.85;
+    /** 15 кт у земли на высоте 64, без ветра, в масштабе 1 блок = 4 м. */
+    private static final Detonation GROUND = new Detonation(1, new Vec3(0, 64, 0), 64, 15, true, 0, 0, 0, 20_000, 7, 0.25f, false, Detonation.OLD_WAVE);
 
-    private static double luminance(float[] c) {
-        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-    }
-
-    /** Гриб 15 кт светится изнутри больше минуты: к 70 с — почти в полную силу, к 90 с — ещё больше половины. */
+    /** Отсвет пожаров под пылью стены у 15 кт — больше минуты: к 70 с — почти в полную силу, к 90 с — больше половины. */
     @Test
-    void glowsForMoreThanAMinute() {
+    void wallFireGlowLastsMoreThanAMinute() {
         assertTrue(CloudPuffs.glow(30, 15) > 0.99);
         assertTrue(CloudPuffs.glow(70, 15) > 0.75, "70 с: " + CloudPuffs.glow(70, 15));
         assertTrue(CloudPuffs.glow(90, 15) > 0.5, "90 с: " + CloudPuffs.glow(90, 15));
@@ -31,76 +25,38 @@ class CloudPuffsTest {
         assertTrue(CloudPuffs.glow(50, 1) < CloudPuffs.glow(50, 15) - 0.3, "у 1 кт заметно короче");
     }
 
-    /** Цвет накала тёплый и не тёмно-красный: зелёного не меньше трети красного, синий не выше зелёного. */
+    /**
+     * Свет сверху на пыль — только шар: когда он начинает гаснуть (70 t_max), видимый край шапки, смешанный с воздухом, в
+     * сотни тысяч раз тусклее его (чёрное тело), у любой мощности; погасший шар пыль сверху не освещает.
+     */
     @Test
-    void glowColourStaysWarmAndBright() {
-        for (double t = 0; t <= 400; t += 2.5) {
-            int c = CloudPuffs.glowRgb(t, 15);
-            int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-            assertTrue(r >= g && g >= b, t + " с: " + Integer.toHexString(c));
-            assertTrue(g >= r / 3, t + " с: тёмно-красный " + Integer.toHexString(c));
-            assertTrue(r >= 0xA0, t + " с: тёмный " + Integer.toHexString(c));
+    void onlyTheFireballLightsTheDustFromAbove() {
+        for (double y : new double[]{0.1, 15, 1000}) {
+            double t = 70 * FireballModel.secondMaximumSeconds(y);
+            double edge = BlackBody.luminance(MushroomModel.edgeTemperature(t, y, true));
+            assertTrue(edge < 1e-5 * BlackBody.luminance(MushroomModel.fireballTemperature(t, y)), y + " кт: край " + edge);
         }
+        float[] light = new float[8];
+        assertTrue(new CloudPuffs(GROUND).pallLight(20, light));
+        assertEquals(0, light[0], 0, "15 кт через 20 с: свет сверху");
     }
 
     /**
-     * Ночью ножка гриба (самый тусклый её клуб) — никогда не чёрный дым: первые 70 с — светящаяся оранжевая,
-     * потом — освещённая серо-бурая.
+     * Свет на пыли в слоте пелены: пока шар светит — его свет и цвет сверху с высоты шара над землёй, пожары до края зоны
+     * поджига; до подрыва и после гриба — нули (отсвета нет).
      */
     @Test
-    void stemIsNeverBlackAtNight() {
-        for (double t = 0.5; t <= 1500; t += 0.5) {
-            double heat = Math.max(CloudPuffs.glow(t, 15), CloudPuffs.EMBER) * STEM_EDGE;
-            float[] c = new float[3];
-            CloudPuffs.smoke(STEM, 0.7, NIGHT, CloudPuffs.glowRgb(t, 15), heat, c);
-            assertTrue(luminance(c) > 0.15, t + " с: яркость " + luminance(c));
-            if (t <= 70) {
-                assertTrue(c[0] > 0.4 && c[0] > 1.4 * c[2], t + " с: не светится оранжевым " + c[0] + " " + c[1] + " " + c[2]);
-            }
-        }
-    }
-
-    /** Днём отсвет не заливает шапку: она светлее, но цвет дыма виден. */
-    @Test
-    void daylightKeepsSmokeColour() {
-        float[] c = new float[3];
-        CloudPuffs.smoke(0x8C5A46, 1, 1f, CloudPuffs.glowRgb(60, 15), CloudPuffs.EMBER, c);
-        assertTrue(c[2] < 0.6, "синий " + c[2]);
-    }
-
-    /** 15 кт у земли на высоте 64, без ветра, в масштабе 1 блок = 4 м. */
-    private static final Detonation GROUND = new Detonation(1, new Vec3(0, 64, 0), 64, 15, true, 0, 0, 0, 20_000, 7, 0.25f, false, Detonation.OLD_WAVE);
-
-    /** Клуб кадра: центр и размер, блоки. */
-    private record Seen(double x, double y, double z, double size) {}
-
-    private static List<Seen> frame(CloudPuffs puffs, double t) {
-        List<Seen> out = new ArrayList<>();
-        puffs.sprites(t, 1, 1, (x, y, z, size, rot, r, g, b, a, gr, gg, gb, ga, tex) -> out.add(new Seen(x, y, z, size)));
-        return out;
-    }
-
-    /**
-     * Юбка стоит на рельефе под собой: на плато в 136 блоках над эпицентром она поднимается ровно на него, гриб остаётся
-     * над эпицентром и на месте.
-     */
-    @Test
-    void groundDustStandsOnTerrain() {
-        for (double t : new double[]{2, 6, 20}) {
-            CloudPuffs onPlateau = new CloudPuffs(GROUND, 750), flat = new CloudPuffs(GROUND, 750);
-            onPlateau.track(t, (x, z) -> 200, 0, 0, 1e6);
-            List<Seen> raised = frame(onPlateau, t), level = frame(flat, t);
-            assertEquals(level.size(), raised.size(), t + " с");
-            int lifted = 0;
-            for (int i = 0; i < raised.size(); i++) {
-                Seen a = raised.get(i), b = level.get(i);
-                assertEquals(b.x, a.x, 1e-9);
-                assertEquals(b.z, a.z, 1e-9);
-                double dy = a.y - b.y;
-                assertTrue(Math.abs(dy) < 1e-6 || Math.abs(dy - 136) < 1e-6, t + " с: клуб сдвинут на " + dy);
-                if (dy > 1) lifted++;
-            }
-            assertTrue(lifted > 50, t + " с: на рельеф встало " + lifted + " клубов");
-        }
+    void pallLightFollowsTheFireball() {
+        CloudPuffs puffs = new CloudPuffs(GROUND);
+        float[] light = new float[8];
+        assertTrue(puffs.pallLight(2, light));
+        assertEquals(CloudPuffs.fireballGlow(2, 15), light[0], 1e-6);
+        assertEquals(CloudPuffs.glow(2, 15), light[1], 1e-6);
+        assertTrue(light[2] > 0 && light[3] > light[2], "шесть радиусов шара " + light[2] + ", край пожаров " + light[3]);
+        assertTrue(light[4] >= light[5] && light[5] >= light[6], "шар тёплый: " + light[4] + " " + light[5] + " " + light[6]);
+        assertTrue(light[7] > 0, "шар над землёй");
+        assertFalse(puffs.pallLight(0, light));
+        assertFalse(puffs.pallLight(CloudPuffs.lifeSeconds(GROUND) + 1, light));
+        for (float v : light) assertEquals(0, v);
     }
 }

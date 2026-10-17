@@ -5,20 +5,25 @@ import java.util.Random;
 /**
  * Плитка трёхмерного шума без швов для объёма пелены ({@link PallPass}, шейдер {@code pall.glsl}): канал R — клубы
  * (Perlin-Worley, как облака Horizon Zero Dawn у Шнайдера, 2015: fBm Перлина, «выеденный» fBm Ворлей — круглые
- * клубы с промежутками, а не размытые пятна), канал G — мелкие края (fBm Ворлей втрое чаще). Решётки Перлина и ячейки
- * Ворлей повторяются с периодом плитки — текстура с повтором не даёт швов. Свой код, а не FastNoiseLite: тот не
- * умеет периодический шум.
+ * клубы с промежутками, а не размытые пятна), канал G — мелкие края (fBm Ворлей втрое чаще), канал B — клубы гриба
+ * ({@code mushLobes} в {@code fx_pall}): тот fBm Ворлей, что выедает Перлина в R, — обращённый F1, горб у каждой точки
+ * ячейки. Край, сдвинутый горбом, — круглый купол (край на высоте h над точкой ячейки там, где h = a·(c − √(ρ² + h²)),
+ * — параболоид), крупные купола — по 16 вокселей, на них мельче. Перлин в R таких куполов не даёт: его пятна
+ * вытянуты, а градиент у октав одинаков, и тень по клубам — рябь мелких. Решётки Перлина и ячейки Ворлей повторяются
+ * с периодом плитки — текстура с повтором не даёт швов. Свой код, а не FastNoiseLite: тот не умеет периодический шум.
  * <p>
  * Чистая функция зерна: плитка одна и та же у всех, считается один раз в фоне ({@link PallPass}).
  */
 public final class VolumeNoise {
     /** Сторона плитки, вокселей. */
     public static final int SIZE = 64;
+    /** Каналов на воксель (R, G, B). */
+    public static final int CHANNELS = 3;
     /** Ячеек Перлина и Ворлей на плитку у первой октавы. */
     private static final int BASE_CELLS = 4;
     private VolumeNoise() {}
 
-    /** Плитка {@code size}³: по два байта на воксель (R, G), x меняется быстрее всего, потом y, потом z. */
+    /** Плитка {@code size}³: по {@link #CHANNELS} байта на воксель (R, G, B), x меняется быстрее всего, потом y, потом z. */
     public static byte[] generate(int size, long seed) {
         Random random = new Random(seed);
         int[] perm = new int[512];
@@ -33,8 +38,8 @@ public final class VolumeNoise {
         for (int i = 0; i < 512; i++) perm[i] = p[i & 255];
         Cells[] worley = new Cells[5];
         for (int o = 0; o < worley.length; o++) worley[o] = new Cells(BASE_CELLS << o, random.nextLong());
-        byte[] out = new byte[size * size * size * 2];
-        double[] r = new double[size * size * size], g = new double[r.length];
+        byte[] out = new byte[size * size * size * CHANNELS];
+        double[] r = new double[size * size * size], g = new double[r.length], b = new double[r.length];
         for (int z = 0; z < size; z++) {
             for (int y = 0; y < size; y++) {
                 for (int x = 0; x < size; x++) {
@@ -56,12 +61,14 @@ public final class VolumeNoise {
                     int i = (z * size + y) * size + x;
                     r[i] = pw;
                     g[i] = detail;
+                    b[i] = wfbm;
                 }
             }
         }
         // каналы — по рангу, равномерно 0..1: форма клубов ({@link #shape}) не зависит от того, как легли октавы
         equalize(r, out, 0);
         equalize(g, out, 1);
+        equalize(b, out, 2);
         return out;
     }
 
@@ -70,7 +77,7 @@ public final class VolumeNoise {
         Integer[] order = new Integer[values.length];
         for (int i = 0; i < order.length; i++) order[i] = i;
         java.util.Arrays.sort(order, (a, b) -> Double.compare(values[a], values[b]));
-        for (int k = 0; k < order.length; k++) out[2 * order[k] + channel] = (byte) ((long) k * 256 / order.length);
+        for (int k = 0; k < order.length; k++) out[CHANNELS * order[k] + channel] = (byte) ((long) k * 256 / order.length);
     }
 
     /**
