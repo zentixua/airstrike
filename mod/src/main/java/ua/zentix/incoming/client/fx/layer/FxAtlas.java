@@ -57,7 +57,7 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
 
     private static final List<Slot> SLOTS = new ArrayList<>();
     private static final Sprite[] SMOKE = new Sprite[16], FIRE = new Sprite[8], PUFFS = new Sprite[8], FIREBALL = new Sprite[FIREBALL_FRAMES];
-    private static final Sprite RING, FLASH, GLOW, DISC, SPARK;
+    private static final Sprite RING, FLASH, GLOW, DISC, SPARK, FLAKE, PAPER;
     private static final ResourceLocation FIREBALL_LIGHT = Incoming.id("textures/fx/particle/fireball.json");
     /** Огонь кадров шара на экране ({@link #fireLight}); пока не прочитан — без предела. */
     private static volatile float[] fireShown = full();
@@ -70,6 +70,9 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
         GLOW = slot("far/glow", x + CELL, CELL, CELL, CELL);
         DISC = slot("far/disc", x + 2 * CELL, CELL, 32, 32);
         SPARK = slot("fx/particle/spark", x + 2 * CELL + 32, CELL, 16, 16);
+        // пепел и клочок бумаги (ядерная пелена)
+        FLAKE = slot("fx/particle/flake", x + 3 * CELL, CELL, 16, 16);
+        PAPER = slot("fx/particle/paper", x + 3 * CELL + 16, CELL, 16, 16);
         // клубы дальнего дыма: 4×2 кадра на одной картинке
         Sprite puffs = slot("nuke/puffs", 0, 2 * CELL, 4 * CELL, 2 * CELL);
         float du = (puffs.u1 - puffs.u0) / 4, dv = (puffs.v1 - puffs.v0) / 2;
@@ -105,6 +108,16 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
 
     public static Sprite spark() {
         return SPARK;
+    }
+
+    /** Хлопья пепла. */
+    public static Sprite flake() {
+        return FLAKE;
+    }
+
+    /** Клочок обгоревшей бумаги. */
+    public static Sprite paper() {
+        return PAPER;
     }
 
     public static Sprite flash() {

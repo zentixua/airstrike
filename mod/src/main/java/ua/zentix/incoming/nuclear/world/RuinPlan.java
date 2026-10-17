@@ -34,6 +34,7 @@ import ua.zentix.incoming.compat.DhUpdates;
 import ua.zentix.incoming.compat.SableTerrain;
 import ua.zentix.incoming.grid.GridLights;
 import ua.zentix.incoming.net.S2C;
+import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.util.Terrain;
 
 import java.util.List;
@@ -143,6 +144,12 @@ public final class RuinPlan {
     /** Ступени опалённого биома по клеткам чанка ({@link ScorchedBiomes}); null — биом не меняется. */
     @Nullable
     private final ScorchedBiomes.Cells biomes;
+    /**
+     * Обугленные вспышкой грани уцелевших блоков чанка ({@link ua.zentix.incoming.nuclear.flash.FlashChar#mark}): ставятся
+     * в отметки чанка с руинами ({@link ua.zentix.incoming.nuclear.flash.FlashSync#chars}); null — не считались.
+     */
+    @Nullable
+    private int[] flash;
 
     RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, BlockState[] olds, int[] fires, int[] heights, long[] lightAt, @Nullable long[] prints,
             @Nullable long[] normals, LongArrayList outside, List<BlockState> outsideState, @Nullable RuinContext ctx, long[] fluidTicks,
@@ -161,6 +168,16 @@ public final class RuinPlan {
         this.fires = fires;
         this.outside = outside;
         this.outsideState = outsideState;
+    }
+
+    /** Гарь вспышки плана (тот поток, что строит план, до того как план отдан). */
+    void flash(int[] marks) {
+        this.flash = marks;
+    }
+
+    /** Гарь вспышки плана: метки граней; пусто — не считались или ничего не обуглено. */
+    public int[] flash() {
+        return flash == null ? NONE : flash;
     }
 
     /** Состояние для сравнения со старым: погашенная блэкаутом лампа — та же лампа. */
@@ -337,7 +354,8 @@ public final class RuinPlan {
     public long bytes() {
         if (this == EMPTY) return 0;
         return 64 + 12L * cells.length + 8L * fluidTicks.length + 8L * oldHashes.length + 8L * states.length + 4L * fires.length + 4L * heights.length
-                + 8L * lightAt.length + (prints == null ? 0 : 16L * prints.length) + (outside == null ? 0 : 16L * outside.size()) + (biomes == null ? 0 : 96);
+                + 8L * lightAt.length + (prints == null ? 0 : 16L * prints.length) + (outside == null ? 0 : 16L * outside.size()) + (biomes == null ? 0 : 96)
+                + (flash == null ? 0 : 4L * flash.length);
     }
 
     private static int section(int cell) {
@@ -463,9 +481,12 @@ public final class RuinPlan {
     /**
      * Поставить руины в чанк (он и соседи загружены целиком — проверяет вызывающий). Устаревший план не ставится.
      *
+     * @param d подрыв, чьи это руины: гарь вспышки встаёт его слоем. Не {@code ctx.d}: руины, подготовленные заранее,
+     *          строятся по месту подрыва без номера и времени ({@code NuclearWarhead.geometry}), а слой гари должен быть
+     *          тем же, что у силуэтов подрыва, и со временем вспышки
      * @return false — план устарел, ничего не изменено
      */
-    public boolean apply(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget) {
+    public boolean apply(ServerLevel level, LevelChunk chunk, Detonation d, ColumnScar.Budget budget) {
         if (this == EMPTY) return true;
         long t = System.nanoTime();
         if (!current(chunk)) return false;
@@ -480,6 +501,8 @@ public final class RuinPlan {
             DhUpdates.mark(level, chunk.getPos(), level.getGameTime());
         }
         if (ctx != null) ctx.applied(chunk, this, motion);
+        // гарь вспышки — с руинами; следы прежних вспышек на сменившихся блоках уходят
+        if (ctx != null) ua.zentix.incoming.nuclear.flash.FlashSync.chars(level, chunk, d, flash());
         return true;
     }
 

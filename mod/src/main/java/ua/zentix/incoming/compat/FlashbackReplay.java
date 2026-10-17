@@ -64,6 +64,21 @@ public final class FlashbackReplay {
         }
     }
 
+    /**
+     * Flashback выводит видео ({@code Flashback.EXPORT_JOB}): кадры идут не в реальном времени, и то, что держит
+     * бюджет кадра (подробность пелены ядерного удара), не должно снижать качество. Без Flashback — false.
+     */
+    public static boolean exporting() {
+        if (!looked) find();
+        Field job = exportJob;
+        if (serverClass == null || job == null) return false;
+        try {
+            return job.get(null) != null;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return false;
+        }
+    }
+
     private static synchronized void find() {
         if (looked) return;
         try {

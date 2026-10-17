@@ -6,6 +6,27 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorldNoiseTest {
+    /** Поле в объёме — тоже около N(0, 1): разброс 3D-шума в пределах трети от плоского (для пятен гари хватает). */
+    @Test
+    void volumeRoughlyNormalised() {
+        WorldNoise n = new WorldNoise(12345L, 1);
+        double sum = 0, sq = 0;
+        int count = 0;
+        for (int x = -6000; x < 6000; x += 53) {
+            for (int y = -64; y < 320; y += 29) {
+                for (int z = -6000; z < 6000; z += 59) {
+                    double v = n.at(x, y, z, 6);
+                    sum += v;
+                    sq += v * v;
+                    count++;
+                }
+            }
+        }
+        double mean = sum / count, std = Math.sqrt(sq / count - mean * mean);
+        assertEquals(0, mean, 0.1, "среднее");
+        assertEquals(1, std, 0.35, "разброс");
+    }
+
     /** Поле приведено к N(0, 1): среднее и разброс по большому участку, хвосты — как у нормальной величины. */
     @Test
     void normalised() {

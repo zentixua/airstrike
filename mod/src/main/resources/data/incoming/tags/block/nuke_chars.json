@@ -1,0 +1,17 @@
+{
+  "values": [
+    "#minecraft:planks",
+    "#minecraft:logs",
+    "#minecraft:bamboo_blocks",
+    "#minecraft:wool",
+    "minecraft:hay_block",
+    "minecraft:bookshelf",
+    "minecraft:chiseled_bookshelf",
+    "minecraft:crafting_table",
+    "minecraft:barrel",
+    "minecraft:note_block",
+    "minecraft:jukebox",
+    "minecraft:dried_kelp_block",
+    "minecraft:target"
+  ]
+}

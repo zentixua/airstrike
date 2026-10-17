@@ -473,14 +473,7 @@ public final class CloudPuffs {
                 s.px = Math.cos(ang) * rr;
                 s.pz = Math.sin(ang) * rr;
                 s.a = wallAlpha(m);
-                // низ — с землёй и обломками, темнее; верх светлее — освещён небом
-                s.shade *= 0.75 + 0.35 * up;
-                double fire = fireZone(rr);
-                double lit = (0.3 + 0.4 * up) * m.overhead * lightFalloff(rr, rf);
-                double burn = fire * (0.95 - 0.45 * up) * m.glow;
-                s.heat = Math.max(lit, burn);
-                if (burn > lit) s.hot = FIRE;
-                s.rgb = lerpRgb(lerpRgb(DUST_LOW, DUST, up), DUST_BURNT, fire);
+                ringLight(m, rr, up, s);
             }
             case CURTAIN -> {
                 // шлейф за фронтом: пыль, поднятая, когда фронт прошёл это место, висит и оседает десятки
@@ -526,6 +519,46 @@ public final class CloudPuffs {
         double drift = t * Mth.clamp(s.py / m.endTop, 0, 1);
         s.px += m.windX * drift;
         s.pz += m.windZ * drift;
+        return true;
+    }
+
+    /**
+     * Свет клуба стены на {@code rr} м от эпицентра и на доле её высоты {@code up} (0 — у земли, 1 — верх): тень, отсвет
+     * (шар и шапка сверху или пожар под стеной) и цвет пыли — в s.
+     */
+    private void ringLight(Moment m, double rr, double up, Spot s) {
+        // низ — с землёй и обломками, темнее; верх светлее — освещён небом
+        s.shade *= 0.75 + 0.35 * up;
+        double fire = fireZone(rr);
+        double lit = (0.3 + 0.4 * up) * m.overhead * lightFalloff(rr, m.rf);
+        double burn = fire * (0.95 - 0.45 * up) * m.glow;
+        s.heat = Math.max(lit, burn);
+        if (burn > lit) s.hot = FIRE;
+        s.rgb = lerpRgb(lerpRgb(DUST_LOW, DUST, up), DUST_BURNT, fire);
+    }
+
+    /**
+     * Цвет стены пыли в момент t (секунды модели) на {@code groundBlocks} блоках от эпицентра по земле и на доле её высоты
+     * {@code up}: свет неба, отсвет шара и пожаров и свечение клуба поверх дыма — как у её клубов в кадре ({@link #sprites}),
+     * одним цветом (свечение сложено с дымом, как у квадрата с умноженной альфой). Его берёт пыль у камеры
+     * ({@code NukeDust}) вместо карты освещения: ночью карта тёмная, а стена — в отсвете пожаров, и клубы у камеры
+     * лежали бы на ней почти чёрными пятнами.
+     *
+     * @param shade   тень клуба: у клубов стены 0,85..1,15, у тёмных клочьев — меньше
+     * @param ambient освещённость неба 0..1, как у {@link #sprites}
+     * @param into    r, g, b в 0..1
+     * @return false — стены сейчас нет (цвет не тронут)
+     */
+    public boolean wallColor(double t, double groundBlocks, double up, double shade, float ambient, float[] into) {
+        Moment m = moment(t);
+        if (m == null) return false;
+        Spot s = new Spot();
+        s.shade = shade;
+        s.hot = m.glowRgb;
+        ringLight(m, d.metres(Math.max(0, groundBlocks)), Mth.clamp(up, 0, 1), s);
+        smoke(s.rgb, s.shade, ambient, s.hot, s.heat, into);
+        double glow = s.heat * EMISSIVE;
+        for (int i = 0; i < 3; i++) into[i] = (float) Math.min(1, into[i] + ((s.hot >> (16 - 8 * i)) & 0xFF) / 255.0 * glow);
         return true;
     }
 

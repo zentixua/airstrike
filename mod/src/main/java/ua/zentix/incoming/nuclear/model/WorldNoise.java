@@ -46,4 +46,16 @@ public final class WorldNoise {
         warp.DomainWarp(p);
         return noise.GetNoise(p.x, p.y) / STD;
     }
+
+    /**
+     * То же в объёме (x, y, z — блоки): пятна на стенах, а не столбы через всю высоту дома. Разброс 3D-шума — тот же
+     * порядок, что у плоского ({@code WorldNoiseTest}), поле ~N(0, 1) с точностью до десятков процентов: для пятен
+     * гари этого хватает.
+     */
+    public double at(double x, double y, double z, int layer) {
+        FastNoiseLite.Vector3 p = new FastNoiseLite.Vector3(x * metresPerBlock + layer * 7919.0, y * metresPerBlock + layer * 3301.0,
+                z * metresPerBlock - layer * 6271.0);
+        warp.DomainWarp(p);
+        return noise.GetNoise(p.x, p.y, p.z) / STD;
+    }
 }
