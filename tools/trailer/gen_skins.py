@@ -3,12 +3,13 @@
 # requires-python = ">=3.10"
 # dependencies = ["pillow"]
 # ///
-"""Скины людей трейлера Newisle (Артём 17.10: «все — Стив и Алекс»): у каждого бота свой скин по роли — солдаты Севера
-и Юга в разной форме, Волков и его офицеры, жители в обычной одежде; соседи не похожи. Лица и волосы — девять скинов
-Minecraft по умолчанию (из jar клиента, в репозиторий не кладутся), одежда рисуется здесь. Повтор их показывает
-через подмену скина Flashback (FilePlayerSkin по UUID, ReplayFilm): записи не переснимаются.
+"""Скины людей трейлера Newisle (Артём 17.10: «все — Стив и Алекс», «скины, а не одежду»): у каждого бота свой полный
+скин игрока — своё лицо (тон кожи, глаза, брови, нос, рот, борода), причёска и цвет волос, одежда по роли: солдаты
+Севера и Юга в разной форме, Волков и его офицеры, жители в обычной одежде; соседи не похожи. Всё рисуется здесь,
+чужих скинов нет. Повтор их показывает через подмену скина Flashback (FilePlayerSkin по UUID, ReplayFilm): записи не
+переснимаются.
 
-    uv run tools/trailer/gen_skins.py --jar <neoforge-…-client-extra….jar> --out mod/run/newisle-skins
+    uv run tools/trailer/gen_skins.py --out mod/run/newisle-skins
 
 Пишет <out>/<имя>.png (64×64, широкая модель) и <out>/skins.json {имя: файл}. Имена — как у ботов дублей
 (scenes/newisle-takes.json: приставка группы и номер, имена из names) и Артём в живых дублях (ARTEM_NAMES)."""
@@ -18,11 +19,14 @@ import io
 import json
 import os
 import random
-import zipfile
 
 from PIL import Image
 
-FACES = ["steve", "alex", "ari", "efe", "kai", "makena", "noor", "sunny", "zuri"]
+TONES = ["#f2c9a6", "#e7b48c", "#d6a079", "#c48b5f", "#ad7650", "#93603e", "#76482c", "#5a3520"]
+HAIR = ["#1d1814", "#3a2619", "#5b3a22", "#7d5734", "#c8a15c", "#9c4a22", "#8a8a8a", "#2e2a28"]
+EYES = ["#4a2e1c", "#2b1d14", "#3a6ea5", "#4b7a3a", "#6b7b86", "#7a5a2a"]
+STYLES = ["short", "buzz", "side", "long", "curly", "bald", "short", "bun"]
+BEARDS = ["none", "stubble", "none", "mustache", "beard", "none", "stubble"]
 
 # роли групп: приставка имени бота → роль (бои: West/East — стороны fight, 0 — Юг, 1 — Север: T24 c2_fight_s/n)
 GROUPS = {
@@ -66,14 +70,151 @@ def shade(c, k):
     return tuple(max(0, min(255, int(v * k))) for v in c[:3]) + (c[3] if len(c) > 3 else 255,)
 
 
+class Look:
+    """Внешность: тон кожи, волосы (цвет и причёска), глаза, борода — по номеру человека в группе, чтобы соседи были
+    разными (шаги взаимно просты с длинами списков), и по случаю внутри."""
+
+    def __init__(self, n, g, rnd, tone=None, hair=None, style=None, eyes=None, beard=None):
+        self.tone = rgb(tone or TONES[(n * 3 + g) % len(TONES)])
+        self.hair = rgb(hair or HAIR[(n * 5 + 2 * g) % len(HAIR)])
+        self.style = style or STYLES[(n * 3 + g * 5 + 1) % len(STYLES)]
+        self.eyes = rgb(eyes or EYES[(n * 5 + g) % len(EYES)])
+        self.beard = beard or (BEARDS[(n * 4 + g) % len(BEARDS)] if self.style not in ("long", "bun") else "none")
+        self.rnd = rnd
+
+
 class Skin:
-    def __init__(self, face_png):
+    def __init__(self, look):
         self.im = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        src = Image.open(io.BytesIO(face_png)).convert("RGBA")
-        # голова и волосы над ней — от скина по умолчанию
-        for part in ("head", "hat"):
-            (x, y), _ = PARTS[part]
-            self.im.paste(src.crop((x, y, x + 32, y + 16)), (x, y))
+        self.look = look
+        self.head(look)
+
+    def head(self, lk):
+        """Голова игрока: лицо 8×8 (лоб, брови, глаза белок и радужка, нос, рот, подбородок), бока с ушами, затылок,
+        макушка и волосы по причёске; объём волос и бороды — на слое шляпы, как у скинов игроков."""
+        rnd = lk.rnd
+        tone, hair = lk.tone, lk.hair
+        f = faces("head")
+
+        def skin_px(x, y, k=1.0):
+            self.px(x, y, shade(tone, k * rnd.uniform(0.96, 1.04)))
+
+        def hair_px(x, y, k=1.0, layer=None):
+            self.px(x, y, shade(hair, k * rnd.uniform(0.88, 1.08)))
+
+        for name, (x, y, w, h) in f.items():
+            for j in range(h):
+                for i in range(w):
+                    k = {"front": 1.0, "right": 0.92, "left": 0.92, "back": 0.9, "top": 1.0, "bottom": 0.8}[name]
+                    skin_px(x + i, y + j, k)
+        # лицо
+        fx, fy, _, _ = f["front"]
+        for j in range(8):
+            skin_px(fx, fy + j, 0.93)
+            skin_px(fx + 7, fy + j, 0.93)
+        brow = shade(hair, 0.8) if sum(hair[:3]) < 400 else shade(rgb("#5b3a22"), 1.0)
+        for i in (1, 2, 5, 6):
+            self.px(fx + i, fy + 3, brow)
+        white = rgb("#eeeeee")
+        self.px(fx + 1, fy + 4, white)
+        self.px(fx + 2, fy + 4, lk.eyes)
+        self.px(fx + 5, fy + 4, lk.eyes)
+        self.px(fx + 6, fy + 4, white)
+        skin_px(fx + 3, fy + 5, 0.86)
+        skin_px(fx + 4, fy + 5, 0.86)
+        lip = (min(255, int(tone[0] * 0.8) + 18), int(tone[1] * 0.62), int(tone[2] * 0.6), 255)
+        for i in (3, 4):
+            self.px(fx + i, fy + 6, lip)
+        if rnd.random() < 0.5:
+            self.px(fx + 2, fy + 6, shade(tone, 0.85))
+            self.px(fx + 5, fy + 6, shade(tone, 0.85))
+        for i in range(1, 7):
+            skin_px(fx + i, fy + 7, 0.95)
+        # уши
+        for side in ("right", "left"):
+            x, y, w, h = f[side]
+            for j in (4, 5):
+                skin_px(x + 3, y + j, 0.82)
+                skin_px(x + 4, y + j, 0.82)
+        # причёска
+        st = lk.style
+        x, y, w, h = f["top"]
+        if st != "bald":
+            for j in range(h):
+                for i in range(w):
+                    hair_px(x + i, y + j)
+        bx, by, _, _ = f["back"]
+        rx, ry, _, _ = f["right"]
+        lx, ly, _, _ = f["left"]
+        down = {"buzz": 1, "short": 3, "side": 3, "curly": 3, "bald": 0, "long": 8, "bun": 6}[st]
+        back = {"buzz": 3, "short": 5, "side": 5, "curly": 6, "bald": 3, "long": 8, "bun": 7}[st]
+        for j in range(back):
+            for i in range(8):
+                hair_px(bx + i, by + j, 0.92)
+        for j in range(down):
+            for i in range(8):
+                if st != "long" and j >= 2 and i >= 5:     # у висков волосы короче, к уху
+                    continue
+                hair_px(rx + 7 - i, ry + j, 0.92)
+                hair_px(lx + i, ly + j, 0.92)
+        if st == "bald":
+            for j in range(3, 6):
+                for i in range(0, 3):
+                    hair_px(rx + 7 - i, ry + j, 0.9)
+                    hair_px(lx + i, ly + j, 0.9)
+        # лоб: чёлка
+        fringe = {"buzz": [1] * 8, "short": [2, 2, 1, 1, 1, 2, 2, 2], "side": [3, 2, 2, 1, 1, 1, 1, 2],
+                  "curly": [2, 2, 2, 2, 2, 2, 2, 2], "bald": [0] * 8, "long": [2, 2, 1, 1, 1, 1, 2, 2],
+                  "bun": [2, 1, 1, 1, 1, 1, 1, 2]}[st]
+        for i, n in enumerate(fringe):
+            for j in range(n):
+                hair_px(fx + i, fy + j)
+        if st == "long":
+            for j in range(2, 8):
+                hair_px(fx, fy + j, 0.9)
+                hair_px(fx + 7, fy + j, 0.9)
+        # слой шляпы: объём волос
+        if st in ("long", "curly", "bun"):
+            hf = faces("hat")
+            for name in ("right", "left", "back", "top"):
+                x, y, w, h = hf[name]
+                rows = {"long": 8, "curly": 4, "bun": 3}[st] if name != "top" else h
+                for j in range(rows):
+                    for i in range(w):
+                        if name in ("right", "left") and st == "long" and j >= 3 and (i >= 6 if name == "right" else i <= 1):
+                            continue
+                        if self.look.rnd.random() < (0.85 if st != "curly" else 0.7):
+                            self.px(x + i, y + j, shade(hair, rnd.uniform(0.95, 1.15)))
+            if st == "bun":
+                x, y, w, h = hf["back"]
+                for j in range(1, 4):
+                    for i in range(2, 6):
+                        self.px(x + i, y + j, shade(hair, 1.1))
+        # борода и усы — на лице
+        b = lk.beard
+        if b == "stubble":
+            for i in range(1, 7):
+                for j in (6, 7):
+                    if rnd.random() < 0.55 and not (j == 6 and i in (3, 4)):
+                        self.px(fx + i, fy + j, shade(tone, 0.72))
+        elif b == "mustache":
+            for i in (2, 3, 4, 5):
+                hair_px(fx + i, fy + 5 if i in (2, 5) else fy + 5, 0.9)
+            self.px(fx + 3, fy + 5, shade(hair, 0.95))
+            self.px(fx + 4, fy + 5, shade(hair, 0.95))
+        elif b == "beard":
+            for i in range(1, 7):
+                hair_px(fx + i, fy + 7)
+                if i in (1, 2, 5, 6):
+                    hair_px(fx + i, fy + 6)
+            hair_px(fx + 2, fy + 5, 0.9)
+            hair_px(fx + 5, fy + 5, 0.9)
+            for side in ("right", "left"):
+                x, y, w, h = f[side]
+                for j in (5, 6, 7):
+                    for i in range(8):
+                        if (i >= 4) if side == "right" else (i <= 3):
+                            hair_px(x + i, y + j, 0.9)
 
     def px(self, x, y, c):
         self.im.putpixel((x, y), c)
@@ -209,8 +350,8 @@ SHOES = ["#1c1c1c", "#efefef", "#5b3a1e", "#7b241c", "#2e4053"]
 DESERT = ["#e8dcc0", "#d9c7a0", "#f2efe6", "#b8a07a", "#cfd8dc", "#a3826c", "#e5d1b8", "#8d6e63", "#c7b299"]
 
 
-def soldier(face, side, rnd, n):
-    s = Skin(face)
+def soldier(look, side, rnd, n):
+    s = Skin(look)
     pal, band = CAMO[side]
     for p in ("body", "rarm", "larm", "rleg", "lleg"):
         s.camo(p, pal, rnd)
@@ -241,8 +382,8 @@ def soldier(face, side, rnd, n):
     return s
 
 
-def officer(face, rnd, volkov=False):
-    s = Skin(face)
+def officer(look, rnd, volkov=False):
+    s = Skin(look)
     if volkov:
         coat, cap, band = rgb("#24262a"), rgb("#24262a"), rgb("#b22222")
     else:
@@ -281,8 +422,8 @@ def officer(face, rnd, volkov=False):
     return s
 
 
-def civilian(face, rnd, n, desert=False, artem=False):
-    s = Skin(face)
+def civilian(look, rnd, n, desert=False, artem=False):
+    s = Skin(look)
     if artem:
         shirt, trousers, shoes, style = rgb("#3b4a3f"), rgb("#22313f"), rgb("#efefef"), 2
     else:
@@ -296,7 +437,7 @@ def civilian(face, rnd, n, desert=False, artem=False):
     for arm in ("rarm", "larm"):
         s.fill(arm, shirt, rnd, 0.05)
         if style == 0:
-            s.rows(arm, 4, 12, s.im.getpixel((11, 13)))      # руки — тоном лица
+            s.rows(arm, 4, 12, look.tone)                    # руки — тоном лица
     for leg in ("rleg", "lleg"):
         s.fill(leg, trousers, rnd, 0.05)
         s.rows(leg, 10, 12, shoes)
@@ -317,15 +458,6 @@ def civilian(face, rnd, n, desert=False, artem=False):
     return s
 
 
-def load_faces(jar):
-    out = {}
-    with zipfile.ZipFile(jar) as z:
-        for f in FACES:
-            data = z.read(f"assets/minecraft/textures/entity/player/wide/{f}.png")
-            out[f] = data
-    return out
-
-
 def role_of(name):
     if name in NAMED:
         return NAMED[name]
@@ -342,35 +474,41 @@ def names():
     return list(dict.fromkeys(out))
 
 
-def make(name, faces_png):
+def make(name):
     role = "artem" if name in ARTEM_NAMES else role_of(name)
     digits = "".join(c for c in name if c.isdigit())
     n = int(digits) if digits else 0
     rnd = random.Random(int(hashlib.sha1(name.encode()).hexdigest()[:8], 16))
-    # лица соседей по номеру — разные: шаг 4 по девяти скинам обходит их все, сдвиг — по группе
-    shift = sum(name.encode()) % 9 if not digits else sum(name[:-len(digits)].encode()) % 9
-    face = faces_png[FACES[(n * 4 + shift) % 9]]
-    if role in ("north", "south"):
-        return soldier(face, role, rnd, n)
-    if role in ("officer", "volkov"):
-        return officer(faces_png["steve"] if role == "volkov" else face, rnd, volkov=role == "volkov")
+    g = sum((name[:-len(digits)] if digits else name).encode()) % 7
+    if role == "volkov":
+        # седой, с усами, тяжёлые брови, серые глаза — узнаётся и со спины по шинели и красному околышу
+        return officer(Look(n, g, rnd, tone="#e2b08c", hair="#9a9a9a", style="short", eyes="#6b7b86", beard="mustache"), rnd,
+                       volkov=True)
     if role == "artem":
-        return civilian(faces_png["kai"], rnd, 0, artem=True)
-    return civilian(face, rnd, n + shift, desert=role == "desert")
+        return civilian(Look(n, g, rnd, tone="#e7b48c", hair="#3a2619", style="side", eyes="#4a2e1c", beard="stubble"), rnd, 0,
+                        artem=True)
+    look = Look(n, g, rnd)
+    if role in ("north", "south"):
+        if look.style in ("long", "bun"):
+            look.style = "short"
+        return soldier(look, role, rnd, n)
+    if role == "officer":
+        if look.style in ("long", "bun", "curly"):
+            look.style = "short"
+        return officer(look, rnd)
+    return civilian(look, rnd, n + g, desert=role == "desert")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--jar", required=True, help="jar ресурсов клиента Minecraft (скины по умолчанию)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    faces_png = load_faces(a.jar)
     os.makedirs(a.out, exist_ok=True)
     table = {}
     for name in names():
         path = os.path.join(a.out, f"{name}.png")
         with open(path, "wb") as f:
-            f.write(make(name, faces_png).png())
+            f.write(make(name).png())
         table[name] = os.path.abspath(path)
     with open(os.path.join(a.out, "skins.json"), "w") as f:
         json.dump(table, f, indent=1)
