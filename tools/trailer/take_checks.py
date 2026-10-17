@@ -66,6 +66,7 @@ import takes
 READY, IGNITION, BOOST = 0, 1, 2          # FlightPhase (порядковый номер)
 ENTITY_FLAG = 1                            # в строках `f`: место от сущности, не от пакетов сервера
 MSPT_RUN, MSPT_MAX, MSPT_WINDOW = 10, 50.0, 2.0
+DENSITY_ASPECT = 16 / 9   # кадр трейлера (INCOMING_SIZE), угол fov в qa.jsonl — по вертикали
 ICBM_WEAPONS = ("nuke", "icbm")
 # Разгон МБР — числа паспорта WeaponSpec.NUKE: Ascent (тяга 903 700 Н, стартовая масса 36 030 кг, топливо
 # 20 780 кг за 61 с) и Airframe.cruiseSpeed 25 бл/тик; блок = метр, тик = 0,05 с (Ascent.step).
@@ -721,7 +722,56 @@ def dim_frames(cand, plan, floor):
     return []
 
 
-def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=None):
+def hits_in_frame(cand, plan, span):
+    """Удары в кадре вывода за первые `span` секунд окна плана: место удара из журнала вывода в поле зрения камеры
+    кадра (qa.jsonl: место, курс, тангаж, угол кадра по вертикали; кадр 16:9). Без лучей по блокам: ковёр меряется
+    числом вспышек в кадре, а не тем, сколько каждой видно."""
+    marks, impacts = {}, []
+    for r in _jsonl(os.path.join(cand, f"{plan}.events.jsonl")):
+        if "mark" in r:
+            marks.setdefault(r["mark"], r["t"])
+        elif "impact" in r and r.get("pos"):
+            impacts.append((r.get("at", r["t"]), r["pos"]))
+    start = marks.get("start")
+    cams = {}
+    for r in _jsonl(os.path.join(cand, "qa.jsonl")):
+        if r.get("cam") and "t" in r:
+            cams.setdefault(int(round(r["t"])), (r["cam"], r.get("fov", 70.0)))
+    if start is None or not cams:
+        return None
+    count = 0
+    for t, pos in impacts:
+        if not start <= t <= start + span * 20:
+            continue
+        cam, fov = cams.get(t) or cams[min(cams, key=lambda k: abs(k - t))]
+        x, y, z, yaw, pitch = cam[:5]
+        dx, dy, dz = pos[0] - x, pos[1] - y, pos[2] - z
+        ry, rp = math.radians(yaw), math.radians(pitch)
+        # в осях камеры: вперёд, вправо, вверх (курс Minecraft: 0 — на +z, тангаж плюс — вниз)
+        fx, fy, fz = -math.sin(ry) * math.cos(rp), -math.sin(rp), math.cos(ry) * math.cos(rp)
+        rx, rz = -math.cos(ry), -math.sin(ry)
+        ux, uy, uz = -math.sin(ry) * math.sin(rp), math.cos(rp), math.cos(ry) * math.sin(rp)
+        ahead = dx * fx + dy * fy + dz * fz
+        if ahead <= 0:
+            continue
+        half = math.tan(math.radians(fov) / 2)
+        if abs(dx * rx + dz * rz) / ahead <= half * DENSITY_ASPECT and abs(dx * ux + dy * uy + dz * uz) / ahead <= half:
+            count += 1
+    return count / span
+
+
+def sparse_hits(cand, plan, density):
+    """Ковёр реже нормы плана (`density` в cover: {"min": ударов в кадре за секунду, "span": секунд окна} — кусок
+    монтажа): n41 17.10 — 1–2 вспышки разом вместо «по всему кадру». Провал — дубль переснимается."""
+    if not density:
+        return []
+    rate = hits_in_frame(cand, plan, float(density.get("span", 5)))
+    if rate is not None and rate < float(density["min"]):
+        return [f"ударов в кадре {rate:.1f} в секунду < {float(density['min']):.1f}"]
+    return []
+
+
+def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=None, density=None):
     """Все проверки вывода папки кандидата: PASS плана с любой из них — FAIL (дубль переснимается)."""
     out = camera_turn(cand) + axis_fail(cand) + frozen_frames(cand, plan)
     if shake:
@@ -732,6 +782,8 @@ def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=No
         out += icbm_in_frame(cand)
     if brightness:
         out += dim_frames(cand, plan, float(brightness))
+    if density:
+        out += sparse_hits(cand, plan, density)
     return out
 
 

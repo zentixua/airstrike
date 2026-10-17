@@ -672,13 +672,15 @@ class Conveyor:
         return out
 
     def render_flags(self, take, rec, plan, path):
-        """Какие проверки вывода нужны плану: FPV, МБР, тёмный кадр (brightness в cover); onboard, HUD и ядерные — без тряски."""
+        """Какие проверки вывода нужны плану: FPV, МБР, тёмный кадр (brightness в cover), плотность ковра (density в cover);
+        onboard, HUD и ядерные — без тряски."""
         shot = next((s for s in self.takes[take].get("shots", []) if plan in s.get("plans", [])), {})
         flights, nuke = take_checks.read_events(os.path.join(rec, "replays", f"{plan}.events.jsonl"))
         return {"fpv": shot.get("camera") == "fpv" or os.path.basename(path).startswith("fpv"),
                 "icbm": any(f.weapon in take_checks.ICBM_WEAPONS for f in flights),
                 "shake": not (nuke or shot.get("camera") == "onboard" or shot.get("hud")),
-                "brightness": (shot.get("cover") or {}).get(plan, {}).get("brightness")}
+                "brightness": (shot.get("cover") or {}).get(plan, {}).get("brightness"),
+                "density": (shot.get("cover") or {}).get(plan, {}).get("density")}
 
     def take(self, take):
         """Дубль цепочки до итога: запись, проверка, вывод, пересъёмка запасной камерой, пропуск."""

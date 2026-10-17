@@ -467,3 +467,33 @@ class RecordProblemsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HitsInFrameTest(unittest.TestCase):
+    """Плотность ковра: удары в поле зрения камеры вывода за кусок монтажа."""
+
+    def cand(self, impacts, cam=(0, 100, 0, 0, 10), fov=50):
+        root = tempfile.mkdtemp()
+        with open(os.path.join(root, "n41.events.jsonl"), "w") as f:
+            f.write(json.dumps({"t": 100, "mark": "start"}) + "\n")
+            for i, (t, pos) in enumerate(impacts):
+                f.write(json.dumps({"t": t - 1, "impact": i, "at": t, "pos": pos}) + "\n")
+        with open(os.path.join(root, "qa.jsonl"), "w") as f:
+            for t in range(90, 260):
+                f.write(json.dumps({"t": t, "cam": list(cam), "fov": fov}) + "\n")
+        return root
+
+    def test_hits_ahead_count_and_behind_or_aside_do_not(self):
+        ahead = [(110 + 10 * k, [20 * (k % 3 - 1), 70, 200]) for k in range(10)]   # курс 0 — на +z
+        behind = [(115, [0, 70, -200]), (125, [400, 70, 100]), (135, [0, 400, 150])]   # сзади, сбоку, над кадром
+        cand = self.cand(ahead + behind)
+        self.assertAlmostEqual(2.0, T.hits_in_frame(cand, "n41", 5.0))
+        self.assertEqual([], T.sparse_hits(cand, "n41", {"min": 2, "span": 5}))
+        self.assertEqual(1, len(T.sparse_hits(cand, "n41", {"min": 3, "span": 5})))
+
+    def test_hits_after_the_span_are_not_counted(self):
+        cand = self.cand([(110, [0, 70, 200]), (250, [0, 70, 200])])
+        self.assertAlmostEqual(0.2, T.hits_in_frame(cand, "n41", 5.0))
+
+    def test_no_density_in_cover_means_no_check(self):
+        self.assertEqual([], T.sparse_hits(tempfile.mkdtemp(), "n41", None))
