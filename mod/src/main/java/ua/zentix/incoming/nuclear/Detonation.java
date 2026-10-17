@@ -37,10 +37,13 @@ import ua.zentix.incoming.util.Terrain;
  * @param wave      скорость стены пыли вдали от шара, доля скорости звука (настройка {@code nuclear.wave_speed} в момент подрыва)
  * @param dayTime   время суток мира в миг подрыва (тики, как {@code Level.getDayTime}): у него мгла над пожарами ждёт
  *                  утра; {@link #NO_DAY_TIME} — неизвестно (подрыв из сохранения или повтора прежней сборки)
+ * @param fires     сервер поджигает пожары от этого подрыва (настройки {@code nuclear.fires} и {@code fires_per_detonation}
+ *                  в момент подрыва): без них огненного шторма и гула пожаров у клиента нет; у подрыва из сохранения или
+ *                  повтора прежней сборки — да, как было
  */
 public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boolean surface, long gameTime,
                          float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout, float wave,
-                         long dayTime) {
+                         long dayTime, boolean fires) {
 
     /** Скорость стены вдали у подрывов, сохранённых до настройки {@code wave_speed}: 3 блока за тик. */
     public static final float OLD_WAVE = (float) (3 / FrontProfile.SOUND_SPEED);
@@ -51,6 +54,13 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
     public Detonation(int id, Vec3 burst, double groundY, double yieldKt, boolean surface, long gameTime,
                       float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout, float wave) {
         this(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, NO_DAY_TIME);
+    }
+
+    /** Подрыв с пожарами. */
+    public Detonation(int id, Vec3 burst, double groundY, double yieldKt, boolean surface, long gameTime,
+                      float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout, float wave,
+                      long dayTime) {
+        this(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime, true);
     }
 
     public static final Codec<Detonation> CODEC = RecordCodecBuilder.create(i -> i.group(
@@ -67,7 +77,8 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
             Codec.FLOAT.fieldOf("scale").forGetter(Detonation::scale),
             Codec.BOOL.fieldOf("fallout").forGetter(Detonation::fallout),
             Codec.FLOAT.optionalFieldOf("wave", OLD_WAVE).forGetter(Detonation::wave),
-            Codec.LONG.optionalFieldOf("day_time", NO_DAY_TIME).forGetter(Detonation::dayTime)
+            Codec.LONG.optionalFieldOf("day_time", NO_DAY_TIME).forGetter(Detonation::dayTime),
+            Codec.BOOL.optionalFieldOf("fires", true).forGetter(Detonation::fires)
     ).apply(i, Detonation::new));
 
     /**
@@ -100,11 +111,15 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
     };
 
     public Detonation withWave(float wave) {
-        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime);
+        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime, fires);
+    }
+
+    public Detonation withFires(boolean fires) {
+        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime, fires);
     }
 
     public Detonation withDayTime(long dayTime) {
-        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime);
+        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, fallout, wave, dayTime, fires);
     }
 
     /** Время суток подрыва известно ({@link #dayTime}). */

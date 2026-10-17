@@ -372,9 +372,10 @@ public final class S2C {
      * настроек сервера: {@code blackout} — радиус, в котором удар гасит сеть ({@code Blackouts.nukeRadius}; 0 — не
      * гасит), там лампы коротят дугой ЭМИ.
      * <p>
-     * Формат только растёт с конца (replay.md): поля выпуска 3.1.0, потом {@code wave}, {@code blackout} и время суток
-     * подрыва ({@link Detonation#dayTime}) — каждое дописано в конец пакета и в повторе, записанном до него, читается
-     * «как до него»: скорость стены {@link Detonation#OLD_WAVE}, без ЭМИ, время суток неизвестно.
+     * Формат только растёт с конца (replay.md): поля выпуска 3.1.0, потом {@code wave}, {@code blackout}, время суток
+     * подрыва ({@link Detonation#dayTime}) и пожары ({@link Detonation#fires}) — каждое дописано в конец пакета и в
+     * повторе, записанном до него, читается «как до него»: скорость стены {@link Detonation#OLD_WAVE}, без ЭМИ, время
+     * суток неизвестно, пожары есть.
      */
     public record NukeDetonation(Detonation detonation, float blackout) implements CustomPacketPayload {
         public static final Type<NukeDetonation> TYPE = new Type<>(Incoming.id("nuke_detonation"));
@@ -383,7 +384,8 @@ public final class S2C {
                 StreamCodecs.trailing(ByteBufCodecs.FLOAT, Detonation.OLD_WAVE), p -> p.detonation.wave(),
                 StreamCodecs.trailing(ByteBufCodecs.FLOAT, 0f), NukeDetonation::blackout,
                 StreamCodecs.trailing(ByteBufCodecs.VAR_LONG, Detonation.NO_DAY_TIME), p -> p.detonation.dayTime(),
-                (d, wave, blackout, dayTime) -> new NukeDetonation(d.withWave(wave).withDayTime(dayTime), blackout));
+                StreamCodecs.trailing(ByteBufCodecs.BOOL, true), p -> p.detonation.fires(),
+                (d, wave, blackout, dayTime, fires) -> new NukeDetonation(d.withWave(wave).withDayTime(dayTime).withFires(fires), blackout));
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -431,8 +433,8 @@ public final class S2C {
     /**
      * Вход в мир и смена измерения: действующие подрывы и летящие МБР этого измерения. Подрывы в списке — полями выпуска
      * 3.1.0 ({@link Detonation#STREAM_CODEC}); что подрыв знает сверх них (скорость стены {@link Detonation#wave}, время
-     * суток {@link Detonation#dayTime}), — списками в конце пакета, по подрыву на место (формат растёт с конца,
-     * replay.md): в повторе, записанном до них, списков нет — «как до них».
+     * суток {@link Detonation#dayTime}, пожары {@link Detonation#fires}), — списками в конце пакета, по подрыву на место
+     * (формат растёт с конца, replay.md): в повторе, записанном до них, списков нет — «как до них».
      */
     public record NukeSync(List<Detonation> detonations, List<NukeWarning> warnings)
             implements CustomPacketPayload {
@@ -444,17 +446,22 @@ public final class S2C {
                 p -> p.detonations.stream().map(Detonation::wave).toList(),
                 StreamCodecs.trailing(ByteBufCodecs.VAR_LONG.apply(ByteBufCodecs.list()), List.of()),
                 p -> p.detonations.stream().map(Detonation::dayTime).toList(),
-                (detonations, warnings, waves, dayTimes) -> new NukeSync(extended(detonations, waves, dayTimes), warnings));
+                StreamCodecs.trailing(ByteBufCodecs.BOOL.apply(ByteBufCodecs.list()), List.of()),
+                p -> p.detonations.stream().map(Detonation::fires).toList(),
+                (detonations, warnings, waves, dayTimes, fires) -> new NukeSync(extended(detonations, waves, dayTimes, fires), warnings));
 
         /** Подрывы с полями из списков в конце пакета (пустой список — поля в повторе ещё не было). */
-        private static List<Detonation> extended(List<Detonation> detonations, List<Float> waves, List<Long> dayTimes) {
+        private static List<Detonation> extended(List<Detonation> detonations, List<Float> waves, List<Long> dayTimes,
+                List<Boolean> fires) {
             check("waves", waves, detonations);
             check("day times", dayTimes, detonations);
+            check("fires", fires, detonations);
             List<Detonation> out = new ArrayList<>(detonations.size());
             for (int i = 0; i < detonations.size(); i++) {
                 Detonation d = detonations.get(i);
                 if (!waves.isEmpty()) d = d.withWave(waves.get(i));
                 if (!dayTimes.isEmpty()) d = d.withDayTime(dayTimes.get(i));
+                if (!fires.isEmpty()) d = d.withFires(fires.get(i));
                 out.add(d);
             }
             return out;

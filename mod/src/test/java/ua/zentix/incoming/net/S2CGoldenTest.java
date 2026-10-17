@@ -108,12 +108,13 @@ class S2CGoldenTest {
                 golden(S2C.SalvoStatus.TYPE, S2C.SalvoStatus.CODEC, new S2C.SalvoStatus(6, 17, 40)),
                 golden(S2C.Cleared.TYPE, S2C.Cleared.CODEC, new S2C.Cleared(Optional.of(B), true, List.of(A, B))),
                 golden(S2C.NukeWarning.TYPE, S2C.NukeWarning.CODEC, W),
-                // 1 — выпуск 3.1.0; 2 — wave (скорость стены); 3 — blackout (ЭМИ); 4 — время суток подрыва
+                // 1 — выпуск 3.1.0; 2 — wave (скорость стены); 3 — blackout (ЭМИ); 4 — время суток подрыва; 5 — пожары
                 golden(S2C.NukeDetonation.TYPE, S2C.NukeDetonation.CODEC,
                         new S2C.NukeDetonation(D.withWave(Detonation.OLD_WAVE).withDayTime(Detonation.NO_DAY_TIME), 0f),
                         new S2C.NukeDetonation(D.withDayTime(Detonation.NO_DAY_TIME), 0f),
                         new S2C.NukeDetonation(D.withDayTime(Detonation.NO_DAY_TIME), 242f),
-                        new S2C.NukeDetonation(D, 242f)),
+                        new S2C.NukeDetonation(D, 242f),
+                        new S2C.NukeDetonation(D.withFires(false), 242f)),
                 golden(S2C.NukeDebris.TYPE, S2C.NukeDebris.CODEC, new S2C.NukeDebris(4, List.of(
                         new S2C.NukeDebris.Piece(new BlockPos(-100, 70, 2000), Blocks.STONE.defaultBlockState()),
                         new S2C.NukeDebris.Piece(new BlockPos(1, -60, -1), Blocks.OAK_PLANKS.defaultBlockState())))),
@@ -121,11 +122,12 @@ class S2CGoldenTest {
                         new FlashMarks.Layer(3, 100, new int[]{0x12345678, -5}, new int[0], new long[0]),
                         new FlashMarks.Layer(4, 123_456, new int[0], new int[]{0x0abcdef0},
                                 new long[]{1, 2, 3, 4, 5, 6, 7, Long.MIN_VALUE + 8}))))),
-                // 1 — выпуск 3.1.0; 2 — скорости стены и время суток подрывов списками в конце
+                // 1 — выпуск 3.1.0; 2 — скорости стены и время суток подрывов списками в конце; 3 — пожары списком
                 golden(S2C.NukeSync.TYPE, S2C.NukeSync.CODEC,
                         new S2C.NukeSync(List.of(D.withWave(Detonation.OLD_WAVE).withDayTime(Detonation.NO_DAY_TIME),
                                 D2.withWave(Detonation.OLD_WAVE).withDayTime(Detonation.NO_DAY_TIME)), List.of(W)),
-                        new S2C.NukeSync(List.of(D, D2), List.of(W))),
+                        new S2C.NukeSync(List.of(D, D2), List.of(W)),
+                        new S2C.NukeSync(List.of(D.withFires(false), D2), List.of(W))),
                 golden(S2C.Radiation.TYPE, S2C.Radiation.CODEC, new S2C.Radiation(1.5f, 250f, 0.125f, 2)),
                 golden(S2C.Flights.TYPE, S2C.Flights.CODEC, new S2C.Flights(List.of(
                         new S2C.Flight(A, 2, 1, 340, P, Q, false, S2C.Flight.TARGET_NAMED, "ZentixUA", false),

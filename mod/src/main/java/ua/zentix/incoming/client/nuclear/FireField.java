@@ -93,9 +93,14 @@ final class FireField {
 
     /** Огонь кончился: тиков после подрыва, когда от него осталось меньше 2 %. */
     double endTicks() {
+        return lastArrival() + RISE + TAU * Math.log(50);
+    }
+
+    /** Приход волны к последнему кольцу с огнём, тики после подрыва. */
+    double lastArrival() {
         double last = 0;
         for (int i = 0; i < fires.length; i++) if (fires[i] > 0) last = arrival[i];
-        return last + RISE + TAU * Math.log(50);
+        return last;
     }
 
     /** Вторичный взрыв в горящем городе: газ, топливо, склады. */

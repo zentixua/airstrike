@@ -20,9 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Законы пелены в шейдере ({@code shaders/include/pall.glsl}) — те же, что в Java ({@link PallField},
- * {@link VolumeNoise#shape}): функции шейдера читаются из файла и считаются маленьким разбором выражений GLSL, числа
- * сравниваются с Java по всей области. Правка закона только в одном месте ломает этот тест.
+ * Законы пелены и огненного шторма в шейдере ({@code shaders/include/pall.glsl}) — те же, что в Java ({@link PallField},
+ * {@link FireStorm}, {@link VolumeNoise#shape}): функции шейдера читаются из файла и считаются маленьким разбором
+ * выражений GLSL, числа сравниваются с Java по всей области. Правка закона только в одном месте ломает этот тест.
  */
 class PallGlslTest {
     private static final String GLSL = read("include/pall.glsl");
@@ -151,10 +151,26 @@ class PallGlslTest {
         return new double[]{Double.parseDouble(p[0].strip()), Double.parseDouble(p[1].strip()), Double.parseDouble(p[2].strip())};
     }
 
+    @Test
+    void fireLawsMatchJava() {
+        Function bend = Function.parse(GLSL, "fireBend"), width = Function.parse(GLSL, "fireWidth"), lod = Function.parse(GLSL, "fireLod"),
+                glow = Function.parse(GLSL, "fireGlowLod"), column = Function.parse(GLSL, "fireColumn");
+        for (double h = -60; h <= 400; h += 0.5) {
+            assertEquals(FireStorm.bend(h, FireStorm.BEND_HEIGHT), bend.call(Map.of("h", h, "hb", FireStorm.BEND_HEIGHT)), 1e-9, "h = " + h);
+            for (double cell : new double[]{4, 32}) {
+                assertEquals(FireStorm.width(h, cell), width.call(Map.of("h", h, "cell", cell)), 1e-9, "h = " + h);
+                assertEquals(FireStorm.glowLod(h, cell), glow.call(Map.of("h", h, "cell", cell)), 1e-9, "h = " + h);
+                double w = FireStorm.width(h, cell);
+                assertEquals(FireStorm.lod(w, cell), lod.call(Map.of("w", w, "cell", cell)), 1e-9, "w = " + w);
+            }
+            assertEquals(FireStorm.column(h, 260), column.call(Map.of("h", h, "top", 260.0)), 1e-9, "h = " + h);
+        }
+    }
+
     /**
      * Функция GLSL из чисел в число: объявления {@code float a = …, b = …;}, {@code if (условие) return …;},
      * {@code return …;}; в выражениях — числа, переменные (у vec2 — {@code n.x}), + − * /, сравнения и встроенные
-     * {@code smoothstep, clamp, min, max, exp, pow, abs, sqrt}.
+     * {@code smoothstep, clamp, min, max, exp, log2, pow, abs, sqrt}.
      */
     private record Function(List<String> tokens) {
         private static final Pattern TOKEN = Pattern.compile("\\s*(\\d+\\.?\\d*(?:[eE][-+]?\\d+)?|\\.\\d+|[A-Za-z_]\\w*(?:\\.[xyzw]+)?|<=|>=|==|[-+*/(),;{}<>=])");
@@ -285,6 +301,7 @@ class PallGlslTest {
                 case "min" -> Math.min(a.get(0), a.get(1));
                 case "max" -> Math.max(a.get(0), a.get(1));
                 case "exp" -> Math.exp(a.get(0));
+                case "log2" -> Math.log(a.get(0)) / Math.log(2);
                 case "pow" -> Math.pow(a.get(0), a.get(1));
                 case "abs" -> Math.abs(a.get(0));
                 case "sqrt" -> Math.sqrt(a.get(0));
