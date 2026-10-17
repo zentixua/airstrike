@@ -277,8 +277,9 @@ public final class NuclearWorld {
 
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
-        FarLods.get(level).clear(level);
+        // подготовка — раньше FarLods: её копии отдают ему взятые запросы, и они должны уйти вместе с его очередями
         prep.clear(level, scars);
+        FarLods.get(level).clear(level);
         scars.clear(level);
         ruins.values().forEach(RuinContext::cancelTasks);
         ruins.clear();
