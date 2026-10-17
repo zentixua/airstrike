@@ -209,6 +209,8 @@ class NewisleDataTest {
         assertEquals("n52", c.get("n43").replay(), "второй план той же записи — её повтор");
         assertTrue(c.get("n43").offset() > 0, "и со своего места в ней");
         assertEquals("n18", c.get("n18").replay(), "сцена дирижабля пишет повтор под именем плана");
+        assertEquals("n18", c.get("n18b").replay(), "падение дирижабля — второй план записи n18");
+        assertEquals(70, c.get("n18b").offset(), "встык за куском n18: 3,5 с от начала окна");
         for (Coverage.Spec s : c.values()) assertFalse(s.kinds().isEmpty(), s.shot());
     }
 

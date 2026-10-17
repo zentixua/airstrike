@@ -195,7 +195,8 @@
    "id": "T11", "title": "Дирижабль Юга над озером", "from": "chain", "clock": "morning", "siren": true, "minutes": 14,
    "stage": [{"do": "airship", "at": "airship_at", "yaw": 0, "ground": "n18"}],
    "shots": [],
-   "cover": {"n18": {"subject": "impact", "weapon": "missile", "need": "HIT", "spare": ["tripod"]}}
+   "cover": {"n18": {"subject": "impact", "weapon": "missile", "need": "HIT", "spare": ["tripod"]},
+             "n18b": {"subject": "scene", "replay": "n18", "offset": 3.5, "spare": ["own45", "own68"]}}
   },
   {
    "id": "T12", "title": "Кафе и станция днём", "from": "branch:T11", "clock": "morning", "siren": true, "minutes": 12,
