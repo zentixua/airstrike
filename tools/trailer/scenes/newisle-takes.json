@@ -287,18 +287,18 @@
    "shots": [
     {"plans": ["n20"], "seconds": 6, "camera": "fpv",
      "strikes": [
-      {"weapon": "rocket", "from": [-460, -340], "to": {"at": [-440, -42], "above": 0}, "eta": 0.6},
-      {"weapon": "rocket", "from": [-320, -340], "to": {"at": [-450, 44], "above": 0}, "eta": 0.9},
-      {"weapon": "rocket", "from": [-460, -340], "to": {"at": [-405, 0], "above": 0}, "eta": 1.2},
-      {"weapon": "rocket", "from": [-320, -340], "to": {"at": [-410, -44], "above": 0}, "eta": 1.4},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-440, -42], "above": 0}, "eta": 0.6},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-450, 44], "above": 0}, "eta": 0.9},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-405, 0], "above": 0}, "eta": 1.2},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-410, -44], "above": 0}, "eta": 1.4},
       {"weapon": "missile", "route": "far_west", "eta": 1.6},
-      {"weapon": "rocket", "from": [-460, -340], "to": {"at": [-415, 46], "above": 0}, "eta": 1.7},
-      {"weapon": "rocket", "from": [-320, -340], "to": {"at": [-385, 10], "above": 0}, "eta": 2.0},
-      {"weapon": "rocket", "from": [-460, -340], "to": {"at": [-370, -40], "above": 0}, "eta": 2.2},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-415, 46], "above": 0}, "eta": 1.7},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-385, 10], "above": 0}, "eta": 2.0},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-370, -40], "above": 0}, "eta": 2.2},
       {"weapon": "missile", "route": "city_west", "eta": 2.4},
-      {"weapon": "rocket", "from": [-320, -340], "to": {"at": [-380, 44], "above": 0}, "eta": 2.5},
-      {"weapon": "rocket", "from": [-460, -340], "to": {"at": [-360, 2], "above": 0}, "eta": 2.8},
-      {"weapon": "rocket", "from": [-320, -340], "to": {"at": [-335, 8], "above": 0}, "eta": 3.3}
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-380, 44], "above": 0}, "eta": 2.5},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-360, 2], "above": 0}, "eta": 2.8},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-335, 8], "above": 0}, "eta": 3.3}
      ],
      "cover": {"n20": {"subject": "framed", "weapon": "rocket", "need": "FPV"}}}
    ],
