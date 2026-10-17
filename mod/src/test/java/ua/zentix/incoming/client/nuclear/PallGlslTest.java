@@ -354,7 +354,8 @@ class PallGlslTest {
      * Как {@code fx_pall} складывает свет, и как он и {@code fx_pall_composite} переводят его в экран, — по тексту
      * шейдеров: части проверены по отдельности, а собирает их {@code main}, который тест не считает. Огонь в точке — все
      * огни вместе под одним пределом пламени (каждый в своём пределе, а сумма была ярче огня); пожары под пылью — тоже в
-     * пределе; толща над точкой — весь столб слоя; свет пелены в экран — один раз на канал, тень на мире — один раз.
+     * пределе; толща над точкой — весь столб слоя; свет пелены в экран — один раз на канал, ярче белого — в долю пикселя
+     * при настоящем пропускании; тень на мире — один раз.
      */
     @Test
     void pallPutsItsLightTogetherOnce() {
@@ -367,8 +368,11 @@ class PallGlslTest {
         assertTrue(march.contains("s.burn += pallFlame("), "пожары под пылью — не ярче пламени");
         assertTrue(march.contains("s.tau += f.column.x + f.column.y + f.column.z;"), "толща над точкой — весь столб слоя");
         assertEquals(3, occurrences(march, "pallDisplay("), "свет пелены в экран — один раз на канал");
-        assertTrue(march.contains("shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * cover"),
+        assertTrue(march.contains("shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * shownCover"),
                 "на выходе — экран с плечом");
+        assertTrue(march.contains("shownCover = min(cover * lum, 1.0);"), "пересвет — в долю пикселя, не больше всего пикселя");
+        assertTrue(march.contains("vec4 res = vec4(shown, min(transmit + lost, 1.0));"),
+                "пропускание кадра — настоящее и при пересвете");
         assertEquals(1, occurrences(composite, "pallDisplay("), "тень на мире в экран — один раз");
         assertTrue(composite.contains("pall.a *= pallDisplay(shade("), "тень на мире — в экран");
     }
