@@ -33,6 +33,10 @@ public final class ModTags {
     public static final TagKey<Block> NUKE_LIGHT = block("nuke_light");
     /** Ядерный удар: кладка, 10–15 psi. */
     public static final TagKey<Block> NUKE_MASONRY = block("nuke_masonry");
+    /** Ядерный удар: вспышка обугливает грани до черноты — дерево, шерсть, сено ({@code nuclear/flash/FlashChar}). */
+    public static final TagKey<Block> NUKE_CHARS = block("nuke_chars");
+    /** Ядерный удар: вспышка только закапчивает грани — кладка, бетон, терракота. */
+    public static final TagKey<Block> NUKE_SOOTS = block("nuke_soots");
 
     /** Ядерный удар: биомы, которые свет не перекрашивает (моря, реки, пещеры), — {@code nuclear/world/ScorchedBiomes}. */
     public static final TagKey<Biome> NUKE_KEEPS_BIOME = TagKey.create(Registries.BIOME, Incoming.id("nuke_keeps_biome"));

@@ -74,7 +74,7 @@ public final class NuclearWarhead {
                 g.visibility(), random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get(),
                 IncomingConfig.SERVER.nukeWaveSpeed.get().floatValue());
         events.add(d);
-        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
+        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d, (float) Blackouts.nukeRadius(d)));
 
         NuclearWorld.get(level).onDetonation(level, d, owner);
         Blackouts.nuke(level, d);

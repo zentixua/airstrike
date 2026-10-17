@@ -113,6 +113,11 @@ public final class Incoming {
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkSent);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.nuclear.flash.FlashSync::onChunkSent);
+        // блок уже сменился, даже если оповещение соседей кто-то отменил
+        NeoForge.EVENT_BUS.addListener(EventPriority.NORMAL, true, net.neoforged.neoforge.event.level.BlockEvent.NeighborNotifyEvent.class,
+                ua.zentix.incoming.nuclear.flash.FlashSync::onNeighborNotify);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.nuclear.flash.FlashSync::onLevelTick);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLogin);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChangeDimension);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onRespawn);

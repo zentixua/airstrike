@@ -121,6 +121,9 @@ public final class IncomingClient {
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(ScreenProjection::capture);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.client.nuclear.FlashMarksMesh::onSection);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.client.nuclear.FlashMarksClient::onChunkUnload);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.client.nuclear.FlashMarksClient::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(FxLayer::render);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::renderRain);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
@@ -210,6 +213,8 @@ public final class IncomingClient {
         while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
         while (Keys.SECOND_KEY.consumeClick()) PacketDistributor.sendToServer(new C2S.NuclearKey());
         Replay.tick();
+        // следы вспышки — и на паузе: повтор перематывают и на паузе
+        ua.zentix.incoming.client.nuclear.FlashMarksClient.tick();
         if (mc.isPaused()) return;
         Designator.tick();
         ClientFlights.tick();
@@ -279,6 +284,7 @@ public final class IncomingClient {
         Designator.reset();
         RadarScope.reset();
         ClientNuclear.reset();
+        ua.zentix.incoming.client.nuclear.FlashMarksClient.reset();
         MapTarget.reset();
         MapPlayers.reset();
         MapScreen.reset();
@@ -382,6 +388,12 @@ public final class IncomingClient {
             Replay.event("nuke_debris", live -> {
                 if (live) ClientNuclear.debris(p);
             });
+        }
+
+        @Override
+        public void nukeFlashMarks(S2C.NukeFlashMarks p) {
+            // состояние чанка: принимается всегда, и из перемотки (слой виден, когда часы дошли до вспышки)
+            ua.zentix.incoming.client.nuclear.FlashMarksClient.receive(p);
         }
 
         @Override
