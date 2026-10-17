@@ -414,20 +414,29 @@
    "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "strikes": [{"weapon": "missile", "route": "south_a", "eta": 3.0}, {"weapon": "missile", "route": "south_b", "eta": 3.5}], "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
   },
   {
-   "id": "T21", "title": "Ночь: ковёр «Града» по Городу 1, город отвечает; проспект", "from": "chain", "clock": "night", "siren": true, "minutes": 12,
+   "id": "T21", "title": "Ночь: ковёр «Града» по Городу 1, город отвечает", "from": "chain", "clock": "night", "siren": true, "minutes": 12,
    "stage": [
-    {"do": "crowd", "group": "street", "at": {"at": [-135, -35], "above": 0}, "n": 10, "spread": 5, "roam": 1, "prefix": "Str", "creative": true},
     {"do": "launchers", "rack": "n41_north", "at": {"line": [-161, -257], "step": [45, 71], "n": 2}, "weapon": "rocket", "count": 1, "spread": 0, "to": "south_launchers", "load": 2},
     {"do": "settle"}
    ],
    "shots": [
     {"plans": ["n41"], "seconds": 10,
      "cues": [{"at": 0.4, "do": "launchers.fire", "rack": "n41_north"}, {"at": 2.4, "do": "launchers.fire", "rack": "n41_north"}],
-     "cover": {"n41": {"subject": "first", "weapon": "rocket", "need": "HIT", "smoky": 1.0, "density": {"min": 4.0, "span": 4.8}}}},
+     "cover": {"n41": {"subject": "first", "weapon": "rocket", "need": "HIT", "smoky": 1.0, "density": {"min": 4.0, "span": 4.8}}}}
+   ]
+  },
+  {
+   "id": "T21b", "title": "Ночь: проспект после ковра — люди бегут, разрывы за ними, прилёт в камеру", "from": "branch:T21", "clock": "night", "siren": true, "minutes": 8,
+   "stage": [
+    {"do": "crowd", "group": "street", "at": {"at": [-135, -35], "above": 0}, "n": 10, "spread": 5, "roam": 1, "prefix": "Str", "creative": true},
+    {"do": "settle"}
+   ],
+   "shots": [
     {"plans": ["n41b"], "seconds": 6,
      "cues": [{"at": 0, "do": "crowd.flee", "group": "street", "to": {"at": [-70, -35], "above": 0}, "stagger": [0, 0.6]}],
-     "cover": {"n41b": {"subject": "impact", "weapon": "rocket", "near": {"at": [-107, -37], "above": 0}, "need": "HIT", "smoky": 1.0}}}
-   ]
+     "cover": {"n41b": {"subject": "impact", "weapon": "missile", "near": {"at": [-100, -37], "above": 0}, "need": "HIT", "smoky": 1.0}}}
+   ],
+   "after": [{"do": "crowd.remove", "group": "street"}]
   },
   {
    "id": "T21c", "title": "Штаб Волкова на берегу: ПВО Севера сбивает шахеды над горящим городом", "from": "branch:T21", "clock": "night", "siren": true, "minutes": 8,
