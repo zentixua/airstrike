@@ -942,6 +942,15 @@ class ProduceTest(unittest.TestCase):
         self.assertTrue(any("4.6" in p for p in problems))
         self.assertTrue(any("не найден" in p for p in problems))
 
+    def test_check_take_does_not_time_a_strike_the_sam_shot_down(self):
+        # шахед сбит ЗРК над озером (n17): удара нет, его «срок» не к чему мерить
+        r = ok_result("A", ["a1"])
+        r["shots"][0]["strikes"] = [{"weapon": "drone", "eta": 9.0, "bound": True, "intercepted": True, "down": 1.4},
+                                    {"weapon": "drone", "eta": 3.0, "bound": True, "actual": 4.6}]
+        problems = [p for p in P.check_take(r, "", {}) if "вместо" in p]
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("4.6", problems[0])
+
     def test_check_take_accepts_client_clock_when_server_reads_early(self):
         # серверное actual отстаёт от клиентского на период синхронизации часов (T13, 15.10):
         # удар в допуске хотя бы на одних часах — не отказ

@@ -553,31 +553,31 @@
  },
  {
   "id": "n17",
-  "title": "Shaheds over the lake, SAM fires",
+  "title": "Shahed swarm over the lake, four SAM batteries fire",
   "time": "dawn",
-  "camera": "roof",
+  "camera": "fixed",
   "frames": [
    {
     "t": 0.0,
     "eye": [
-     -154.9,
-     134.7,
-     57.4
+     -79.5,
+     82.0,
+     160.5
     ],
-    "yaw": 25.1,
-    "pitch": 8.8,
-    "fov": 55.0
+    "yaw": 85.0,
+    "pitch": -6.0,
+    "fov": 62.0
    }
   ],
   "target": [
-   -250.0,
-   100.0,
-   260.0
+   -220.0,
+   112.0,
+   300.0
   ],
-  "distance": 224.0,
+  "distance": 200,
   "sight": true,
   "ok": true,
-  "notes": "крыша 65 блоков над землёй, у края, до цели 224"
+  "notes": "место задано: низко над водой у восточного края линии ЗРК, солнце за спиной; все четыре ЗРК и путь стаи в кадре (лучом по блокам nw-T09-a0)"
  },
  {
   "id": "n18",

@@ -431,6 +431,28 @@ class MapAimTest(unittest.TestCase):
         self.assertEqual([], T.map_aim(None))
 
 
+class SamOutcomeTest(unittest.TestCase):
+    TAKE = {"shots": [{"plans": ["n17"], "expect": {"kills": [1, 2], "interceptors": 6}}, {"plans": ["n46"]}]}
+
+    def result(self, kills, launched):
+        strikes = [{"weapon": "drone", "intercepted": True} for _ in range(kills)] + [{"weapon": "drone", "eta": 9.0}] * 5
+        return {"shots": [{"plans": ["n17"], "strikes": strikes, "sam_launched": launched}, {"plans": ["n46"], "strikes": []}]}
+
+    def test_one_or_two_down_out_of_many_launches_pass(self):
+        self.assertEqual([], T.sam_outcome(self.TAKE, self.result(1, 8)))
+        self.assertEqual([], T.sam_outcome(self.TAKE, self.result(2, 6)))
+
+    def test_too_many_down_or_too_few_launches_fail(self):
+        self.assertEqual(["n17: сбито 4, нужно 1–2"], T.sam_outcome(self.TAKE, self.result(4, 8)))
+        self.assertEqual(["n17: сбито 0, нужно 1–2"], T.sam_outcome(self.TAKE, self.result(0, 8)))
+        self.assertEqual(["n17: зенитных ракет 3, нужно не меньше 6"], T.sam_outcome(self.TAKE, self.result(1, 3)))
+        r = self.result(3, 8)
+        self.assertEqual(T.sam_outcome(self.TAKE, r), T.record_problems(tempfile.mkdtemp(), self.TAKE, r))
+
+    def test_shot_without_expect_is_not_checked(self):
+        self.assertEqual([], T.sam_outcome({"shots": [{"plans": ["n17"]}]}, self.result(5, 0)))
+
+
 class RecordProblemsTest(unittest.TestCase):
     def test_old_recording_without_new_data_is_not_a_failure(self):
         self.assertEqual([], T.record_problems(tempfile.mkdtemp(), {"siren": True, "shots": []}, {}))

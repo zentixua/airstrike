@@ -29,6 +29,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.Tags;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -43,6 +44,8 @@ import ua.zentix.incoming.client.map.TerrainTiles;
 import ua.zentix.incoming.client.screen.MapScreen;
 import ua.zentix.incoming.client.screen.RemoteScreen;
 import ua.zentix.incoming.compat.SubLevels;
+import ua.zentix.incoming.defense.DefenseWorld;
+import ua.zentix.incoming.defense.Interceptor;
 import ua.zentix.incoming.defense.SamBlockEntity;
 import ua.zentix.incoming.entity.BunkerBusterEntity;
 import ua.zentix.incoming.entity.CruiseMissileEntity;
@@ -62,6 +65,7 @@ import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Frame;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Strike;
 import ua.zentix.incoming.strike.ChunkTickets;
+import ua.zentix.incoming.strike.FlightLog;
 import ua.zentix.incoming.strike.StrikeWorld;
 import ua.zentix.incoming.strike.WeaponType;
 import ua.zentix.incoming.util.Local;
@@ -205,10 +209,19 @@ final class Newisle {
         double ms = (System.nanoTime() - tickStartNanos) / 1e6;
         serverTickMs.put(e.getServer().overworld().getGameTime(), Math.round(ms * 10) / 10.0);
         watchStrikes(e.getServer());
+        Run r = recording;
+        if (r != null && r.startServer >= 0) {
+            // зенитные ракеты в полёте за запись плана — каждая один раз (итог: sam_launched)
+            for (Interceptor f : DefenseWorld.get(e.getServer().overworld()).flights()) {
+                if (r.samSeen.add(f)) r.samLaunched++;
+            }
+        }
     }
 
     /** Первый тик сервера, когда каждый его снаряд появился: по нему удары записи привязываются к снарядам. */
     private final Map<UUID, Long> serverSeen = new HashMap<>();
+    /** Сколько перехватов ЗРК сервер отметил к прошлому тику ({@link FlightLog.Event#INTERCEPTED}); −1 — ещё не смотрели. */
+    private int killsSeen = -1;
 
     /**
      * Удары записи у сервера, в его тиках: привязка — новый снаряд того же оружия у цели (в пределах 5 СКО рассеивания),
@@ -216,6 +229,10 @@ final class Newisle {
      * бомба после сброса, у сервера это другой снаряд (остаётся клиентская привязка из {@code ClientFlights}).
      */
     private void watchStrikes(MinecraftServer server) {
+        // перехваты ЗРК за этот тик: снаряд, пропавший в тот же тик не у своей цели, сбит, а не опоздал к ней
+        int kills = StrikeWorld.get(server.overworld()).flightLog().total(FlightLog.Event.INTERCEPTED);
+        int newKills = killsSeen < 0 ? 0 : kills - killsSeen;
+        killsSeen = kills;
         if (launched.isEmpty()) return;
         long now = server.overworld().getGameTime();
         Map<UUID, StrikeProjectile> live = new HashMap<>();
@@ -248,7 +265,16 @@ final class Newisle {
             }
             if (l.goneServer < 0) {
                 StrikeProjectile p = live.get(l.serverId);
-                if (p == null || p.isRemoved()) l.goneServer = now;
+                if (p == null || p.isRemoved()) {
+                    l.goneServer = now;
+                    Vec3 last = l.lastServer;
+                    if (newKills > 0 && last != null && Math.hypot(last.x - l.target.x, last.z - l.target.z) >= l.reach()) {
+                        l.intercepted = true;
+                        newKills--;
+                    }
+                } else {
+                    l.lastServer = p.position();
+                }
             }
         }
         serverSeen.keySet().retainAll(live.keySet());
@@ -405,6 +431,9 @@ final class Newisle {
         int mapMarks, mapRoute;
         @Nullable
         MapTarget.Place mapAt;
+        /** Зенитные ракеты, которые были в полёте за запись (поток сервера), и сколько их. */
+        final Set<Interceptor> samSeen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        volatile int samLaunched;
         long startTick = -1;
         // тот же старт по часам сервера: клиентские штампы под нагрузкой ударов отстают от него (T21, ночь 15.10)
         volatile long startServer = -1;
@@ -647,6 +676,8 @@ final class Newisle {
             o.addProperty("map_marks", run.mapMarks);
             o.addProperty("map_route", run.mapRoute);
         }
+        // ЗРК стрелял за запись: сколько ракет (take_checks.sam_outcome сверяет с expect дубля)
+        if (run.samLaunched > 0) o.addProperty("sam_launched", run.samLaunched);
         if (run.shot.has("cover")) o.add("cover", run.shot.get("cover"));
         shotsOut.add(o);
     }
@@ -713,6 +744,10 @@ final class Newisle {
         @Nullable
         volatile UUID serverId;
         volatile long watchFrom = -2, firstSeenServer = -1, goneServer = -1;
+        /** Последнее место снаряда у сервера и сбит ли он ЗРК (тогда удара нет и срок не проверяется). */
+        @Nullable
+        volatile Vec3 lastServer;
+        volatile boolean intercepted;
 
         Launched(int index, Strike strike, double flight, double after, double delay) {
             this.index = index;
@@ -795,6 +830,12 @@ final class Newisle {
             o.addProperty("pass", strike.pass() != null);
             o.addProperty("bound", id != null || serverId != null);
             o.addProperty("flight", flight);
+            if (intercepted) {
+                // сбит ЗРК: удара нет — срок не проверяется (take_checks считает сбитые по этому полю)
+                o.addProperty("intercepted", true);
+                if (startServer >= 0 && goneServer >= 0) o.addProperty("down", (goneServer - startServer) / 20.0);
+                return o;
+            }
             if (startServer >= 0 && serverId != null) {
                 // часы сервера: пущен — когда снаряд появился у него, удар — когда полёт кончился
                 if (firstSeenServer >= 0) o.addProperty("launched", (firstSeenServer - startServer) / 20.0);
@@ -1110,6 +1151,9 @@ final class Newisle {
                     if (level.getBlockEntity(b) instanceof SamBlockEntity sam) sam.load(new ItemStack(ModItems.INTERCEPTOR.get(), load));
                 });
             };
+            // настройки ПВО на время дубля (как у GameTest ЗРК): вероятность сбить, дальность огня, перезарядка;
+            // без полей — прежние значения. Только в памяти: файл настроек мира не пишется
+            case "sam.config" -> () -> film.withServer(s -> samConfig(a));
             case "sam.clear" -> () -> {
                 Vec3 c = at(a.get("at"), 0);
                 film.withServer(s -> War.removeSams(s.overworld(), c, a.get("r").getAsInt()));
@@ -1204,6 +1248,27 @@ final class Newisle {
             };
             default -> throw new IllegalArgumentException("нет действия " + what);
         };
+    }
+
+    /** Как вернуть настройки ПВО, которые дубль поменял ({@code sam.config}), — по одной на настройку. */
+    private final Map<ModConfigSpec.ConfigValue<?>, Runnable> samRestore = new java.util.LinkedHashMap<>();
+
+    private void samConfig(JsonObject a) {
+        IncomingConfig.Server c = IncomingConfig.SERVER;
+        if (!a.has("kill") && !a.has("engage") && !a.has("reload")) {
+            samRestore.values().forEach(Runnable::run);
+            samRestore.clear();
+            return;
+        }
+        if (a.has("kill")) samSet(c.samKillProbability, a.get("kill").getAsDouble());
+        if (a.has("engage")) samSet(c.samEngageRange, a.get("engage").getAsInt());
+        if (a.has("reload")) samSet(c.samReloadSeconds, a.get("reload").getAsInt());
+    }
+
+    private <T> void samSet(ModConfigSpec.ConfigValue<T> v, T value) {
+        T old = v.get();
+        samRestore.putIfAbsent(v, () -> v.set(old));
+        v.set(value);
     }
 
     private Crowd group(JsonObject a) {

@@ -158,10 +158,13 @@
    ]
   },
   {
-   "id": "T10", "title": "ЗРК и мобильная группа", "from": "branch:T09", "clock": "dawn", "siren": true, "minutes": 12,
+   "id": "T10", "title": "ЗРК против стаи шахедов и мобильная группа", "from": "branch:T09", "clock": "dawn", "siren": true, "minutes": 12,
    "stage": [
+    {"do": "sam", "at": "c1_sam_w", "load": 0},
     {"do": "sam", "at": "c1_sam", "load": 0},
-    {"do": "player", "at": {"at": [-530, 296], "above": 40}, "look": "c1_sam", "mode": "spectator"},
+    {"do": "sam", "at": "c1_sam_e", "load": 0},
+    {"do": "sam", "at": "c1_sam_e2", "load": 0},
+    {"do": "player", "at": {"at": [-200, 260], "above": 40}, "look": "c1_sam", "mode": "spectator"},
     {"do": "wait", "s": 4},
     {"do": "sam.clear", "at": [-530, 296], "r": 40},
     {"do": "gunners", "group": "mg", "at": "mg_group", "n": 4, "spread": 3, "prefix": "Mg", "gun": "pointblank:ak47"},
@@ -169,22 +172,37 @@
     {"do": "wait", "s": 10}
    ],
    "shots": [
-    {"plans": ["n17"], "seconds": 6,
+    {"plans": ["n17"], "seconds": 8,
      "strikes": [
-      {"weapon": "drone", "route": "lake_south", "eta": 1.2},
-      {"weapon": "drone", "route": "lake_south", "eta": 2.4}
+      {"weapon": "drone", "route": "herd_w", "eta": 8.2},
+      {"weapon": "drone", "route": "herd_e", "eta": 9.85},
+      {"weapon": "drone", "route": "herd_c", "eta": 8.9},
+      {"weapon": "drone", "route": "herd_w", "eta": 8.9},
+      {"weapon": "drone", "route": "herd_e", "eta": 10.55},
+      {"weapon": "drone", "route": "herd_c", "eta": 9.6},
+      {"weapon": "drone", "route": "herd_w", "eta": 9.6},
+      {"weapon": "drone", "route": "herd_e", "eta": 11.25},
+      {"weapon": "drone", "route": "herd_c", "eta": 10.3}
      ],
-     "ready": [{"do": "sam", "at": "c1_sam", "load": 32}],
-     "when": {"kind": "interceptor", "at": "c1_sam", "r": 60},
+     "ready": [
+      {"do": "sam.config", "kill": 0.2, "engage": 220, "reload": 0},
+      {"do": "sam", "at": "c1_sam_w", "load": 2},
+      {"do": "sam", "at": "c1_sam", "load": 2},
+      {"do": "sam", "at": "c1_sam_e", "load": 2},
+      {"do": "sam", "at": "c1_sam_e2", "load": 2}
+     ],
+     "when": {"kind": "interceptor", "at": "c1_sam", "r": 100},
+     "expect": {"kills": [1, 2], "interceptors": 6},
+     "end": [{"do": "sam.config"}],
      "cover": {"n17": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"]}}},
     {"plans": ["n46"], "seconds": 7,
      "strikes": [{"weapon": "drone", "route": "bridge", "to": "c1_tower_w", "pass": {"at": [-361, 104], "above": 51}, "eta": 3}],
-     "ready": [{"do": "sam.clear", "at": "c1_sam", "r": 24}],
+     "ready": [{"do": "sam.clear", "at": "c1_sam", "r": 100}],
      "cues": [{"at": 1.0, "do": "gunners.fire", "group": "mg", "weapon": "drone", "range": 160}],
      "end": [{"do": "gunners.stop", "group": "mg"}],
      "cover": {"n46": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"]}}}
    ],
-   "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 24}]
+   "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 100}]
   },
   {
    "id": "T11", "title": "Дирижабль Юга над озером", "from": "chain", "clock": "morning", "siren": true, "minutes": 14,

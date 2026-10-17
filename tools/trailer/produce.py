@@ -1109,6 +1109,8 @@ def check_take(result, log, take, rec=None):
         for i, k in enumerate(s.get("strikes", [])):
             if not k.get("bound"):
                 out.append(f"{name}: удар {k.get('weapon')} не найден у клиента")
+            elif k.get("intercepted"):
+                continue        # сбит ЗРК: удара нет, срок не к чему мерить (сколько сбито — take_checks.sam_outcome)
             elif i in journal:
                 # пролёт меряем по журналу повтора: часы постановщика под нагрузкой скачут (T10, 15.10);
                 # несколько ударов с одной точкой — каждый eta находит свой пролёт из журнала

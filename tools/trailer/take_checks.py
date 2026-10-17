@@ -483,10 +483,32 @@ def map_aim(result):
     return out
 
 
+def sam_outcome(take, result):
+    """Исход ПВО плана против `expect` его записи в листе дублей: `{"kills": [от, до], "interceptors": n}` — сбито ЗРК
+    столько ударов плана (поле `intercepted` у удара в result.json) и зенитных ракет в полёте за запись не меньше
+    `sam_launched` (Артём 17.10 о n17: батарей стреляет много, сбито одно-два, остальные шахеды прорываются к городу).
+    Исход случаен (вероятность поражения), поэтому провал — пересъёмка."""
+    out = []
+    by_plans = {tuple(s.get("plans", [])): s for s in (result or {}).get("shots", [])}
+    for spec in take.get("shots", []):
+        want = spec.get("expect")
+        s = by_plans.get(tuple(spec.get("plans", [])))
+        if not want or s is None:
+            continue
+        plan = spec["plans"][0]
+        kills = sum(1 for k in s.get("strikes", []) if k.get("intercepted"))
+        lo, hi = want.get("kills", [0, len(s.get("strikes", []))])
+        if not lo <= kills <= hi:
+            out.append(f"{plan}: сбито {kills}, нужно {lo}–{hi}")
+        if s.get("sam_launched", 0) < want.get("interceptors", 0):
+            out.append(f"{plan}: зенитных ракет {s.get('sam_launched', 0)}, нужно не меньше {want['interceptors']}")
+    return out
+
+
 def record_problems(rec, take, result):
     """Проверки записи, провал которых лечит пересъёмка: список причин для attempt() конвейера."""
     return (same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take) + crowd_gaze(rec, take)
-            + map_loading(result) + map_aim(result))
+            + map_loading(result) + map_aim(result) + sam_outcome(take, result))
 
 
 def record_warnings(rec, take, result):

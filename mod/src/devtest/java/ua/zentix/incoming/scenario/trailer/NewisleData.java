@@ -116,7 +116,7 @@ final class NewisleData {
 
     /** Действия, которые идут сразу (реплика записи, {@code ready}, {@code end}; в сцене — тоже). */
     static final java.util.Set<String> INSTANT = java.util.Set.of("campfire", "lamps", "crowd.watch", "crowd.cower", "crowd.flee",
-            "crowd.follow", "crowd.remove", "launchers.fire", "launcher.redstone", "sam", "sam.clear", "gunners.fire", "gunners.stop",
+            "crowd.follow", "crowd.remove", "launchers.fire", "launcher.redstone", "sam", "sam.config", "sam.clear", "gunners.fire", "gunners.stop",
             "fight.arm", "fight.start", "fight.stop", "fight.remove", "silo.open", "silo.close", "nuke.order", "nuke.clear", "nuke.key",
             "salvo", "scope",
             "map.open", "map.aim", "map.close", "retarget", "artem.cue");
