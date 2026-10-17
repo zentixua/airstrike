@@ -282,14 +282,16 @@ class PallGlslTest {
             double head = blast.wall(t).head();
             for (double share : new double[]{0.01, 0.03, 0.05, 0.2, 0.5, 0.8, 0.97}) {
                 double r = head * share;
-                double toBall = Math.hypot(wall[7], r);
-                double a = ball.call(Map.of("radius", (double) wall[0], "d", toBall)) * night.exposure;
-                double b = burn.call(Map.of("r", r, "up", 0.0, "glow", (double) wall[1], "fireR", (double) wall[3]));
-                double mu = wall[7] / toBall;
-                // верх головы стены, будь она здесь (точка — посреди её толщи), — до неё пелена здесь и была ею
                 float[] here = slot.clone();
                 here[0] = (float) (r + 1.5 * here[1]);
-                NukePall.dustLight(here, wall, night, 0, r, 0.9 * here[2], 0, 0.9 * here[2], high);
+                // середина шапки снесена ветром (CloudPuffs.pallLight), точка — на 0,9 высоты головы над r
+                double wind = GROUND.windDir(), lx = Math.cos(wind) * wall[2] - r, ly = wall[7] - 0.9 * here[2], lz = Math.sin(wind) * wall[2];
+                double toBall = Math.sqrt(lx * lx + ly * ly + lz * lz);
+                double a = ball.call(Map.of("radius", (double) wall[0], "d", toBall)) * night.exposure;
+                double b = burn.call(Map.of("r", r, "up", 0.0, "glow", (double) wall[1], "fireR", (double) wall[3]));
+                double mu = ly / toBall;
+                // верх головы стены, будь она здесь (точка — посреди её толщи), — до неё пелена здесь и была ею
+                NukePall.dustLight(here, wall, night, wind, r, 0.9 * here[2], 0, 0.9 * here[2], high);
                 double sum = 0;
                 double[] side = new double[3], top = new double[3];
                 // отсвет пожаров на пыли — уже цвет огня: свет пелены — пламя (pallFlame)
@@ -377,7 +379,7 @@ class PallGlslTest {
         assertTrue(march.contains("vec3 emit = s.albedo * (field + beams + fire);"), "свет точки — рассеянный, пучки и огонь");
         assertTrue(march.contains("+ min(below * exp(-gSootK * self) + (0.5 + 0.75 * PALL_SOOT_G * mv) * glow + around, gFlame);"),
                 "огонь на дыме шторма — одной суммой под пределом пламени");
-        assertTrue(march.contains("s.burn += pallFlame("), "пожары под пылью — не ярче пламени");
+        assertTrue(march.contains("burnLight = pallFlame(") && march.contains("s.burn += burnLight;"), "пожары под пылью — не ярче пламени");
         assertTrue(march.contains("s.tau += f.column.x + f.column.y + f.column.z;"), "толща над точкой — весь столб слоя");
         assertEquals(3, occurrences(march, "pallDisplay("), "свет пелены в экран — один раз на канал");
         assertTrue(march.contains("shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * shownCover"),

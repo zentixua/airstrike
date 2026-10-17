@@ -26,6 +26,10 @@ public final class CloudPuffs {
     private final Detonation d;
     /** Докуда по земле световой импульс поджигает (≥ {@link ThermalModel#IGNITE}), м: там под пылью горит. */
     private final double fireGround;
+    /** {@link #pallLight} в миг {@link #nowT} без доли тика ({@link #pallLightNow}) и был ли гриб. */
+    private final float[] now = new float[8];
+    private double nowT = Double.NaN;
+    private boolean nowLit;
 
     public CloudPuffs(Detonation d) {
         this.d = d;
@@ -103,6 +107,20 @@ public final class CloudPuffs {
         for (int i = 0; i < 3; i++) into[4 + i] = (float) BALL[i];
         into[7] = (float) d.blocks(s.capY());
         return true;
+    }
+
+    /**
+     * {@link #pallLight} гриба подрыва {@code a} в его миг без доли тика — один расчёт на миг: форма гриба и спектр
+     * чёрного тела стоят десятков микросекунд, а пыль у камеры ({@code NukePall.dustColor}) берёт свет на каждый клуб.
+     */
+    boolean pallLightNow(ClientNuclear.Active a, float[] into) {
+        double t = a.seconds(0);
+        if (t != nowT) {
+            nowLit = pallLight(MushroomField.shape(a, 0), now);
+            nowT = t;
+        }
+        System.arraycopy(now, 0, into, 0, now.length);
+        return nowLit;
     }
 
     static double smooth(double e0, double e1, double x) {

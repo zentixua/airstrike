@@ -404,7 +404,7 @@ public final class NukePall {
     static boolean dustColor(ClientNuclear.Active a, Sky sky, double x, double y, double z, float[] into) {
         double t = a.seconds(0);
         if (!a.wall.slot(t, DUST_WALL) || DUST_WALL[3] <= 0) return false;
-        a.puffs.pallLight(MushroomField.shape(a, 0), DUST_GLOW);
+        a.puffs.pallLightNow(a, DUST_GLOW);
         Detonation d = a.d;
         double gy = y - d.groundY();
         dustLight(DUST_WALL, DUST_GLOW, sky, d.windDir(), x - d.burst().x, gy, z - d.burst().z, gy - a.ground.at(x, z), into);
@@ -415,8 +415,9 @@ public final class NukePall {
      * Цвет пыли головы стены на экране — как её светит {@code fx_pall} ({@code wall}, свет в {@code main}), по средней
      * голове, без клубов (их тень — в обе стороны, в среднем ноль) и вне воды (над водой у камеры — брызги,
      * {@link NukeWater}): рассеянный свет солнца и неба — на глубине под меньшей из толщ к верху головы и к её переднему
-     * краю, шара — к верху и к её краю со стороны шара (шар за головой, ближе к эпицентру), пучки солнца и шара — сквозь
-     * толщу головы к ним, пожары — снизу. Днём пыль поэтому бурая в свете солнца и неба, а не в свете шара за стеной,
+     * краю, шара — под ближней освещённой им стороной: к шару или сверху, если его пучок к верху над точкой не идёт сквозь
+     * голову (шар за головой, ближе к эпицентру, и низко), пучки солнца и шара — сквозь толщу головы к ним, пожары —
+     * снизу. Днём пыль поэтому бурая в свете солнца и неба, а не в свете шара за стеной,
      * ночью сторона стены от шара — в его тени, верх — в его свете. Фаза пучков — средняя по направлениям: клуб виден со
      * всех сторон.
      *
@@ -438,14 +439,16 @@ public final class NukePall {
         double lx = Math.cos(wind) * glow[2] - gx, ly = glow[7] - gy, lz = Math.sin(wind) * glow[2] - gz;
         double ll = Math.max(Math.sqrt(lx * lx + ly * ly + lz * lz), 1e-3);
         double toBall = chord(wall, rx, rz, up, lx / ll, ly / ll, lz / ll, reach, 4);
-        // свет шара входит в голову только сверху или с её стороны к шару (fx_pall: capDeep)
-        double deepB = Math.min(above, toBall), slabB = deepB + below;
+        // рассеянный свет шара входит через ближнюю освещённую им сторону головы (fx_pall: capDeep): к шару — на толщу к
+        // нему; сверху — на толщу над точкой и ту толщу головы перед шаром, что его пучок к верху над точкой ещё проходит
+        // (шар низко и за головой: к верху у переднего края пучок идёт сквозь всю голову)
+        double muS = Math.max(sky.sy, 0.12), muB = Mth.clamp(ly / ll, 0.12, 1);
+        double deepB = Math.min(toBall, above + Math.max(toBall - above / muB, 0)), slabB = deepB + below;
         double r = Math.hypot(gx, gz), fireR = Math.max(glow[3], 1e-3);
         // свет шара — пучок от середины шапки, как у тела гриба (CloudPuffs.ball), × привыкание глаза
         double lit = CloudPuffs.ball(sky.exposure, glow[0], ll);
         double burn = CloudPuffs.burn(r, 0, glow[1], glow[3]) * (1 - 0.75 * sky.day);
         double smoke = 0.77 * (1 - CloudPuffs.smooth(0.92 * fireR, 1.04 * fireR, r));
-        double muS = Math.max(sky.sy, 0.12), muB = Mth.clamp(ly / ll, 0.12, 1);
         double[] lin = new double[3];
         for (int c = 0; c < 3; c++) {
             double w = Mth.lerp(smoke, DUST_W[c], SMOKE_W[c]);

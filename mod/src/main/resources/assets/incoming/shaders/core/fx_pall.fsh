@@ -189,7 +189,7 @@ struct Sample {
     vec3 cap;
     float capUp;
     float capView;
-    // насколько глубже рассеянный свет шара, чем солнца и неба: в голову стены он входит только со стороны шара (wall)
+    // насколько глубже рассеянный свет шара, чем солнца и неба: в голове стены — под освещённой им стороной (wall)
     float capDeep;
     vec3 burn;
     // тень своего и соседних клубов — толща против средней к солнцу, к шару (shadeCap), к небу сверху и к пожарам снизу
@@ -292,8 +292,10 @@ float wallChord(mat4 V, WallAt h, vec3 v, float len, int n) {
 // Голова стены слота в точке (h — pallWallAt) — в s. Это та же пыль, что пелена, только гуще и с валом: тот же свет
 // (свет стены — пелены у фронта, CloudPuffs.pallLight), то же вещество (в зоне пожаров — с дымом и сажей, над водой —
 // брызги). Голова не плоский слой: в неё свет входит и сбоку — рассеянный свет солнца и неба в точке — по меньшей из толщ
-// над ней и до её переднего края (как глубина под верхом слоя), шара — над ней и до её края к шару (capDeep: шар — за
-// головой, со стороны эпицентра, и наружная сторона в его свете днём оранжевела бы светом, который туда не доходит);
+// над ней и до её переднего края (как глубина под верхом слоя), шара — под ближней освещённой им стороной (capDeep):
+// толща к шару или над точкой и та толща перед шаром, что его пучок к верху над точкой ещё проходит (шар — за головой,
+// со стороны эпицентра, и низко: к верху у переднего края пучок идёт сквозь всю голову, и по одной толще над точкой
+// наружная сторона днём оранжевела бы светом, который туда не доходит);
 // пучки (солнце и шар) — по толще средней головы к ним (вблизи — по самим клубам: тень соседних клубов к главному свету
 // keyDir, иначе голова выходит плоской), а не столбом над точкой.
 // fireR — край зоны пожаров (блоки), r — точка от эпицентра по земле
@@ -331,7 +333,7 @@ void wall(mat4 V, WallAt h, vec3 keyDir, vec3 sunDir, vec3 lightDir, float fireR
     // пучки идут по s.tau / μ: голова в нём — глубина рассеянного света, а пучку — его толща к свету
     s.shadeSun += toSun + dev * max(dot(keyDir, sunDir), 0.0) - depth / max(sunDir.y, 0.12);
     s.shadeCap += toCap + dev * max(dot(keyDir, lightDir), 0.0) - depth / clamp(lightDir.y, 0.12, 1.0);
-    s.capDeep += min(up, toCap) - depth;
+    s.capDeep += min(toCap, up + max(toCap - up / clamp(lightDir.y, 0.12, 1.0), 0.0)) - depth;
     s.shadeUp += dev * max(keyDir.y, 0.0);
     s.shadeDown += dev * max(-keyDir.y, 0.0);
     s.sigma += hd;
@@ -390,10 +392,12 @@ void slot(mat4 S, mat4 V, sampler2D ground, vec4 R, vec4 W, vec4 G, vec4 H, vec3
     s.cap += cap;
     s.capUp += capI * lightDir.y;
     s.capView += capI * dot(dir, lightDir);
-    if (burn > 0.0) s.burn += pallFlame(PallBase, FIRE * (burn * PallGlowOnSmoke) / DUST, FIRE);
+    vec3 burnLight = vec3(0.0);
+    if (burn > 0.0) burnLight = pallFlame(PallBase, FIRE * (burn * PallGlowOnSmoke) / DUST, FIRE);
+    s.burn += burnLight;
     // главный свет — солнце или, пока он ярче, шар над эпицентром или пожары под пылью (ночью это весь свет
-    // пыли); светят пожары внизу — к ним, а не к шару
-    float lit = dot(cap, LUMA), fires = burn * PallGlowOnSmoke, heat = max(lit, fires);
+    // пыли); светят пожары внизу — к ним, а не к шару. Шар и пожары — в одних единицах: линейный свет на белой стене
+    float lit = dot(cap, LUMA), fires = dot(burnLight, LUMA), heat = max(lit, fires);
     float key = clamp(heat / (heat + 0.5 * PallSun.w + 0.02), 0.0, 1.0);
     vec3 keyLight = lightDir;
     if (fires > lit) keyLight = vec3(0.0, -1.0, 0.0);
