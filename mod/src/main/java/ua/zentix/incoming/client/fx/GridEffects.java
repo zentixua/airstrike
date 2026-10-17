@@ -61,8 +61,9 @@ public final class GridEffects {
 
     private static void arc(ClientLevel level, Vec3 pos, RandomSource rnd, double d, float strength) {
         Vec3 at = pos.add(rnd.nextGaussian() * 0.4, 1 + rnd.nextDouble(), rnd.nextGaussian() * 0.4);
-        Fx.flash().color(ARC, ARC_EDGE).size(10 * strength, 16 * strength).life(3).spawn(level, at);
-        Fx.flash().color(0xFFFFFF, ARC).size(3, 5).life(2).spawn(level, at);
+        // гладко: ближайшим пикселем вспышка в десяток блоков вблизи распадается на квадраты пикселей картинки
+        Fx.flash().smooth().color(ARC, ARC_EDGE).size(10 * strength, 16 * strength).life(3).spawn(level, at);
+        Fx.flash().smooth().color(0xFFFFFF, ARC).size(3, 5).life(2).spawn(level, at);
         Player player = Minecraft.getInstance().player;
         if (player == null || d > FLASH_RANGE) return;
         Vec3 eye = player.getEyePosition();

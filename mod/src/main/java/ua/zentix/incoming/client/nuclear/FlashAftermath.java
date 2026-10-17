@@ -23,7 +23,6 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.flash.FlashChar;
 import ua.zentix.incoming.nuclear.model.Fragility;
 import ua.zentix.incoming.nuclear.world.ThermalShadow;
-import ua.zentix.incoming.registry.ModBlocks;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -32,10 +31,12 @@ import java.util.List;
 /**
  * Что вспышка делает с округой в первые секунды, до волны (только вживую — из перемотки повтора не рождается):
  * <ul>
- *     <li>ЭМИ — фонари и лампы сети (те, что гасит блэкаут, {@link GridLights}) и подстанции в радиусе отключения
- *     коротят: голубая дуга и искры, вразнобой, чаще сразу, до прихода волны к лампе и не позже {@link #ARC_WINDOW}
- *     тиков; дуга трещит — 2–4 разряда через 1–3 тика, у части ламп потом ещё раз. Клиент сам ищет их в своих чанках по палитрам секций, не больше {@link #SECTIONS_PER_TICK} секций за тик;
- *     дуг — не больше {@link #MAX_ARCS} ближних к камере;</li>
+ *     <li>ЭМИ — фонари и лампы сети (те, что гасит блэкаут, {@link GridLights}) в радиусе отключения коротят: голубая
+ *     дуга, ломаная разряда и искры, вразнобой, чаще сразу, до прихода волны к лампе и не позже {@link #ARC_WINDOW}
+ *     тиков; дуга трещит — 2–4 разряда через 1–3 тика, у части ламп потом ещё раз. Клиент сам ищет их в своих чанках
+ *     по палитрам секций, не больше {@link #SECTIONS_PER_TICK} секций за тик; дуг — не больше {@link #MAX_ARCS} ближних
+ *     к камере. Подстанции здесь нет: удар выбивает их на сервере ({@code Blackouts.nuke}), и у каждой — своя дуга
+ *     выхода из строя ({@code GridEffects.failure}), вторая была бы лишней;</li>
  *     <li>дымки с того, что свет поджёг: крыши, земля с травой, листва и деревянные стены лицом к шару курятся тонкими
  *     струйками, пока до них не дойдёт волна. Места — случайные точки перед камерой (в кадре, до {@link #SMOKE_RANGE}
  *     блоков), свет — как у гари ({@link FlashChar}): импульс × угол × тень по картам высот клиента; частицы — своей
@@ -51,8 +52,8 @@ public final class FlashAftermath {
     static final int ARC_WINDOW = 50;
     /** Голубовато-белый свет дуги и его синий край — как у подстанции ({@code GridEffects}). */
     private static final int ARC = 0xDCE8FF, ARC_EDGE = 0x5A7CFF;
-    /** Точек на звено ломаной разряда. */
-    private static final int BOLT_DOTS = 4;
+    /** Звеньев ломаной разряда и точек на звено. */
+    private static final int BOLT_SEGMENTS = 5, BOLT_DOTS = 4;
     /** Докуда от камеры ищутся дымки, блоки, и проб за тик. */
     static final double SMOKE_RANGE = 128;
     static final int SMOKE_TRIES = 96;
@@ -171,7 +172,7 @@ public final class FlashAftermath {
                             if (!arcs(st)) continue;
                             BlockPos pos = new BlockPos(((int) s[0] << 4) + x, y0 + y, ((int) s[2] << 4) + z);
                             if (Math.hypot(pos.getX() + 0.5 - d.burst().x, pos.getZ() + 0.5 - d.burst().z) > d.radiusMax()) continue;
-                            found.add(new Arc(pos, st.is(ModBlocks.SUBSTATION.get())));
+                            found.add(new Arc(pos));
                         }
                     }
                 }
@@ -179,22 +180,22 @@ public final class FlashAftermath {
         }
 
         private void arc(ClientLevel level, Arc a, float strength) {
-            float big = a.substation ? 3 : 1;
-            Vec3 at = Vec3.atCenterOf(a.pos).add(rnd.nextGaussian() * 0.15, (a.substation ? 1 : 0.2) + rnd.nextGaussian() * 0.1, rnd.nextGaussian() * 0.15);
-            Fx.flash().color(ARC, ARC_EDGE).size(1.4f * big * strength, 2.6f * big * strength).life(2 + rnd.nextInt(2)).spawn(level, at);
-            Fx.flash().color(0xFFFFFF, ARC).size(0.5f * big, 0.9f * big).life(2).spawn(level, at);
-            // сам разряд — ломаная из ярких точек: у фонаря — вниз по столбу, у подстанции — вверх между вводами. Светлое
-            // пятно на земле, которую вспышка и так залила светом, почти не видно, а ломаная видна и днём
+            Vec3 at = Vec3.atCenterOf(a.pos).add(rnd.nextGaussian() * 0.15, 0.2 + rnd.nextGaussian() * 0.1, rnd.nextGaussian() * 0.15);
+            // свечение — гладко: ближайшим пикселем крупная вспышка распадается на квадраты пикселей картинки
+            Fx.flash().smooth().color(ARC, ARC_EDGE).size(1.4f * strength, 2.6f * strength).life(2 + rnd.nextInt(2)).spawn(level, at);
+            Fx.flash().smooth().color(0xFFFFFF, ARC).size(0.5f, 0.9f).life(2).spawn(level, at);
+            // сам разряд — ломаная из ярких точек вниз по столбу: светлое пятно на земле, которую вспышка и так залила
+            // светом, днём почти не видно, а ломаная видна
             Vec3 p = at;
-            for (int seg = a.substation ? 7 : 5; seg > 0; seg--) {
-                Vec3 q = p.add(rnd.nextGaussian() * 0.16 * big, (a.substation ? 0.2 : -0.18) * big, rnd.nextGaussian() * 0.16 * big);
+            for (int seg = 0; seg < BOLT_SEGMENTS; seg++) {
+                Vec3 q = p.add(rnd.nextGaussian() * 0.16, -0.18, rnd.nextGaussian() * 0.16);
                 for (int k = 0; k < BOLT_DOTS; k++) {
-                    Fx.flash().budget(FxBudget.SPARK).color(0xFFFFFF, ARC_EDGE).size(0.09f * big * strength, 0.05f * big).life(2)
+                    Fx.flash().smooth().budget(FxBudget.SPARK).color(0xFFFFFF, ARC_EDGE).size(0.14f * strength, 0.08f).life(2)
                             .spawn(level, p.lerp(q, (double) k / BOLT_DOTS));
                 }
                 p = q;
             }
-            int n = (int) ((a.substation ? 18 : 6) * strength);
+            int n = (int) (6 * strength);
             for (int i = 0; i < n; i++) {
                 Fx.spark().color(0xFFFFFF, 0x80A0FF).vel(rnd.nextGaussian() * 0.18, 0.05 + rnd.nextDouble() * 0.25, rnd.nextGaussian() * 0.18)
                         .life(8 + rnd.nextInt(14)).gravity(0.05f).spawn(level, at);
@@ -202,22 +203,20 @@ public final class FlashAftermath {
         }
     }
 
-    /** Лампа сети или подстанция: тики разрядов дуги и их сила. */
+    /** Лампа сети: тики разрядов дуги и их сила. */
     private static final class Arc {
         final BlockPos pos;
-        final boolean substation;
         int[] strikes = new int[0];
         float[] strength = new float[0];
 
-        Arc(BlockPos pos, boolean substation) {
+        Arc(BlockPos pos) {
             this.pos = pos;
-            this.substation = substation;
         }
     }
 
-    /** Коротит ли блок от ЭМИ: видимая лампа сети или подстанция. */
+    /** Коротит ли блок от ЭМИ: видимая лампа сети. */
     private static boolean arcs(BlockState st) {
-        return GridLights.isLit(st) && st.getRenderShape() == RenderShape.MODEL || st.is(ModBlocks.SUBSTATION.get());
+        return GridLights.isLit(st) && st.getRenderShape() == RenderShape.MODEL;
     }
 
     // ---------------------------------------------------------------- дымки
