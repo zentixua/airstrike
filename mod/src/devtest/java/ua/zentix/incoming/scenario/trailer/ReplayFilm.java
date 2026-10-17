@@ -880,18 +880,12 @@ public final class ReplayFilm {
             // кадры пробы не нужны никому: они рядом и уходят после проверки
             Path to = probing ? (mov ? candDir.resolve("probe.mov") : Files.createDirectories(candDir.resolve("probe")))
                     : mov ? candDir.resolve("frames.mov") : frames;
-            // скин у каждого человека повтора (подмена Flashback по UUID, запись не меняется)
-            if (!skins.isEmpty() && mc.getConnection() != null) {
-                try {
-                    int n = FlashbackApi.skins(skins, mc.getConnection().getOnlinePlayers().stream().map(i -> i.getProfile()).toList());
-                    if (n > 0) Incoming.LOG.info("SCENARIO film skins {}: {}", spec.shot(), n);
-                } catch (RuntimeException e) {
-                    // без скинов план выводится как раньше; строка — в отчёт пакета
-                    Incoming.LOG.error("SCENARIO film skins failed {}: {}", spec.shot(), e.toString());
-                }
-            }
-            FlashbackApi.queue(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()},
-                    outWidth(), outHeight(), a, b, FPS, to, mov);
+            // скин у каждого человека повтора (подмена Flashback по UUID в состоянии задания, запись не меняется)
+            var ids = mc.getConnection() == null ? java.util.Map.<java.util.UUID, Path>of()
+                    : FlashbackApi.skinIds(skins, mc.getConnection().getOnlinePlayers().stream().map(i -> i.getProfile()).toList());
+            int skinned = FlashbackApi.queue(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()},
+                    outWidth(), outHeight(), a, b, FPS, to, mov, ids);
+            if (skinned > 0) Incoming.LOG.info("SCENARIO film skins {}: {}", spec.shot(), skinned);
             go(State.EXPORTING);
             // люди у камеры у клиента повтора: статисты плана должны быть в мире повтора
             String people = mc.level.players().stream().filter(pl -> pl.position().distanceTo(p0.pos()) < 128)

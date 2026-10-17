@@ -195,9 +195,10 @@ final class FlashbackApi {
      * поле зрения — из состояния редактора {@code state} (JSON, как его хранит Flashback); кадры — PNG
      * {@code out/00001.png…} (кадр k — тик {@code start + (k−1)·20/fps}) или, с {@code mov}, видео QuickTime RLE без
      * потерь в файл {@code out} (кадры раскладывает {@link FrameUnpack}). Без GUI, случайные числа частиц одинаковые
-     * в каждом выводе.
+     * в каждом выводе. {@code skins} — скины людей по UUID ({@link #skinIds}); ответ — сколько из них поставлено.
      */
-    static void queue(String name, Path state, double[] camera, int width, int height, int start, int end, double fps, Path out, boolean mov) {
+    static int queue(String name, Path state, double[] camera, int width, int height, int start, int end, double fps, Path out, boolean mov,
+                     Map<UUID, Path> skins) {
         // PNG кадров Flashback пишет stb_image_write в одном потоке (zlib 8 и перебор фильтров) — узкое место вывода
         // при простаивающей видеокарте; уровень 5 и фильтр 2 дают те же пиксели (без потерь) на 30 % быстрее, +3 % места
         org.lwjgl.stb.STBImageWrite.stbi_write_png_compression_level.put(0, 5);
@@ -205,6 +206,14 @@ final class FlashbackApi {
         try {
             Object editor = c("state.EditorState").getMethod("load", Path.class).invoke(null, state);
             if (editor == null) throw new IllegalStateException("состояние редактора не прочиталось: " + state);
+            int skinned;
+            try {
+                skinned = skins(editor, skins);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                // без скинов план выводится как раньше; строка — в отчёт пакета
+                ua.zentix.incoming.Incoming.LOG.error("SCENARIO film skins failed {}: {}", name, e.toString());
+                skinned = 0;
+            }
             Class<?> settings = c("exporting.ExportSettings");
             Constructor<?> ctor = Arrays.stream(settings.getConstructors()).filter(k -> k.getParameterCount() == 23).findFirst()
                     .orElseThrow(() -> new NoSuchMethodException("ExportSettings(23)"));
@@ -215,54 +224,54 @@ final class FlashbackApi {
                     0, false, false, true, false, false, constant("combo_options.AudioCodec", "AAC"), out, "%05d");
             jobs().add(job);
             c("exporting.ExportJobQueue").getField("drainingQueue").setBoolean(null, true);
+            return skinned;
         } catch (ReflectiveOperationException e) {
             throw fail("ExportSettings", e);
         }
     }
 
     /**
-     * Скины людей повтора из файлов (Артём 17.10: «все — Стив и Алекс»): подмена скина Flashback по UUID
-     * ({@code EditorState.skinOverrideFromFile} текущего повтора — её читает сам Flashback при рисовании игрока), без
-     * пересъёмки. {@code byName} — имя → PNG 64×64; UUID — у ботов Almighty по имени ({@code Bots.uuid}), у игроков —
-     * из списка игроков повтора. Уже заданных не меняет. Сколько людей получили скин.
+     * UUID людей повтора для таблицы скинов {@code byName} (имя → PNG 64×64): у ботов Almighty — по имени
+     * ({@code Bots.uuid}, они могут войти и посреди окна), у игроков — из списка игроков повтора.
+     */
+    static Map<UUID, Path> skinIds(Map<String, Path> byName, Iterable<com.mojang.authlib.GameProfile> players) {
+        Map<UUID, Path> ids = new HashMap<>();
+        if (byName.isEmpty()) return ids;
+        try {
+            Method bot = Class.forName("ua.zentix.almighty.bot.Bots").getMethod("uuid", String.class);
+            for (var e : byName.entrySet()) ids.put((UUID) bot.invoke(null, e.getKey()), e.getValue());
+        } catch (ReflectiveOperationException e) {
+            // без Almighty в клиенте — только игроки из списка повтора
+        }
+        for (var p : players) {
+            Path f = byName.get(p.getName());
+            if (f != null) ids.put(p.getId(), f);
+        }
+        return ids;
+    }
+
+    /**
+     * Скины людей повтора из файлов (Артём 17.10: «все — Стив и Алекс»): подмена скина Flashback по UUID —
+     * {@code skinOverrideFromFile} состояния редактора задания вывода (во время вывода Flashback рисует игроков по нему,
+     * а не по состоянию открытого повтора). Запись не меняется. Сколько людей получили скин.
      */
     @SuppressWarnings("unchecked")
-    static int skins(Map<String, Path> byName, Iterable<com.mojang.authlib.GameProfile> players) {
-        if (byName.isEmpty()) return 0;
-        try {
-            Object state = c("state.EditorStateManager").getMethod("getCurrent").invoke(null);
-            if (state == null) return 0;
-            var field = state.getClass().getField("skinOverrideFromFile");
-            Map<UUID, Object> over = (Map<UUID, Object>) field.get(state);
-            if (over == null) {
-                over = new HashMap<>();
-                field.set(state, over);
-            }
-            Constructor<?> file = c("FilePlayerSkin").getConstructor(String.class);
-            Map<UUID, Path> ids = new HashMap<>();
-            Method bot = null;
-            try {
-                bot = Class.forName("ua.zentix.almighty.bot.Bots").getMethod("uuid", String.class);
-            } catch (ReflectiveOperationException e) {
-                // без Almighty в клиенте — только игроки из списка повтора
-            }
-            if (bot != null) {
-                for (var e : byName.entrySet()) ids.put((UUID) bot.invoke(null, e.getKey()), e.getValue());
-            }
-            for (var p : players) {
-                Path f = byName.get(p.getName());
-                if (f != null) ids.put(p.getId(), f);
-            }
-            int n = 0;
-            for (var e : ids.entrySet()) {
-                if (over.containsKey(e.getKey())) continue;
-                over.put(e.getKey(), file.newInstance(e.getValue().toString()));
-                n++;
-            }
-            return n;
-        } catch (ReflectiveOperationException e) {
-            throw fail("skinOverrideFromFile", e);
+    private static int skins(Object editor, Map<UUID, Path> ids) throws ReflectiveOperationException {
+        if (ids.isEmpty()) return 0;
+        Field field = editor.getClass().getField("skinOverrideFromFile");
+        Map<UUID, Object> over = (Map<UUID, Object>) field.get(editor);
+        if (over == null) {
+            over = new HashMap<>();
+            field.set(editor, over);
         }
+        Constructor<?> file = c("FilePlayerSkin").getConstructor(String.class);
+        int n = 0;
+        for (var e : ids.entrySet()) {
+            if (over.containsKey(e.getKey())) continue;
+            over.put(e.getKey(), file.newInstance(e.getValue().toString()));
+            n++;
+        }
+        return n;
     }
 
     /** У ffmpeg Flashback есть кодировщик QuickTime RLE (без него задание MOV упало бы посреди тика клиента). */
