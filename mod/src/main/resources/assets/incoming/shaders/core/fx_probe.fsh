@@ -24,7 +24,7 @@ out vec4 fragColor;
 
 // Пропускание грибов от глаза до источника с серединой center радиуса radius, без шума (как mushTransmit). Гриб, чья
 // середина шапки — сам источник (огненный шар и шапка светят из неё), себя не закрывает: его шапка — только до передней
-// границы источника с размахом клубов края, а ножка и юбка между глазом и шапкой — до середины
+// границы источника с размахом клубов края, а ножка, юбка и столб воды между глазом и шапкой — до середины
 float probeMush(sampler2D data, vec3 center, float radius) {
     float len = length(center), through = 1.0;
     vec3 dir = center / len;
@@ -40,8 +40,8 @@ float probeMush(sampler2D data, vec3 center, float radius) {
         float ds = (span.y - span.x) / 8.0, tau = 0.0;
         for (int i = 0; i < 8; i++) {
             float t = span.x + (float(i) + 0.5) * ds;
-            vec3 s = mushMean(m, mushLocal(m, dir * t));
-            tau += (step(t, capEnd) * s.x + s.y + s.z) * ds;
+            vec4 s = mushMean(m, mushLocal(m, dir * t));
+            tau += (step(t, capEnd) * s.x + s.y + s.z + s.w) * ds;
         }
         through *= 1.0 - mushAir(m, 0.5 * (span.x + span.y)) * (1.0 - exp(-tau));
     }

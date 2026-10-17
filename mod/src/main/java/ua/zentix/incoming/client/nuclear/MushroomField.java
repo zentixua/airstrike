@@ -1,6 +1,7 @@
 package ua.zentix.incoming.client.nuclear;
 
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import org.joml.FrustumIntersection;
 import org.joml.Vector3f;
 import ua.zentix.incoming.client.fx.layer.PallPass;
@@ -8,20 +9,24 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.BlackBody;
 import ua.zentix.incoming.nuclear.model.FireballModel;
 import ua.zentix.incoming.nuclear.model.MushroomModel;
+import ua.zentix.incoming.nuclear.model.WaterModel;
 
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Грибы кадра для объёма ({@code mushroom.glsl}, проходы {@code PallPass}): до {@link #MUSHROOMS} самых крупных на экране
- * подрывов, чья рамка в кадре, — числа формы ({@link MushroomModel}) в блоках от глаза, вещество и температура, по
- * строке таблицы на гриб; последняя строка — свет чёрного тела по температуре ({@link BlackBody}). Метры модели →
- * блоки мира через {@link Detonation#blocks}, время — секунды модели подрыва.
+ * подрывов, чья рамка в кадре, — числа формы ({@link MushroomModel}; у подрыва на воде — и столба воды,
+ * {@link WaterModel#column}) в блоках от глаза, вещество и температура, по строке таблицы на гриб; последняя строка —
+ * свет чёрного тела по температуре ({@link BlackBody}). Метры модели → блоки мира через {@link Detonation#blocks}, время —
+ * секунды модели подрыва.
  */
 public final class MushroomField {
     /** Грибов в кадре, не больше. */
     public static final int MUSHROOMS = 4;
     /** Текселей RGBA на гриб ({@code mushroom.glsl}: таблица грибов). */
-    public static final int TEXELS = 14;
+    public static final int TEXELS = 17;
     /** Узлов света чёрного тела (строка {@link #BB_ROW}): температуры от {@link #BB_FROM} до {@link #BB_TO} K по логарифму. */
     public static final int BB_NODES = 256;
     static final double BB_FROM = 500, BB_TO = 30_000;
@@ -47,6 +52,22 @@ public final class MushroomField {
     static final double REACH_CAP = LOBES_MAX * LOBES_CAP + EDGE_CAP + BLEND / 4, REACH_STEM = LOBES_MAX * LOBES_STEM + EDGE_STEM,
             REACH_SKIRT = LOBES_MAX * LOBES_SKIRT + EDGE_SKIRT;
     /**
+     * Столб воды ({@code MUSH_COLUMN_*}): размах клубов и мягкость края в единицах толщины стенки — струи и купола
+     * короны сдвигают её поверхности на ±0,4 толщины, не пробивая стенку; докуда доходит вещество — с мягким минимумом
+     * стенки и короны.
+     */
+    static final double LOBES_COLUMN = 0.6, EDGE_COLUMN = 0.15, REACH_COLUMN = LOBES_MAX * LOBES_COLUMN + EDGE_COLUMN + BLEND / 4;
+    /**
+     * Толща стенки столба поперёк (σ' после дельта-Эддингтона, как у пелены): у «Бейкера» в стенке ~10⁶ т воды на
+     * ~3·10⁸ м³ — килограммы капель на кубометр, толща в сотни. Здесь — как у зрелой шапки: стенка непрозрачна, а свет
+     * в ней считается без переполнения. Убывает с водой, что ещё не упала.
+     */
+    static final double COLUMN_TAU = 40;
+    /** Асимметрия рассеяния капель столба — как у водяной пыли пелены. */
+    static final double G_WATER = 0.85;
+    /** Плитка клубов столба — доля его радиуса до сужения: струи стенки и купола короны шириной в толщину стенки. */
+    static final double COLUMN_TILE = 1.2;
+    /**
      * Цвет толстого слоя (на экране; альбедо — по нему, как у пелены): шапка молодая — бурый дым с NO₂, остывшая —
      * белёсый конденсат; ножка — пыль с дымом; юбка — пыль земли (как стена пыли); пар — у подрыва над водой.
      */
@@ -58,6 +79,7 @@ public final class MushroomField {
     private static final double[] RGB = new double[3], DRIFT = new double[2];
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f();
     private static final int[] ORDER = new int[MUSHROOMS];
+    private static final Map<Detonation, MushroomModel.Churn> CHURN = new WeakHashMap<>();
     /** Подрывы строк кадра ({@link #frame}): свет пожаров под ними пишет {@link #fire} после света кадра. */
     private static final ClientNuclear.Active[] ROW = new ClientNuclear.Active[MUSHROOMS];
     private static final double[] SIZE = new double[MUSHROOMS];
@@ -127,10 +149,10 @@ public final class MushroomField {
 
     /**
      * Свет пожаров под грибами кадра (после {@link #frame} и света кадра: {@code f.sun}, {@code f.fireLight}) — тексель
-     * 12, у земли, на экране, как зарево снизу у пелены: зарево шторма ({@link FireStorms#glow}: доверие модели огня,
-     * день и ночь) на среднее пламя зоны пожаров по карте огня (вода и не сгоревшее не светят), а пока карте не доверяют —
-     * зарево мглы по таблице, как её строка у слота пелены ({@code FireStorms.slot}: × (1 − доверие)). Выше — свет диска
-     * пожаров и дым шторма под точкой ({@code mushAt}).
+     * 12 (rgb, часы кипения в нём остаются), у земли, на экране, как зарево снизу у пелены: зарево шторма
+     * ({@link FireStorms#glow}: доверие модели огня, день и ночь) на среднее пламя зоны пожаров по карте огня (вода и не
+     * сгоревшее не светят), а пока карте не доверяют — зарево мглы по таблице, как её строка у слота пелены
+     * ({@code FireStorms.slot}: × (1 − доверие)). Выше — свет диска пожаров и дым шторма под точкой ({@code mushAt}).
      */
     static void fire(float partial, PallPass.Frame f) {
         double night = 1 - f.sun.w;
@@ -141,8 +163,11 @@ public final class MushroomField {
             a.storm.refresh(a.ticks(partial));
             double gate = a.storm.gate(), storm = FireStorms.glow(gate, night) * a.storm.meanFlame();
             double table = (1 - gate) * a.pall.fireBelow(a.ticks(partial));
-            put(f.mushrooms, k * WIDTH * 4, 12, storm * FireStorms.FIRE_R + table * f.fireLight.x, storm * FireStorms.FIRE_G + table * f.fireLight.y,
-                    storm * FireStorms.FIRE_B + table * f.fireLight.z, 0);
+            // w текселя — часы кипения шапки (write): их не трогать, иначе шапка встанет
+            int o = k * WIDTH * 4;
+            float churn = f.mushrooms[o + 4 * 12 + 3];
+            put(f.mushrooms, o, 12, storm * FireStorms.FIRE_R + table * f.fireLight.x, storm * FireStorms.FIRE_G + table * f.fireLight.y,
+                    storm * FireStorms.FIRE_B + table * f.fireLight.z, churn);
         }
     }
 
@@ -205,6 +230,34 @@ public final class MushroomField {
         return Math.max(1, Math.max(cap, Math.max(s.stemTop(), skirt)));
     }
 
+    /** Столб воды подрыва в момент гриба; null — подрыв не «водяной», столб ещё не встал или упал. */
+    @Nullable
+    static WaterModel.Column column(ClientNuclear.Active a, MushroomModel.Shape s) {
+        return a.water.wet() > 0 ? WaterModel.column(s.t(), a.d.yieldKt()) : null;
+    }
+
+    /**
+     * Радиус рамки со столбом воды, м: стенка и корона с клубами — как у частей гриба, по мере эллипса сечения кольца
+     * короны ({@code mushGap}); стенка — по расстоянию.
+     */
+    static double reach(MushroomModel.Shape s, @Nullable WaterModel.Column c) {
+        if (c == null) return reach(s);
+        double r = REACH_COLUMN * columnUnit(c), a = c.crownA();
+        return Math.max(reach(s), Math.max(c.mid() + c.half() + r, c.mid() + a * (1 + r / Math.min(a, c.crownH()))));
+    }
+
+    /** Верх рамки со столбом воды над водой, м. */
+    static double top(MushroomModel.Shape s, @Nullable WaterModel.Column c) {
+        if (c == null) return top(s);
+        double r = REACH_COLUMN * columnUnit(c);
+        return Math.max(top(s), c.wallTop() + c.crownH() * (1 + r / Math.min(c.crownA(), c.crownH())));
+    }
+
+    /** Единица клубов столба, м ({@code mushColumnUnit}): толщина стенки. */
+    static double columnUnit(WaterModel.Column c) {
+        return 2 * c.half();
+    }
+
     /**
      * Радиус рамки ({@code mushSpan}): цилиндр вдоль оси, наклонённой сносом {@code drift} на конец подъёма {@code end}.
      * Доля сноса растёт с высотой только до {@code end} ({@code mushShare}), выше верха и под землёй (до 0,05 верха) ось
@@ -228,10 +281,11 @@ public final class MushroomField {
         Detonation d = a.d;
         double[] w = DRIFT;
         drift(d, s.t(), w);
-        double r = d.blocks(reach(s)) + 0.5 * Math.hypot(w[0], w[1]);
+        WaterModel.Column c = column(a, s);
+        double r = d.blocks(reach(s, c)) + 0.5 * Math.hypot(w[0], w[1]);
         float cx = (float) (d.burst().x + 0.5 * w[0] - eye.x), cz = (float) (d.burst().z + 0.5 * w[1] - eye.z), ground = (float) (d.groundY() - eye.y);
         LO.set((float) (cx - r), ground - 4, (float) (cz - r));
-        HI.set((float) (cx + r), (float) (ground + d.blocks(top(s))), (float) (cz + r));
+        HI.set((float) (cx + r), (float) (ground + d.blocks(top(s, c))), (float) (cz + r));
         return frustum.intersectAab(LO, HI, SIDES_AND_NEAR) < 0;
     }
 
@@ -241,15 +295,16 @@ public final class MushroomField {
         double t = s.t(), y = d.yieldKt();
         double[] w = DRIFT;
         drift(d, t, w);
-        double top = d.blocks(top(s)), end = Math.max(d.blocks(s.endTop()), 1);
-        double boundR = boundRadius(d.blocks(reach(s)), Math.hypot(w[0], w[1]), top, end);
+        WaterModel.Column c = column(a, s);
+        double top = d.blocks(top(s, c)), end = Math.max(d.blocks(s.endTop()), 1);
+        double boundR = boundRadius(d.blocks(reach(s, c)), Math.hypot(w[0], w[1]), top, end);
         double ringA = d.blocks(s.ringA()), ringB = d.blocks(s.ringB());
         // ослабление шапки: толща поперёк меньшего поперечника сечения кольца
         double across = 2 * Math.min(ringA, ringB);
         double capSigma = s.capTau() / Math.max(across, 1);
         double skirtSigma = s.skirtTau() / Math.max(2 * d.blocks(Math.min(s.skirtW(), s.skirtH())), 1);
         double tCore = MushroomModel.coreTemperature(t, y, d.surface());
-        double wet = a.puffs.burstWet();
+        double wet = a.water.wet();
         put(into, o, 0, d.burst().x - eye.x, d.burst().z - eye.z, d.groundY() - eye.y, 1);
         put(into, o, 1, w[0], w[1], d.blocks(s.endTop()), boundR);
         put(into, o, 2, d.blocks(s.capY()), d.blocks(s.capR()), d.blocks(s.ringR()), top);
@@ -261,19 +316,40 @@ public final class MushroomField {
         put(into, o, 6, d.blocks(s.stemTop()), d.blocks(s.stemR()), s.lowDust(), s.stemTau());
         matter(into, o, 7, mix(STEM, STEAM, 0.8 * wet));
         put(into, o, 8, d.blocks(s.skirtR()), d.blocks(s.skirtW()), d.blocks(s.skirtH()), skirtSigma);
-        matter(into, o, 9, mix(SKIRT, CloudPuffs.SPRAY, a.puffs.burstUnder()));
+        matter(into, o, 9, mix(SKIRT, CloudPuffs.SPRAY, a.water.under()));
         // воздух ножки поднимается с подъёмом шара (втягивается кольцом): клубы — вверх
         put(into, o, 10, MushroomModel.AMBIENT_K, tCore - MushroomModel.AMBIENT_K, d.blocks(s.capBottom()), Math.max(1, 3 * d.blocks(s.stemR())));
         // пожары под грибом: верх дыма шторма и радиус зоны пожаров (свет — fire, после света кадра); дымка воздуха —
         // по настоящей дальности, как у дальнего (в блоках гриб меньше в effects_scale раз)
         put(into, o, 11, d.blocks(0.3 * FireballModel.riseSpeed(y) * t), a.pall.hazeTop(), a.pall.fireReach(), airSigma / d.scale());
+        // часы кипения шапки (свет пожаров под грибом — fire, после света кадра)
+        put(into, o, 12, 0, 0, 0, churn(d).at(t));
+        // столб воды: ослабление стенки — её толща поперёк на её толщину, × вода, что ещё не упала и уже не пар, × насколько
+        // подрыв «водяной»; струи стенки идут с водой — шум по высоте сдвинут на верх столба (вверх, пока растёт, вниз,
+        // когда падает)
+        if (c != null) {
+            double half = d.blocks(c.half()), water = c.water() * WaterModel.columnShow(t, y) * wet;
+            put(into, o, 13, d.blocks(c.mid()), half, d.blocks(c.wallTop()), COLUMN_TAU * water / Math.max(2 * half, 1));
+            matter(into, o, 14, CloudPuffs.SPRAY, G_WATER);
+            put(into, o, 15, d.blocks(c.crownR()), d.blocks(c.crownH()), d.blocks(c.top()), d.blocks(COLUMN_TILE * WaterModel.columnRadius(y)));
+        }
         // шар и шапка снаружи: доля перепада ядра у края (у шара — вся) и размах клубов края (у шара — гладкая сфера)
-        put(into, o, 13, MushroomModel.edgeShare(t, y, d.surface()), MushroomModel.billows(t, y, d.surface()), 0, 0);
+        put(into, o, 16, MushroomModel.edgeShare(t, y, d.surface()), MushroomModel.billows(t, y, d.surface()), 0, 0);
+    }
+
+    /** Часы кипения шапки подрыва ({@link MushroomModel#churn}): таблица — одна на подрыв, пока он жив. */
+    static MushroomModel.Churn churn(Detonation d) {
+        return CHURN.computeIfAbsent(d, k -> MushroomModel.churn(k.yieldKt(), k.hobMetres(), k.surface()));
     }
 
     /** Вещество по цвету толстого слоя (на экране): альбедо ω' по каналам и асимметрия g' — как у пелены ({@link PallLight}). */
     private static void matter(float[] into, int o, int texel, int rgb) {
-        double g = PallLight.truncated(G);
+        matter(into, o, texel, rgb, G);
+    }
+
+    /** То же с асимметрией рассеяния g вещества. */
+    private static void matter(float[] into, int o, int texel, int rgb, double asymmetry) {
+        double g = PallLight.truncated(asymmetry);
         for (int i = 0; i < 3; i++) RGB[i] = PallLight.albedo(PallLight.linear(((rgb >> (16 - 8 * i)) & 0xFF) / 255.0), g);
         put(into, o, texel, RGB[0], RGB[1], RGB[2], g);
     }

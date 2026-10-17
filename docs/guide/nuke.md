@@ -41,10 +41,12 @@ rises and rolls into a ring of hot gas: the cap of the mushroom cloud, the same 
 up, its outside mixes with cold air, turns dark red and then into brown smoke. Dust in front of the fireball hides it,
 and its light falls on the dust and smoke around it. By day it outshines the sky only for its first few seconds; at
 night its red glow lasts a few seconds longer. The cap is a dense cloud of round billows, reddish brown at first from
-the nitrogen oxides in it, then grey-white within about a minute as water condenses in it. The sun lights one side of
-it, and the folds between the billows stay darker. A column of dust rises from the ground into the cap, and a skirt of
-dust spreads around its foot. A burning town lights the foot of the column orange from below, and the cap high above
-only faintly. Far away, and more so in rain, the cloud fades into the haze.
+the nitrogen oxides in it, then grey-white within about a minute as water condenses in it. While the cloud climbs, the
+cap keeps rolling: gas goes up through its middle, out over the top and down the outside, and billows swell out of it
+and sink back. The faster the cloud climbs, the faster it rolls; when the cloud stops rising, the cap stops too. The sun
+lights one side of it, and the folds between the billows stay darker. A column of dust rises from the ground into the
+cap, and a skirt of dust spreads around its foot. A burning town lights the foot of the column orange from below, and
+the cap high above only faintly. Far away, and more so in rain, the cloud fades into the haze.
 
 Behind the wave a pall of dust climbs over the town for a minute or two, up to about 200 m high at 15 kt and lower
 toward the edge. From a rooftop near the blast you first see the wave cross the town, then the dust swallows you. At
@@ -88,9 +90,11 @@ Over water the wave raises no dust. It runs across the water as a dark ring of r
 where the wind is strong, and white foam near the centre. Behind the wave the air over the water fills with white spray
 instead of a dust pall. It thins within a minute and is gone in about three. Dust that the wind carries from the shore
 out over the water stays brown, and spray carried ashore stays white. A burst on the water or just above it throws up
-a hollow column of water about a kilometre high at 15 kt. A ring of mist forms on the water for a few seconds, and when
-the column falls, a white base surge rolls out for minutes. It is a bright mist: in its thick part you see only some
-50 m, and it thins out over a quarter of an hour.
+a hollow column of water, about a kilometre high at 15 kt within a few seconds. Its top opens into a crown of spray,
+and the rising mushroom cloud covers it after about ten seconds. Right behind the wave a thin white cloud of
+condensation hangs over the water for a second or two. The column then narrows and falls back into the water over
+about twenty seconds, and the falling water rolls out as a white base surge for minutes. It is a bright mist: in its
+thick part you see only some 50 m, and it thins out over a quarter of an hour.
 
 Far away the blast comes as a sharp double crack and a deep boom, and then echoes back from the hills, forests and
 towns around you: every slope that faces both the burst and you sends it back, later the farther it is. Animals around

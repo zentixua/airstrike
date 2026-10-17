@@ -15,10 +15,9 @@ import java.util.Arrays;
 
 /**
  * Снаряды и взрывы вдали: дальше прорисовки частиц и сущностей нет, а под шейдерами Iris виден только этап после мира.
- * Кадр: что видно из {@link FarBlasts} и {@link FarFlightView} и клубы ядерного гриба и стены пыли
- * ({@link NukeRenderer#clouds}) собираются в {@link FarSprites} — квадратами в общий проход слоя эффектов
- * ({@link FxLayer}), вместе с ближними частицами; модели снарядов рисуются в свой атлас ({@code FarModels}), их плитки —
- * квадратами того же прохода.
+ * Кадр: что видно из {@link FarBlasts} и {@link FarFlightView}, собирается в {@link FarSprites} — квадратами в общий
+ * проход слоя эффектов ({@link FxLayer}), вместе с ближними частицами; модели снарядов рисуются в свой атлас
+ * ({@code FarModels}), их плитки — квадратами того же прохода.
  */
 public final class FarRenderer {
     private static final FarSprites SPRITES = new FarSprites();
@@ -43,7 +42,6 @@ public final class FarRenderer {
             FarBlasts.collect(view, SPRITES, lights);
             FarFlightView.collect(view, SPRITES);
         }
-        NukeRenderer.clouds(view, SPRITES);
         NukeRenderer.fireballs(view, SPRITES, lights);
         SPRITES.counts(LAST_FRAME);
     }

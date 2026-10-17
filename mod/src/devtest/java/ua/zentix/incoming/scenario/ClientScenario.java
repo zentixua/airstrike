@@ -530,6 +530,20 @@ public final class ClientScenario {
         var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
         Incoming.LOG.info("SCENARIO detonation at tick {}: ground {} at {}, eye {} blocks away", tick, String.format(java.util.Locale.ROOT, "%.1f", d.groundY()),
                 xyz(d.burst()), Math.round(Math.hypot(d.burst().x - waterEye.x, d.burst().z - waterEye.z)));
+        if (!lake && "far".equals(System.getenv("INCOMING_WATER"))) {
+            // издалека: в 4 км от подрыва по линии через зрителя у берега (в ~2,5 км за берегом), на высоте 400 (~340 блоков
+            // над морем), узкий угол — столб целиком, его корона, сужение и падение, пока стена брызг не дошла до зрителя
+            double ax = waterEye.x - waterBurst.x, az = waterEye.z - waterBurst.z, l = Math.hypot(ax, az);
+            waterEye = new Vec3(waterBurst.x + ax / l * 4000, 400, waterBurst.z + az / l * 4000);
+            Minecraft.getInstance().options.fov().set(30);
+            look(waterBurst.x, 63 + 450, waterBurst.z);
+            for (int s : new int[]{2, 4, 6, 8, 10, 12, 15, 18, 21, 25, 30, 40, 60}) shot(tick + 20 * s, "water_far_" + s + "s");
+            at(tick + 20 * 60 + 20, () -> {
+                Incoming.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+            return;
+        }
         int[] frames = {2, 8, 16, 24, 32, 44, 60, 76, 92, 104, 112, 120, 128, 136, 144, 152, 160, 176, 200, 240, 300, 400, 600, 900, 1400, 2000};
         String name = lake ? "lake" : "water";
         for (int dt : frames) shot(tick + dt, name);
@@ -579,8 +593,10 @@ public final class ClientScenario {
 
     /**
      * Гриб объёмом ({@code MushroomField}): наземные 15 кт в 10 км (к северу или в первую сторону по часовой, где там
-     * суша), зритель в воздухе в 200 блоках над землёй смотрит на эпицентр чуть вверх; кадры {@code pall_mushroom_<секунды>s} от 2 с до 4 минут — шар сворачивается
-     * в кольцо, шапка поднимается и растекается, ножка, юбка. Ночью ({@code INCOMING_MUSHROOM=night}) — свечение по
+     * суша), зритель в воздухе в 200 блоках над землёй смотрит на эпицентр чуть вверх; кадры {@code pall_mushroom_<секунды>s}
+     * от 2 с до 4 минут — шар сворачивается в кольцо, шапка поднимается и растекается, ножка, юбка; на 22-й и 72-й секунде —
+     * ещё раз, через 2 с после 20-й и 70-й: как за это время сдвинулись и сменились клубы шапки. Ночью
+     * ({@code INCOMING_MUSHROOM=night}) — свечение по
      * температуре; по умолчанию — утро, солнце сбоку. Качество — {@code INCOMING_PALL} (по умолчанию MEDIUM).
      */
     private void planMushroom() {
@@ -632,7 +648,7 @@ public final class ClientScenario {
         if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
         detTick = tick;
         Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}", tick, xyz(ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d.burst()));
-        for (int s : new int[]{2, 5, 10, 20, 40, 70, 120, 240}) pallShot(tick + 20 * s, "mushroom_" + s + "s");
+        for (int s : new int[]{2, 5, 10, 20, 22, 40, 70, 72, 120, 240}) pallShot(tick + 20 * s, "mushroom_" + s + "s");
         at(tick + 20 * 240 + 20, () -> {
             Incoming.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();

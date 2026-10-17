@@ -37,8 +37,8 @@ public final class ClientNuclear {
         public final CloudPuffs puffs;
         /** Стена пыли ударной волны: голова-вал и облако Вильсона ({@link BlastWall}; рисует пелена, {@link NukePall}). */
         public final BlastWall wall;
-        /** Подрыв на воде: столб, кольцо тумана, базисная волна ({@link NukeWater}). */
-        final WaterPuffs water;
+        /** Вода под подрывом ({@link NukeWater#resolve}): столб в объёме гриба, базисная волна в пелене. */
+        final BurstWater water;
         /**
          * Пелена после волны ({@link NukePall}): «до утра» — от времени суток в миг подрыва и по часам мира после него
          * ({@link PallField#daylight}).
@@ -54,7 +54,7 @@ public final class ClientNuclear {
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
-            this(d, live, clientNow, new CloudPuffs(d), new BlastWall(d), new WaterPuffs(d, WaterPuffs.count(d)), null, null, null);
+            this(d, live, clientNow, new CloudPuffs(d), new BlastWall(d), new BurstWater(), null, null, null);
         }
 
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
@@ -62,7 +62,7 @@ public final class ClientNuclear {
             this(a.d, false, clientNow, a.puffs, a.wall, a.water, a.pall, a.storm, a.ground);
         }
 
-        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, BlastWall wall, WaterPuffs water, @Nullable PallField pall,
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs, BlastWall wall, BurstWater water, @Nullable PallField pall,
                 @Nullable FireStorm storm, @Nullable PallGround ground) {
             this.d = d;
             this.live = live;

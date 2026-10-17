@@ -120,7 +120,7 @@ PallAt pallField(sampler2D table, sampler2D ground, mat4 S, vec4 G, vec4 W, vec3
         }
     }
     if (W.z > 0.0) {
-        // базисную волну сносит вся: её клубы (WaterPuffs) — так же
+        // базисную волну сносит весь снос: она поднялась в первые секунды
         float ug = length(q - S[1].xy) / max(W.x, 1.0);
         sg = W.z * pallSurge(ug);
         topG = max(W.y * pallSurgeTop(ug), 1.0);

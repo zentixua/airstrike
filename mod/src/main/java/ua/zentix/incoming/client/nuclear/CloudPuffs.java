@@ -5,14 +5,13 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.CloudModel;
 import ua.zentix.incoming.nuclear.model.FireballModel;
 import ua.zentix.incoming.nuclear.model.ThermalModel;
-import ua.zentix.incoming.nuclear.model.WaterModel;
 
 /**
  * Свет подрыва на пыли (DESIGN-nuke §6): шар сверху и пожары снизу — им светятся стена пыли и пелена за ней
  * ({@code fx_pall}, числа слота — {@link #pallLight}) и пыль у камеры ({@code NukePall.dustColor}); законы свечения
- * подрыва во времени ({@link #glow}, {@link #fireballGlow}) и вода под эпицентром ({@link #burst}). Своих клубов здесь
- * больше нет (имя осталось от них): гриб — объём ({@link MushroomField}), стена пыли и облако Вильсона — объём в пелене
- * ({@link BlastWall}); клубами остались столб и базисная волна на воде ({@link WaterPuffs}), им — {@link #smoke}.
+ * подрыва во времени ({@link #glow}, {@link #fireballGlow}). Своих клубов здесь больше нет (имя осталось от них): гриб
+ * и столб воды — объём ({@link MushroomField}), стена пыли, облако Вильсона и базисная волна — объём в пелене
+ * ({@link BlastWall}, {@link PallField}).
  */
 public final class CloudPuffs {
     /** Над водой: брызги и водяная пыль у земли (её цвет продолжает пелена над водой — {@code MIST} в {@code fx_pall}). */
@@ -25,8 +24,6 @@ public final class CloudPuffs {
     private final double fireGround;
     /** Высота подрыва над землёй, м. */
     private final double hob;
-    /** Вода под эпицентром 0..1 и насколько подрыв «водяной» ({@link WaterModel#wetBurst}): ножка и юбка — пар и брызги. */
-    private double burstUnder, burstWet;
 
     public CloudPuffs(Detonation d) {
         this.d = d;
@@ -58,18 +55,6 @@ public final class CloudPuffs {
     }
 
     /**
-     * Цвет клуба дыма: свет неба на нём плюс отсвет накала изнутри ({@code heat} 0..1, цвет {@code hot}). Днём
-     * глаз привыкает к свету — отсвет виден слабее; ночью он и есть весь цвет клуба. Пишет r, g, b в 0..1 в {@code into}.
-     */
-    static void smoke(int rgb, double shade, float ambient, int hot, double heat, float[] into) {
-        double inner = heat * GLOW_IN_SMOKE * (1 - 0.5 * ambient);
-        for (int i = 0; i < 3; i++) {
-            int sh = 16 - 8 * i;
-            into[i] = (float) Math.min(1, ((rgb >> sh) & 0xFF) / 255.0 * shade * ambient + ((hot >> sh) & 0xFF) / 255.0 * inner);
-        }
-    }
-
-    /**
      * Сколько ещё светится сам шар 0..1: гаснет на 70–130 t_max (15 кт — 9–16 с). Край шапки, смешанный с воздухом,
      * к началу его угасания в миллион раз тусклее ({@code MushroomModel.edgeTemperature}): сверху пыль светит только шар.
      */
@@ -96,7 +81,10 @@ public final class CloudPuffs {
         return (1 - smooth(0.92 * e, 1.04 * e, r)) * (0.95 - 0.45 * up) * glow;
     }
 
-    /** Сила отсвета на дыме ({@link #smoke} и свечение клуба поверх него) при свете неба {@code ambient}. */
+    /**
+     * Сила отсвета на дыме при свете неба {@code ambient}: отсвет накала в самом дыме и свечение поверх него. Днём глаз
+     * привыкает к свету — отсвет виден слабее.
+     */
     public static double glowOnSmoke(float ambient) {
         return GLOW_IN_SMOKE * (1 - 0.5 * ambient) + EMISSIVE;
     }
@@ -122,22 +110,6 @@ public final class CloudPuffs {
         for (int i = 0; i < 3; i++) into[4 + i] = ((rgb >> (16 - 8 * i)) & 0xFF) / 255f;
         into[7] = (float) d.blocks(Math.max(yc, rf));
         return true;
-    }
-
-    /** Вода под эпицентром 0..1 и насколько подрыв «водяной» ({@code NukeWater}). */
-    void burst(double under, double wet) {
-        burstUnder = under;
-        burstWet = wet;
-    }
-
-    /** Насколько подрыв «водяной» 0..1: ножка и шапка гриба — пар ({@link #burst}, {@link MushroomField}). */
-    double burstWet() {
-        return burstWet;
-    }
-
-    /** Вода под эпицентром 0..1: юбка гриба — брызги ({@link #burst}, {@link MushroomField}). */
-    double burstUnder() {
-        return burstUnder;
     }
 
     static double smooth(double e0, double e1, double x) {

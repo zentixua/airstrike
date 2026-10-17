@@ -36,8 +36,8 @@ import java.util.List;
 
 /**
  * Картинка ядерного удара в мире (DESIGN-nuke §6): янтарное небо, след входа боеголовки и чёрный дождь — своим
- * проходом; огненный шар и гриб — объёмом в проходе пелены ({@link MushroomField}), их свет вокруг — светом частиц
- * и бликом с вуалью в слое эффектов ({@link #fireballs}); стена пыли и облако Вильсона — клубами там же ({@link #clouds}).
+ * проходом; огненный шар, гриб и столб воды ({@link MushroomField}), стена пыли и облако Вильсона ({@link BlastWall}) —
+ * объёмом в проходе пелены слоя эффектов; свет шара вокруг — светом частиц и бликом с вуалью там же ({@link #fireballs}).
  * <p>
  * Дальняя плоскость отсечения в 1.21.1 — 4 × дальность прорисовки, а гриб 15 кт — 12 км в высоту. Всё, что
  * дальше {@code 0.97·far}, переносится на эту дистанцию по тому же лучу и уменьшается во столько же раз (угловой
@@ -110,33 +110,7 @@ public final class NukeRenderer {
         }
     }
 
-    // ---------------------------------------------------------------- гриб
-
-    /**
-     * Клубы подрывов на воде (столб, кольцо тумана, базисная волна, {@link WaterPuffs}) — в кадр слоя эффектов
-     * ({@link FarSprites}, из {@code FarRenderer}): там они отсортированы вместе с частицами и дальней картинкой, тают,
-     * входя в воду и землю (мягкий край по расстоянию до мира), и прячутся за LOD Distant Horizons; дальше дальней
-     * плоскости — перенесены ближе с тем же угловым размером. Дымка — по настоящей дальности (в метрах модели).
-     */
-    public static void clouds(FarView view, FarSprites out) {
-        List<ClientNuclear.Active> all = ClientNuclear.detonations();
-        if (all.isEmpty()) return;
-        float[] fog = RenderSystem.getShaderFogColor();
-        float fr = fog[0], fg = fog[1], fb = fog[2];
-        Vec3 cam = view.camera();
-        for (ClientNuclear.Active a : all) {
-            double vis = a.d.visibility();
-            WaterPuffs.Sink sink = (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
-                double dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
-                float haze = (float) (1 - Math.exp(-a.d.metres(Math.sqrt(dx * dx + dy * dy + dz * dz)) / vis));
-                out.puff(dx, dy, dz, size * 0.5, rot, tex, Mth.lerp(haze, r, fr), Mth.lerp(haze, g, fg), Mth.lerp(haze, b, fb), alpha * (1 - 0.5f * haze),
-                        gr, gg, gb, ga * (1 - 0.7f * haze));
-            };
-            // подрыв на воде: столб, кольцо тумана, базисная волна — над водой под эпицентром; кольцо фронта на воде
-            a.water.sprites(a.seconds(view.partial()), view.ambient(), a.d.groundY() - 0.1, sink);
-            NukeWater.decal(a, view.partial());
-        }
-    }
+    // ---------------------------------------------------------------- огненный шар
 
     /**
      * Свет огненного шара и шапки вокруг (DESIGN-nuke, шаг M2) — тело рисует объём гриба ({@link MushroomField}): шар

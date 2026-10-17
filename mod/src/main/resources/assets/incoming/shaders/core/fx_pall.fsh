@@ -20,13 +20,14 @@
 // прибавлены к свету неба, — разностью переводов (pallLift); свет огня — не ярче самого пламени (pallFlame).
 // Грибы кадра (mushroom.glsl, MushroomField) — в том же луче: шаги пелены и шаги гриба идут вперемежку по расстоянию,
 // и свет каждого шага гасит всё, что за ним. Гриб — поле без таблицы: вещество шапки (с первого кадра — огненный шар,
-// который сворачивается в её кольцо одной формой), ножки и юбки, край — клубами по тому же шуму; свет — те же два потока
-// Эддингтона в двух слоях через точку (вдоль солнца — его пучок, у ножки и юбки — и пучок шара; по вертикали — небо
-// сверху, земля и пожары снизу) по толще гриба без шума к свету, и свечение по температуре — чёрное тело
+// который сворачивается в её кольцо одной формой), ножки и юбки (у подрыва на воде — и столба воды с короной), край —
+// клубами по тому же шуму; свет — те же два потока Эддингтона в двух слоях через точку (вдоль солнца — его пучок, у ножки,
+// юбки и столба — и пучок шара; по вертикали — небо сверху, земля и пожары снизу) по толще гриба без шума к свету, и свечение по температуре — чёрное тело
 // (функция источника в глубине — сам свет чёрного тела, у края — с долей ω', которую не досвечивает изнутри).
 // Выход: rgb — цвет пелены на экране, умноженный на её непрозрачность (свет пелены перед миром), a — сколько света мира
 // проходит (только ослабление: его же берут квадраты слоя, fx.fsh, — цвет пелены там rgb / (1 − a); тень пелены на мире
-// — в fx_pall_composite). Ярче белого свет уходит к белому (CROSS: раскалённое — бело-жёлтое, не насыщенно-оранжевое).
+// — в fx_pall_composite). Ярче белого свет уходит к белому (CROSS: раскалённое — бело-жёлтое, не насыщенно-оранжевое),
+// а пересвет — в долю пикселя поверх того, что за веществом (конец main).
 
 // расстояние до мира за пикселем по оси взгляда (полное разрешение)
 uniform sampler2D Sampler0;
@@ -796,26 +797,25 @@ void pallStep(float ta, float ds, float grid, inout vec3 light, inout float tran
 }
 
 // Толща гриба m без шума от места p (от глаза) по направлению v на длину len — четыре выборки (MUSH_AT); parts — какие
-// части считать (шапка, ножка, юбка)
-float mushTauOf(Mush m, vec3 p, vec3 v, float len, vec3 parts) {
+// части считать (шапка, ножка, юбка, столб воды)
+float mushTauOf(Mush m, vec3 p, vec3 v, float len, vec4 parts) {
     float tau = 0.0;
     for (int i = 0; i < 4; i++) {
-        vec3 s = mushMean(m, mushLocal(m, p + v * (len * MUSH_AT[i])));
-        tau += dot(s, parts) * MUSH_PART[i];
+        tau += dot(mushMean(m, mushLocal(m, p + v * (len * MUSH_AT[i]))), parts) * MUSH_PART[i];
     }
     return tau * len;
 }
 
 float mushTau(Mush m, vec3 p, vec3 v, float len) {
-    return mushTauOf(m, p, v, len, vec3(1.0));
+    return mushTauOf(m, p, v, len, vec4(1.0));
 }
 
 // Сдвиг края клубами в месте c (от середины части гриба, блоки), в долях размаха, до ±0,68: канал шума ch (VolumeNoise:
 // R — пятна Перлина-Ворлей, B — купола Ворлей) — крупные клубы по четверти плитки tile, в них мельче, и ещё вчетверо
 // мельче, пока луч их различает (cone — меньшее, что луч здесь различает); k — сдвиг плитки: у каждой части и гриба
 // свой рисунок
-// каналы шума клубов: купола шапки и юбки (клубы турбулентного облака), пятна ножки (её растягивают в струи подъёма:
-// купола, растянутые по высоте, у тонкой ножки — сетка из ячеек)
+// каналы шума клубов: купола шапки, юбки и короны столба воды (клубы турбулентного облака, брызги), пятна ножки и
+// стенки столба (их растягивают в струи подъёма: купола, растянутые по высоте, у тонкой ножки — сетка из ячеек)
 const vec3 MUSH_DOMES = vec3(0.0, 0.0, 1.0);
 const vec3 MUSH_STREAKS = vec3(1.0, 0.0, 0.0);
 
@@ -828,24 +828,54 @@ float mushLobes(vec3 c, float tile, float cone, float k, vec3 ch) {
     return (n - 0.5) + 0.35 * fine * (f - 0.5);
 }
 
-// Ослабление шапки, ножки и юбки гриба m в месте q тела с клубами, 1/блок; lobes — сдвиг края шапки клубами (доля
-// размаха), depth — глубина под краем шапки без клубов в её единицах (0 у края), near — сколько до края с клубами
-// у ближайшей части, блоки (оценка: клубы меняются не круче своей плитки — шагу луча вполовину её). Клубы шапки и юбки
-// — круглые купола (сдвиг края в блоках одинаков во все стороны); ножки — струи вдоль подъёма (шум вдвое растянут
-// по высоте)
-vec3 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float depth, out float near) {
+// Клубы слоя j узора шапки гриба m в месте q тела на часах кипения churn, опущенные в шапку на MUSH_SINK × (1 − доля
+// слоя): узор слоя повёрнут обращением сечения от рождения слоя (roll — доля обращения, пока шар сворачивается в
+// кольцо), у каждой жизни слоя — свой
+float mushCapLayer(Mush m, vec3 q, float cone, float k, float churn, float roll, float j) {
+    float age = mushLayerAge(churn, j);
+    vec3 c = mushFlow(m, q, age * MUSH_CYCLE * roll);
+    vec3 shift = m.capTile * fract(mushLayerSeed(churn, j) * vec3(0.618034, 0.414214, 0.732051));
+    return mushLobes(c + shift, m.capTile, cone, k, MUSH_DOMES) - MUSH_SINK * (1.0 - mushLayerWeight(age));
+}
+
+// Клубы шапки гриба m в месте q тела: вещество шапки обращается вокруг оси кольца (вихрь Тёрнера: внутри вверх, по
+// верху от оси наружу, снаружи вниз) со скоростью подъёма верха, и клубы идут с ним (mushFlow); турбулентность в нём
+// живёт и умирает — два слоя узора со сдвигом на полжизни (Нейре 2003), каждый уносится вращением от своего рождения
+// и тонет в шапку к концу жизни, а следующий узор поднимается из неё; край — верхний из двух с поправкой на среднее
+// (mushRise). Часы — свои у пятен шапки (mushPhase). Пока шар не свернулся в кольцо (roll < 1), обращение — его доля.
+// Слабый слой выйти наверх не может, если сильный выше его самого высокого клуба: тогда его не берём
+float mushCapLobes(Mush m, vec3 q, float cone, float k) {
+    float roll = clamp(m.ringR / max(MUSH_RING * m.capR, 1.0), 0.0, 1.0);
+    float churn = m.churn + MUSH_CYCLE * mushPhase(m, q, k);
+    float strong = mushLayerWeight(mushLayerAge(churn, 0.0)) >= 0.5 ? 0.0 : 1.0;
+    float w = mushLayerWeight(mushLayerAge(churn, strong));
+    float best = mushCapLayer(m, q, cone, k, churn, roll, strong);
+    if (best < MUSH_LOBES_TOP - MUSH_SINK * w) best = max(best, mushCapLayer(m, q, cone, k, churn, roll, 1.0 - strong));
+    return best + mushRise(1.0 - w);
+}
+
+// Ослабление шапки, ножки, юбки и столба воды гриба m в месте q тела с клубами, 1/блок; lobes — сдвиг края шапки
+// клубами (доля размаха), depth — глубина под краем шапки без клубов в её единицах (0 у края), near — сколько до края
+// с клубами у ближайшей части, блоки (оценка: клубы меняются не круче своей плитки — шагу луча вполовину её; часть
+// дальше своего охвата клубов — до него: без этого шаг у её края, куда пустил mushGap, был бы шагом по пустому, и луч,
+// идущий вдоль короны или кольца шапки, перешагивал их наружные клубы). Клубы шапки, юбки и короны — круглые купола
+// (сдвиг края в блоках одинаков во все стороны); ножки и стенки столба — струи вдоль подъёма (шум вдвое растянут по высоте)
+vec4 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float depth, out float near) {
     lobes = 0.0;
     depth = 0.0;
     near = 1e9;
-    vec3 sigma = vec3(0.0);
-    vec3 d = mushDist(m, q);
+    vec4 sigma = vec4(0.0);
+    vec4 d = mushDist(m, q);
     float uc = mushCapUnit(m);
     if (m.capSigma > 0.0 && d.x < MUSH_CAP_REACH * uc) {
-        lobes = mushLobes(vec3(q.x, q.y - m.capY, q.z), m.capTile, cone, k, MUSH_DOMES);
+        // глубже самой глубокой ложбины клубов шапка густа целиком: клубы там не нужны (лучу к солнцу из тени — каждый шаг)
+        if (d.x + (MUSH_LOBES_DEEP * MUSH_CAP_LOBES * m.billows + MUSH_CAP_EDGE) * uc > 0.0) lobes = mushCapLobes(m, q, cone, k);
         float shifted = d.x - MUSH_CAP_LOBES * m.billows * uc * lobes;
         sigma.x = m.capSigma * mushEdge(shifted, MUSH_CAP_EDGE * uc);
         near = shifted - MUSH_CAP_EDGE * uc;
         depth = clamp(-d.x / max(uc, 1.0), 0.0, 1.0);
+    } else if (m.capSigma > 0.0) {
+        near = d.x - MUSH_CAP_REACH * uc;
     }
     if (m.stemTau > 0.0) {
         float r = mushStemAt(m, q.y);
@@ -867,6 +897,21 @@ vec3 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float d
         float shifted = d.z - MUSH_SKIRT_LOBES * uk * l;
         sigma.z = m.skirtSigma * mushEdge(shifted, MUSH_SKIRT_EDGE * uk);
         near = min(near, shifted - MUSH_SKIRT_EDGE * uk);
+    } else if (m.skirtSigma > 0.0) {
+        near = min(near, d.z - MUSH_SKIRT_REACH * uk);
+    }
+    float uw = mushColumnUnit(m);
+    if (m.colSigma > 0.0 && d.w < MUSH_COLUMN_REACH * uw) {
+        // стенка — струи воды: пятна вдвое вытянуты по высоте и идут с водой (вверх, пока столб растёт, вниз, когда
+        // падает), мелких нет — их вытягивает подъём; корона — купола брызг, где струи остановились
+        float crown = smoothstep(m.colTop - m.crownH, m.colTop, q.y), l = 0.0;
+        if (crown < 1.0) l = mushLobes(vec3(q.x, 0.5 * (q.y - m.colRise), q.z), m.colTile, max(cone, m.colTile), k + 12.0, MUSH_STREAKS);
+        if (crown > 0.0) l = mix(l, mushLobes(vec3(q.x, q.y - m.colTop, q.z), m.colTile, cone, k + 12.0, MUSH_DOMES), crown);
+        float shifted = d.w - MUSH_COLUMN_LOBES * uw * l;
+        sigma.w = m.colSigma * mushEdge(shifted, MUSH_COLUMN_EDGE * uw);
+        near = min(near, shifted - MUSH_COLUMN_EDGE * uw);
+    } else if (m.colSigma > 0.0) {
+        near = min(near, d.w - MUSH_COLUMN_REACH * uw);
     }
     return sigma;
 }
@@ -879,8 +924,7 @@ float mushSunTau(Mush m, vec3 p, float k) {
     float reach = 0.75 * m.capTile, len = reach / 31.0, t = 0.0, tau = 0.0;
     for (int i = 0; i < 5; i++) {
         float lobes, depth, near;
-        vec3 s = mushDense(m, mushLocal(m, p + gSun * (t + gJitter * len)), len, k, lobes, depth, near);
-        tau += (s.x + s.y + s.z) * len;
+        tau += dot(mushDense(m, mushLocal(m, p + gSun * (t + gJitter * len)), len, k, lobes, depth, near), vec4(1.0)) * len;
         t += len;
         len *= 2.0;
     }
@@ -893,11 +937,11 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
     Mush m = gMush[k];
     float lobes, depth;
     float kk = float(k) * 13.0;
-    vec3 sig = mushDense(m, q, cone, kk, lobes, depth, near);
-    float st = sig.x + sig.y + sig.z;
+    vec4 sig = mushDense(m, q, cone, kk, lobes, depth, near);
+    float st = dot(sig, vec4(1.0));
     if (st <= 1e-7) return vec4(0.0);
-    vec3 w = (sig.x * m.capMat.rgb + sig.y * m.stemMat.rgb + sig.z * m.skirtMat.rgb) / st;
-    float g = (sig.x * m.capMat.a + sig.y * m.stemMat.a + sig.z * m.skirtMat.a) / st;
+    vec3 w = (sig.x * m.capMat.rgb + sig.y * m.stemMat.rgb + sig.z * m.skirtMat.rgb + sig.w * m.colMat.rgb) / st;
+    float g = (sig.x * m.capMat.a + sig.y * m.stemMat.a + sig.z * m.skirtMat.a + sig.w * m.colMat.a) / st;
     vec3 kd = vec3(pallK(w.r, g), pallK(w.g, g), pallK(w.b, g));
     // толща без шума: вверх до верха рамки, вниз до земли, к глазу и от него; днём — ещё к солнцу и от него
     float up = mushTau(m, p, vec3(0.0, 1.0, 0.0), max(m.boundTop - q.y, 1.0));
@@ -919,11 +963,11 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
                 pallDiffuse(w.b, g, toSun, toSun + away, 0.0, 1.0, PallSunLight.b, 1.0, 0.0, 0.0, 0.0, cs));
         light += PallSunLight * (0.25 * hg(g, gC) * exp(-toSun));
     }
-    // Свет шара и шапки на ножке и юбке (MushroomModel.light): ламбертов шар радиуса шапки с яркостью чёрного тела её
-    // видимой температуры снаружи (перепад ядра × доля у края) светит как L·R²/d² — пучок от середины шапки, как солнце,
-    // с толщей ножки и юбки на пути (до шара; дальше — его светящаяся поверхность). Сама шапка его не берёт: её свет — её
-    // свечение (ниже)
-    float lowShare = (sig.y + sig.z) / st;
+    // Свет шара и шапки на ножке, юбке и столбе воды (MushroomModel.light): ламбертов шар радиуса шапки с яркостью чёрного
+    // тела её видимой температуры снаружи (перепад ядра × доля у края) светит как L·R²/d² — пучок от середины шапки, как
+    // солнце, с толщей ножки, юбки и столба на пути (до шара; дальше — его светящаяся поверхность). Сама шапка его не
+    // берёт: её свет — её свечение (ниже)
+    float lowShare = (sig.y + sig.z + sig.w) / st;
     if (lowShare > 0.0 && m.capSigma > 0.0) {
         // к середине шапки в осях мира: тело гриба снесено ветром по высоте (mushLocal), его оси — не мировые
         vec3 c = vec3(0.0, m.capY, 0.0) - q;
@@ -933,7 +977,7 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
         if (dot(ball, LUMA) > 1e-4 * dot(PallSkyLight, LUMA)) {
             float dc = sqrt(d2);
             vec3 v = c / max(dc, 1e-3);
-            float toBall = mushTauOf(m, p, v, max(dc - m.capR, 0.0), vec3(0.0, 1.0, 1.0)), away = mushTau(m, p, -v, across);
+            float toBall = mushTauOf(m, p, v, max(dc - m.capR, 0.0), vec4(0.0, 1.0, 1.0, 1.0)), away = mushTau(m, p, -v, across);
             float cb = g * dot(-gDir, v);
             vec3 lit = vec3(pallDiffuse(w.r, g, toBall, toBall + away, 0.0, 1.0, ball.r, 1.0, 0.0, 0.0, 0.0, cb),
                     pallDiffuse(w.g, g, toBall, toBall + away, 0.0, 1.0, ball.g, 1.0, 0.0, 0.0, 0.0, cb),
@@ -975,7 +1019,7 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
     light += max(max(vertical, sideways), vec3(0.0));
     // свечение: доля перепада температуры ядра — у шара вся (почти изотермичен), свернувшись в кольцо, шапка горячее
     // к ядру (край смешан с подхваченным воздухом — m.edge перепада, языки клубов ± MUSH_SKIN его), ножка горяча только
-    // у шапки (снизу кольцо тянет в неё воздух с пылью), юбка холодная
+    // у шапки (снизу кольцо тянет в неё воздух с пылью), юбка и вода столба холодные
     float hw = clamp(q.y / max(m.capBot, 1.0), 0.0, 1.0);
     float skin = m.edge * (1.0 + MUSH_SKIN * lobes) + (1.0 - m.edge) * smoothstep(0.0, 1.0, depth);
     float heat = (sig.x * skin + sig.y * 0.6 * hw * hw) / st;
