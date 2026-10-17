@@ -27,6 +27,7 @@ import org.lwjgl.opengl.GL33;
 import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.system.MemoryUtil;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.client.nuclear.MushroomField;
 import ua.zentix.incoming.compat.FlashbackReplay;
 
 import java.nio.ByteBuffer;
@@ -57,8 +58,13 @@ import java.util.concurrent.CompletionException;
  * в лучах — столбы дыма и зарево снизу на пелене и дыме, огненные смерчи; на кадре — пламя на поверхностях города
  * (по расстоянию до мира за пикселем, и на LOD Distant Horizons); у квадратов слоя — свет пожаров снизу.
  * <p>
- * Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, шум 64³ (RG8) и 64² (R8): всё вместе
- * меньше 2 МБ на 1080p; карты огня — до 0,7 МБ на слот (сторона до 256 клеток), карты рельефа и воды под пеленой — 64 КБ на слот. Шум считается в фоне при первом
+ * В тех же лучах — грибы кадра объёмом ({@code mushroom.glsl}, {@code client/nuclear/MushroomField}): таблица грибов
+ * (RGBA32F, строка на гриб и строка света чёрного тела) — у лучей, накопления (перенос по расстоянию гриба) и квадратов
+ * слоя (что гриб закрывает перед частицей). Гриб рисуется и без пелены, и при пелене, выключенной в настройке (тогда —
+ * на ступени LOW): другого гриба нет.
+ * <p>
+ * Своих текстур — три кадра пониженного разрешения (RGBA16F), таблица 128×4, таблица грибов 256×5 (RGBA32F), шум 64³
+ * (RG8) и 64² (R8): всё вместе меньше 2 МБ на 1080p; карты огня — до 0,7 МБ на слот (сторона до 256 клеток), карты рельефа и воды под пеленой — 64 КБ на слот. Шум считается в фоне при первом
  * подрыве (около секунды); пока он не готов, пелены нет.
  * <p>
  * Подробность сама держит бюджет ({@link Detail}): время проходов на видеокарте меряют метки времени OpenGL, читаемые
@@ -72,8 +78,11 @@ public final class PallPass {
     public static final int WIDTH = 128;
     /** Строк таблицы: пыль и мгла двух подрывов. */
     public static final int ROWS = 4;
-    /** Блок текстуры трёхмерного шума: ни один шейдер Minecraft и слоя столько двумерных не берёт. */
-    private static final int NOISE_UNIT = 7;
+    /**
+     * Блок текстуры трёхмерного шума: за двенадцатью двумерными, которые привязывает {@code ShaderInstance}
+     * ({@code Sampler0}–{@code Sampler11}).
+     */
+    private static final int NOISE_UNIT = 12;
     /** Перенос накопленного считается не дальше стольких блоков (небо за пеленой). */
     private static final float REPROJECT_MAX = 600;
     /** Глаз сдвинулся за кадр дальше — накопленное не годится (телепорт, камера снаряда). */
@@ -327,6 +336,14 @@ public final class PallPass {
          * ничего не задев, — рельеф под пеленой ({@link Ground}) режет его только дальше.
          */
         public float floorFrom;
+        /**
+         * Грибы кадра ({@code mushroom.glsl}): строки грибов таблицы {@link MushroomField#WIDTH} × {@link MushroomField#ROWS}
+         * (строка света чёрного тела здесь не нужна — она в видеопамяти с начала) и их число.
+         */
+        public final float[] mushrooms = new float[MushroomField.WIDTH * MushroomField.ROWS * 4];
+        public int mushroomCount;
+        /** Во сколько раз ярче кажется свет при свете неба кадра ({@code Sight.adapted}): свечение грибов. */
+        public float exposure = 1;
     }
 
     @Nullable
@@ -340,7 +357,7 @@ public final class PallPass {
     /** Кадр луча и два накопленных (по очереди: прошлый и этот). */
     private static final int[] TEXTURES = {-1, -1, -1}, FBOS = {-1, -1, -1};
     private static int latest;
-    private static int table = -1, noise = -1, blue = -1;
+    private static int table = -1, noise = -1, blue = -1, mushrooms = -1;
     /** Карты огня слотов (текстура, её сторона, чья и какое заполнение) и карты этого кадра (−1 — нет). */
     private static final int[] FIRE = {-1, -1}, FIRE_SIDE = new int[2], FIRE_VERSION = new int[2], FIRE_NOW = {-1, -1};
     private static final Object[] FIRE_SOURCE = new Object[2];
@@ -355,7 +372,7 @@ public final class PallPass {
     private static final Matrix4f NO_FIRE = new Matrix4f().zero();
     @Nullable
     private static CompletableFuture<byte[][]> textures;
-    private static FloatBuffer tableBuffer;
+    private static FloatBuffer tableBuffer, mushroomBuffer;
     private static boolean history;
     private static final Matrix4f VIEW_PROJECTION = new Matrix4f(), INVERSE = new Matrix4f(), PREVIOUS = new Matrix4f();
     private static final Vector3f FORWARD = new Vector3f();
@@ -402,6 +419,11 @@ public final class PallPass {
     /** Таблица поля для квадратов слоя ({@code Sampler5} шейдера {@code fx}); −1 — пелены в кадре нет. */
     static int table() {
         return table;
+    }
+
+    /** Таблица грибов ({@code Sampler11} шейдера {@code fx}): в кадре, где пелена нарисована, — грибы этого кадра. */
+    static int mushroomMap() {
+        return mushrooms;
     }
 
     /** Карта огня слота {@code k} этого кадра ({@code Sampler7}/{@code Sampler8} шейдера {@code fx}); −1 — нет. */
@@ -456,6 +478,11 @@ public final class PallPass {
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0);
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, 0);
         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, WIDTH, ROWS, GL11.GL_RGBA, GL11.GL_FLOAT, tableBuffer);
+        // строки грибов (свет чёрного тела под ними — с начала)
+        mushroomBuffer.clear();
+        mushroomBuffer.put(f.mushrooms, 0, MushroomField.WIDTH * MushroomField.MUSHROOMS * 4).flip();
+        GlStateManager._bindTexture(mushrooms);
+        GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, MushroomField.WIDTH, MushroomField.MUSHROOMS, GL11.GL_RGBA, GL11.GL_FLOAT, mushroomBuffer);
         FIRE_NOW[0] = fire(0, f.fire0);
         FIRE_NOW[1] = fire(1, f.fire1);
         int fire0 = FIRE_NOW[0] >= 0 ? FIRE_NOW[0] : table, fire1 = FIRE_NOW[1] >= 0 ? FIRE_NOW[1] : table;
@@ -493,6 +520,7 @@ public final class PallPass {
         RenderSystem.setShaderTexture(4, fire1);
         RenderSystem.setShaderTexture(5, ground0);
         RenderSystem.setShaderTexture(6, ground1);
+        RenderSystem.setShaderTexture(7, mushrooms);
         m.safeGetUniform("InvViewProj").set(INVERSE);
         m.safeGetUniform("PallForward").set(FORWARD.x, FORWARD.y, FORWARD.z);
         m.safeGetUniform("PallSlot0").set(f.slot0);
@@ -522,6 +550,7 @@ public final class PallPass {
         m.safeGetUniform("PallWater0").set(f.water0.x, f.water0.y, f.water0.z, f.water0.w);
         m.safeGetUniform("PallWater1").set(f.water1.x, f.water1.y, f.water1.z, f.water1.w);
         m.safeGetUniform("PallFloorFrom").set(f.floorFrom);
+        m.safeGetUniform("PallExposure").set(f.exposure);
         quad(m, true);
 
         // 2. накопление: из прошлого накопленного — в другое
@@ -530,6 +559,7 @@ public final class PallPass {
         RenderSystem.setShaderTexture(0, TEXTURES[0]);
         RenderSystem.setShaderTexture(1, TEXTURES[1 + latest]);
         RenderSystem.setShaderTexture(2, scene);
+        RenderSystem.setShaderTexture(3, mushrooms);
         r.safeGetUniform("InvViewProj").set(INVERSE);
         r.safeGetUniform("PrevViewProj").set(PREVIOUS);
         r.safeGetUniform("PallForward").set(FORWARD.x, FORWARD.y, FORWARD.z);
@@ -723,7 +753,7 @@ public final class PallPass {
             GL11.glTexParameteri(GL12.GL_TEXTURE_3D, GL12.GL_TEXTURE_WRAP_R, GL11.GL_REPEAT);
             buf.clear();
             buf.put(data[0]).flip();
-            GL12.glTexImage3D(GL12.GL_TEXTURE_3D, 0, GL30.GL_RG8, n, n, n, 0, GL30.GL_RG, GL11.GL_UNSIGNED_BYTE, buf);
+            GL12.glTexImage3D(GL12.GL_TEXTURE_3D, 0, GL11.GL_RGB8, n, n, n, 0, GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, buf);
             GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
             GlStateManager._activeTexture(unit);
 
@@ -746,6 +776,19 @@ public final class PallPass {
             GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_T, GlConst.GL_CLAMP_TO_EDGE);
             GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, WIDTH, ROWS, 0, GL11.GL_RGBA, GL11.GL_FLOAT, (FloatBuffer) null);
             tableBuffer = MemoryUtil.memAllocFloat(ROWS * WIDTH * 4);
+
+            // таблица грибов: числа по текселям — без смешивания (texelFetch), свет чёрного тела — линейно по температуре
+            mushrooms = GlStateManager._genTexture();
+            GlStateManager._bindTexture(mushrooms);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MIN_FILTER, GlConst.GL_LINEAR);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MAG_FILTER, GlConst.GL_LINEAR);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_S, GlConst.GL_CLAMP_TO_EDGE);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_T, GlConst.GL_CLAMP_TO_EDGE);
+            float[] start = new float[MushroomField.WIDTH * MushroomField.ROWS * 4];
+            MushroomField.blackBodyRow(start);
+            mushroomBuffer = MemoryUtil.memAllocFloat(start.length);
+            mushroomBuffer.put(start).flip();
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA32F, MushroomField.WIDTH, MushroomField.ROWS, 0, GL11.GL_RGBA, GL11.GL_FLOAT, mushroomBuffer);
         } finally {
             MemoryUtil.memFree(buf);
             GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, 4);

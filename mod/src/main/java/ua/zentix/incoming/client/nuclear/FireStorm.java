@@ -248,6 +248,12 @@ public final class FireStorm {
         return burning;
     }
 
+    /** Среднее пламя по зоне пожаров в последней карте, доля полной силы (0 — сетка не готова или не горит ничего). */
+    double meanFlame() {
+        int n = cells();
+        return n == 0 ? 0 : burning / n;
+    }
+
     /** Смерчи подрыва (пусто — сетка не готова). */
     public List<Whirl> whirls() {
         Grid g = grid;

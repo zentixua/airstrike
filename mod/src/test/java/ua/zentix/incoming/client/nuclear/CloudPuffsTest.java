@@ -13,9 +13,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CloudPuffsTest {
     /** Ночное небо: столько света неба остаётся на дыме (нижний предел в рендерере). */
     private static final float NIGHT = 0.12f;
-    /** Дым ножки (цвет клуба ножки) и самый тусклый её клуб (низ, край): доля полного накала. */
-    private static final int STEM = 0x8E7F70;
-    private static final double STEM_EDGE = 0.75 * 0.85;
 
     private static double luminance(float[] c) {
         return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -43,31 +40,6 @@ class CloudPuffsTest {
         }
     }
 
-    /**
-     * Ночью ножка гриба (самый тусклый её клуб) — никогда не чёрный дым: первые 70 с — светящаяся оранжевая,
-     * потом — освещённая серо-бурая.
-     */
-    @Test
-    void stemIsNeverBlackAtNight() {
-        for (double t = 0.5; t <= 1500; t += 0.5) {
-            double heat = Math.max(CloudPuffs.glow(t, 15), CloudPuffs.EMBER) * STEM_EDGE;
-            float[] c = new float[3];
-            CloudPuffs.smoke(STEM, 0.7, NIGHT, CloudPuffs.glowRgb(t, 15), heat, c);
-            assertTrue(luminance(c) > 0.15, t + " с: яркость " + luminance(c));
-            if (t <= 70) {
-                assertTrue(c[0] > 0.4 && c[0] > 1.4 * c[2], t + " с: не светится оранжевым " + c[0] + " " + c[1] + " " + c[2]);
-            }
-        }
-    }
-
-    /** Днём отсвет не заливает шапку: она светлее, но цвет дыма виден. */
-    @Test
-    void daylightKeepsSmokeColour() {
-        float[] c = new float[3];
-        CloudPuffs.smoke(0x8C5A46, 1, 1f, CloudPuffs.glowRgb(60, 15), CloudPuffs.EMBER, c);
-        assertTrue(c[2] < 0.6, "синий " + c[2]);
-    }
-
     /** 15 кт у земли на высоте 64, без ветра, в масштабе 1 блок = 4 м. */
     private static final Detonation GROUND = new Detonation(1, new Vec3(0, 64, 0), 64, 15, true, 0, 0, 0, 20_000, 7, 0.25f, false, Detonation.OLD_WAVE);
 
@@ -81,8 +53,8 @@ class CloudPuffsTest {
     }
 
     /**
-     * Пыль у земли стоит на рельефе под собой: на плато в 136 блоках над эпицентром стена, шлейф и юбка поднимаются ровно
-     * на него, гриб остаётся над эпицентром; передний край стены — на голове ({@link CloudPuffs#wall}), не дальше.
+     * Пыль у земли стоит на рельефе под собой: на плато в 136 блоках над эпицентром стена и шлейф поднимаются ровно
+     * на него, облако Вильсона остаётся над эпицентром; передний край стены — на голове ({@link CloudPuffs#wall}), не дальше.
      */
     @Test
     void groundDustStandsOnTerrain() {

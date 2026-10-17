@@ -1,13 +1,16 @@
 #version 150
 
 #moj_import <incoming:pall.glsl>
+#moj_import <incoming:mushroom.glsl>
 
 // Пелена: накопление по кадрам (client/fx/layer/PallPass). Луч этого кадра сдвинут синим шумом — зерно; с прошлыми
 // кадрами в том же месте мира (перенос по глубине мира за пикселем, не дальше рамки пелены) оно сглаживается. Прошлое
 // зажато в пределы соседей этого кадра: где пелена на экране сдвинулась (её край за домом), след не тянется. Негодное
 // (NaN, бесконечность — и луч, который fx_pall пометил негодным, альфа −1) в накопленное не попадает: негодный луч
 // этого кадра — пиксель берёт прошлое, негодное прошлое — пиксель начинает заново с этого кадра. Иначе одна точка NaN
-// расползалась бы по накопленному через соседей и выборку прошлого, и пелена за секунды становилась чёрной.
+// расползалась бы по накопленному через соседей и выборку прошлого, и пелена за секунды становилась чёрной. Гриб на луче
+// перед миром — перенос по его расстоянию (середине его отрезка): облако за километры, перенесённое по ближнему месту,
+// при движении глаза тянуло бы след.
 
 // этот кадр (fx_pall)
 uniform sampler2D Sampler0;
@@ -15,6 +18,8 @@ uniform sampler2D Sampler0;
 uniform sampler2D Sampler1;
 // расстояние до мира за пикселем по оси взгляда (полное разрешение)
 uniform sampler2D Sampler2;
+// грибы кадра (mushroom.glsl)
+uniform sampler2D Sampler3;
 
 uniform mat4 InvViewProj;
 uniform mat4 PrevViewProj;
@@ -51,7 +56,15 @@ void main() {
     vec2 ndc = (vec2(full) + 0.5) / vec2(fullSize) * 2.0 - 1.0;
     vec4 farPoint = InvViewProj * vec4(ndc, 1.0, 1.0);
     vec3 dir = normalize(farPoint.xyz / farPoint.w);
-    float t = min(depth / max(dot(dir, PallForward), 1e-3), PallFrame.w);
+    float scene = depth / max(dot(dir, PallForward), 1e-3);
+    float t = min(scene, PallFrame.w), near = 1e9;
+    for (int k = 0; k < MUSHROOMS; k++) {
+        if (!mushOn(Sampler3, k)) break;
+        vec2 sp = mushSpan(mushLoad(Sampler3, k), dir);
+        sp.y = min(sp.y, scene);
+        if (sp.y > sp.x) near = min(near, 0.5 * (sp.x + sp.y));
+    }
+    if (near < 1e8) t = near;
     vec4 prev = PrevViewProj * vec4(dir * t + PallReproject.xyz, 1.0);
     vec2 uv = prev.xy / prev.w * 0.5 + 0.5;
     // прошлого в этом месте нет (за глазом, вне кадра) — или оно негодно: пиксель начинает заново

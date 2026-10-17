@@ -10,11 +10,8 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,7 +42,7 @@ class PallGlslTest {
     void sceneDistanceKeepsOnlyTheWorldInFront() {
         // расстояние до мира за пикселем (SceneDepth): негодное — NaN, бесконечность, за глазом (чужая глубина LOD) —
         // как небо, 1e9: иначе луч пелены шёл бы сквозь NaN, и пиксель кадра выходил чёрным
-        Function f = Function.parse(GLSL, "pallScene");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallScene");
         for (double d : new double[] {0, 0.5, 64, 3000, 9.9e7}) assertEquals(d, f.call(Map.of("d", d)), 0, "d = " + d);
         for (double d : new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, -0.01, -5000, 1e8, 1e9, 3e38}) {
             assertEquals(1e9, f.call(Map.of("d", d)), 0, "d = " + d);
@@ -54,25 +51,25 @@ class PallGlslTest {
 
     @Test
     void profileMatchesJava() {
-        Function f = Function.parse(GLSL, "pallProfile");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallProfile");
         for (double x = -1.5; x <= 1.5; x += 0.005) assertEquals(PallField.profile(x), f.call(Map.of("x", x)), 1e-9, "x = " + x);
     }
 
     @Test
     void columnMatchesJava() {
-        Function f = Function.parse(GLSL, "pallColumn");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallColumn");
         for (double x = -1.5; x <= 1.5; x += 0.005) assertEquals(PallField.column(x), f.call(Map.of("x", x)), 1e-9, "x = " + x);
     }
 
     @Test
     void edgeMatchesJava() {
-        Function f = Function.parse(GLSL, "pallEdge");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallEdge");
         for (double u = 0; u <= 1.2; u += 0.002) assertEquals(PallField.edge(u), f.call(Map.of("u", u)), 1e-9, "u = " + u);
     }
 
     @Test
     void surgeMatchesJava() {
-        Function f = Function.parse(GLSL, "pallSurge"), top = Function.parse(GLSL, "pallSurgeTop");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallSurge"), top = GlslFunction.parse(GLSL, "pallSurgeTop");
         for (double u = 0; u <= 1.3; u += 0.002) {
             assertEquals(PallField.surgeProfile(u), f.call(Map.of("u", u)), 1e-9, "u = " + u);
             assertEquals(PallField.surgeTop(u), top.call(Map.of("u", u)), 1e-9, "u = " + u);
@@ -91,7 +88,7 @@ class PallGlslTest {
 
     @Test
     void shapeMatchesJava() {
-        Function f = Function.parse(GLSL, "pallShape");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallShape");
         for (double r = 0; r <= 1; r += 0.05) {
             for (double g = 0; g <= 1; g += 0.05) {
                 for (double fill = 0; fill <= 1; fill += 0.1) {
@@ -104,7 +101,7 @@ class PallGlslTest {
 
     @Test
     void litMatchesJava() {
-        Function f = Function.parse(GLSL, "pallLit");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallLit");
         for (double r = 0; r <= 4000; r += 50) {
             for (double up = 0; up <= 1; up += 0.25) {
                 for (double overhead : new double[]{0, 0.5, 1}) {
@@ -117,7 +114,7 @@ class PallGlslTest {
 
     @Test
     void burnMatchesJava() {
-        Function f = Function.parse(GLSL, "pallBurn");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallBurn");
         for (double r = 0; r <= 4000; r += 25) {
             for (double up = 0; up <= 1; up += 0.25) {
                 for (double fireR : new double[]{0, 1900}) {
@@ -131,7 +128,7 @@ class PallGlslTest {
     /** Свет и экран шейдера ({@code pallLinear}, {@code pallDisplay}, {@code pallLift}) — те же, что в {@link PallLight}. */
     @Test
     void displayMatchesJava() {
-        Function linear = Function.parse(GLSL, "pallLinear"), display = Function.parse(GLSL, "pallDisplay"), lift = Function.parse(GLSL, "pallLift");
+        GlslFunction linear = GlslFunction.parse(GLSL, "pallLinear"), display = GlslFunction.parse(GLSL, "pallDisplay"), lift = GlslFunction.parse(GLSL, "pallLift");
         for (double v = 0; v <= 1.5; v += 0.01) {
             assertEquals(PallLight.linear(v), linear.call(Map.of("v", v)), 1e-12, "v = " + v);
             assertEquals(PallLight.display(v), display.call(Map.of("v", v)), 1e-6 * (1 + v), "v = " + v);
@@ -144,14 +141,14 @@ class PallGlslTest {
     /** Мелкие клубы шейдера — те же, что у {@link VolumeNoise#detail}. */
     @Test
     void detailMatchesJava() {
-        Function f = Function.parse(GLSL, "pallDetail");
+        GlslFunction f = GlslFunction.parse(GLSL, "pallDetail");
         for (double r = 0; r <= 1; r += 0.002) assertEquals(VolumeNoise.detail(r), f.call(Map.of("r", r)), 1e-9, "r = " + r);
     }
 
     /** Затухание рассеянного света и сам свет в слое ({@code pallK}, {@code pallDiffuse}) — те же, что в {@link PallLight}. */
     @Test
     void lightMatchesJava() {
-        Function k = Function.parse(GLSL, "pallK"), f = Function.parse(GLSL, "pallDiffuse");
+        GlslFunction k = GlslFunction.parse(GLSL, "pallK"), f = GlslFunction.parse(GLSL, "pallDiffuse");
         // у тёмного дыма (0,55, 0,48) k > 1: пучок гаснет как рассеянный свет при μ = 1/k
         double[] albedos = {1, 0.9989, 0.97, 0.9, 0.76, 0.55, 0.48};
         double[] phases = {0.3333, 0.375, 0.4595};
@@ -234,8 +231,8 @@ class PallGlslTest {
      */
     @Test
     void pallBehindTheFrontTakesTheWallLight() {
-        Function lit = Function.parse(GLSL, "pallLit"), burn = Function.parse(GLSL, "pallBurn"), light = Function.parse(GLSL, "pallDiffuse"),
-                lift = Function.parse(GLSL, "pallLift"), display = Function.parse(GLSL, "pallDisplay"), linear = Function.parse(GLSL, "pallLinear");
+        GlslFunction lit = GlslFunction.parse(GLSL, "pallLit"), burn = GlslFunction.parse(GLSL, "pallBurn"), light = GlslFunction.parse(GLSL, "pallDiffuse"),
+                lift = GlslFunction.parse(GLSL, "pallLift"), display = GlslFunction.parse(GLSL, "pallDisplay"), linear = GlslFunction.parse(GLSL, "pallLinear");
         assertTrue(GLSL.replaceAll("\\s+", " ").contains("vec3 pallFlame(float base, vec3 x, vec3 flame) { return min(pallLift3(base, x), "
                 + "vec3(pallLinear(flame.r), pallLinear(flame.g), pallLinear(flame.b))); }"), "pallFlame — не PallLight.flame");
         String fx = read("core/fx_pall.fsh");
@@ -309,7 +306,7 @@ class PallGlslTest {
      */
     @Test
     void glowFormulaIsThePicture() throws IOException {
-        Function f = Function.parse(read("core/fx.fsh"), "glowAlpha");
+        GlslFunction f = GlslFunction.parse(read("core/fx.fsh"), "glowAlpha");
         BufferedImage img;
         try (InputStream in = PallGlslTest.class.getResourceAsStream("/assets/incoming/textures/far/glow.png")) {
             assertNotNull(in, "far/glow.png");
@@ -335,10 +332,10 @@ class PallGlslTest {
     @Test
     void pallPutsItsLightTogetherOnce() {
         String march = read("core/fx_pall.fsh"), composite = read("core/fx_pall_composite.fsh");
-        assertTrue(march.contains("vec3 fire = min(below + under * (glow + s.fire / max(s.albedo, vec3(1e-7))) + around, flame);"),
+        assertTrue(march.contains("vec3 fire = min(below + under * (glow + s.fire / max(s.albedo, vec3(1e-7))) + around, gFlame);"),
                 "огонь в точке — одной суммой под пределом пламени");
         assertTrue(march.contains("vec3 emit = s.albedo * (field + beams + fire);"), "свет точки — рассеянный, пучки и огонь");
-        assertTrue(march.contains("+ min(below * exp(-sootK * self) + (0.5 + 0.75 * PALL_SOOT_G * mv) * glow + around, flame);"),
+        assertTrue(march.contains("+ min(below * exp(-gSootK * self) + (0.5 + 0.75 * PALL_SOOT_G * mv) * glow + around, gFlame);"),
                 "огонь на дыме шторма — одной суммой под пределом пламени");
         assertTrue(march.contains("s.burn += pallFlame("), "пожары под пылью — не ярче пламени");
         assertTrue(march.contains("s.tau += f.column.x + f.column.y + f.column.z;"), "толща над точкой — весь столб слоя");
@@ -372,8 +369,8 @@ class PallGlslTest {
 
     @Test
     void fireLawsMatchJava() {
-        Function bend = Function.parse(GLSL, "fireBend"), width = Function.parse(GLSL, "fireWidth"), lod = Function.parse(GLSL, "fireLod"),
-                glow = Function.parse(GLSL, "fireGlowLod"), column = Function.parse(GLSL, "fireColumn");
+        GlslFunction bend = GlslFunction.parse(GLSL, "fireBend"), width = GlslFunction.parse(GLSL, "fireWidth"), lod = GlslFunction.parse(GLSL, "fireLod"),
+                glow = GlslFunction.parse(GLSL, "fireGlowLod"), column = GlslFunction.parse(GLSL, "fireColumn");
         for (double h = -60; h <= 400; h += 0.5) {
             assertEquals(FireStorm.bend(h, FireStorm.BEND_HEIGHT), bend.call(Map.of("h", h, "hb", FireStorm.BEND_HEIGHT)), 1e-9, "h = " + h);
             for (double cell : new double[]{4, 32}) {
@@ -383,186 +380,6 @@ class PallGlslTest {
                 assertEquals(FireStorm.lod(w, cell), lod.call(Map.of("w", w, "cell", cell)), 1e-9, "w = " + w);
             }
             assertEquals(FireStorm.column(h, 260), column.call(Map.of("h", h, "top", 260.0)), 1e-9, "h = " + h);
-        }
-    }
-
-    /**
-     * Функция GLSL из чисел в число: объявления {@code float a = …, b = …;}, {@code if (условие) return …;},
-     * {@code return …;}; в выражениях — числа, переменные (у vec2 — {@code n.x}), + − * /, сравнения, встроенные
-     * {@code smoothstep, clamp, min, max, exp, log2, pow, abs, sqrt, sign} и такие же функции того же файла.
-     */
-    private record Function(List<String> tokens, List<String> params, String source) {
-        private static final Pattern TOKEN = Pattern.compile("\\s*(\\d+\\.?\\d*(?:[eE][-+]?\\d+)?|\\.\\d+|[A-Za-z_]\\w*(?:\\.[xyzw]+)?|<=|>=|==|[-+*/(),;{}<>=])");
-
-        static Function parse(String source, String name) {
-            Matcher m = Pattern.compile("float\\s+" + name + "\\s*\\(([^)]*)\\)\\s*\\{").matcher(source);
-            if (!m.find()) throw new AssertionError("в pall.glsl нет float " + name);
-            List<String> params = new ArrayList<>();
-            for (String p : m.group(1).split(",")) {
-                String[] w = p.strip().split("\\s+");
-                if (!w[0].isEmpty()) params.add(w[w.length - 1]);
-            }
-            int depth = 1, i = m.end();
-            for (; depth > 0; i++) {
-                if (source.charAt(i) == '{') depth++;
-                if (source.charAt(i) == '}') depth--;
-            }
-            String body = source.substring(m.end(), i - 1);
-            List<String> tokens = new ArrayList<>();
-            Matcher t = TOKEN.matcher(body);
-            int at = 0;
-            while (at < body.length() && t.find(at) && t.start() == at) {
-                tokens.add(t.group(1));
-                at = t.end();
-            }
-            if (!body.substring(at).isBlank()) throw new AssertionError(name + ": не разобрать «" + body.substring(at).trim() + "»");
-            return new Function(tokens, params, source);
-        }
-
-        double call(Map<String, Double> args) {
-            return new Run(tokens, new HashMap<>(args), source).body();
-        }
-    }
-
-    private static final class Run {
-        private static final Set<String> BUILTIN = Set.of("smoothstep", "clamp", "min", "max", "exp", "log2", "pow", "abs", "sqrt", "sign");
-        private final List<String> t;
-        private final Map<String, Double> vars;
-        private final String source;
-        private int i;
-
-        Run(List<String> tokens, Map<String, Double> vars, String source) {
-            this.t = tokens;
-            this.vars = vars;
-            this.source = source;
-        }
-
-        double body() {
-            while (i < t.size()) {
-                String w = next();
-                switch (w) {
-                    case "float" -> {
-                        do {
-                            String name = next();
-                            expect("=");
-                            vars.put(name, expr());
-                        } while (take(","));
-                        expect(";");
-                    }
-                    case "if" -> {
-                        expect("(");
-                        boolean c = condition();
-                        expect(")");
-                        expect("return");
-                        double v = expr();
-                        expect(";");
-                        if (c) return v;
-                    }
-                    case "return" -> {
-                        double v = expr();
-                        expect(";");
-                        return v;
-                    }
-                    default -> throw new AssertionError("не знаю инструкцию " + w);
-                }
-            }
-            throw new AssertionError("нет return");
-        }
-
-        private boolean condition() {
-            double a = expr();
-            String op = next();
-            double b = expr();
-            return switch (op) {
-                case "<" -> a < b;
-                case "<=" -> a <= b;
-                case ">" -> a > b;
-                case ">=" -> a >= b;
-                case "==" -> a == b;
-                default -> throw new AssertionError("не знаю сравнение " + op);
-            };
-        }
-
-        private double expr() {
-            double v = term();
-            while (i < t.size() && (t.get(i).equals("+") || t.get(i).equals("-"))) v = next().equals("+") ? v + term() : v - term();
-            return v;
-        }
-
-        private double term() {
-            double v = unary();
-            while (i < t.size() && (t.get(i).equals("*") || t.get(i).equals("/"))) v = next().equals("*") ? v * unary() : v / unary();
-            return v;
-        }
-
-        private double unary() {
-            if (take("-")) return -unary();
-            if (take("(")) {
-                double v = expr();
-                expect(")");
-                return v;
-            }
-            String w = next();
-            if (Character.isDigit(w.charAt(0)) || w.charAt(0) == '.') return Double.parseDouble(w);
-            if (take("(")) {
-                List<Double> a = new ArrayList<>();
-                if (!take(")")) {
-                    do a.add(expr());
-                    while (take(","));
-                    expect(")");
-                }
-                return function(w, a);
-            }
-            Double v = vars.get(w);
-            if (v == null) throw new AssertionError("нет переменной " + w);
-            return v;
-        }
-
-        /** Встроенная функция или функция того же файла (её параметры — по порядку). */
-        private double function(String name, List<Double> a) {
-            if (BUILTIN.contains(name)) return builtin(name, a);
-            Function f = Function.parse(source, name);
-            if (f.params.size() != a.size()) throw new AssertionError(name + ": параметров " + f.params.size() + ", а дано " + a.size());
-            Map<String, Double> args = new HashMap<>();
-            for (int k = 0; k < a.size(); k++) args.put(f.params.get(k), a.get(k));
-            return f.call(args);
-        }
-
-        private static double builtin(String name, List<Double> a) {
-            return switch (name) {
-                case "smoothstep" -> {
-                    double f = Math.max(0, Math.min(1, (a.get(2) - a.get(0)) / (a.get(1) - a.get(0))));
-                    yield f * f * (3 - 2 * f);
-                }
-                case "clamp" -> Math.max(a.get(1), Math.min(a.get(2), a.get(0)));
-                case "min" -> Math.min(a.get(0), a.get(1));
-                case "max" -> Math.max(a.get(0), a.get(1));
-                case "exp" -> Math.exp(a.get(0));
-                case "log2" -> Math.log(a.get(0)) / Math.log(2);
-                case "pow" -> Math.pow(a.get(0), a.get(1));
-                case "abs" -> Math.abs(a.get(0));
-                case "sqrt" -> Math.sqrt(a.get(0));
-                case "sign" -> Math.signum(a.get(0));
-                default -> throw new AssertionError("не знаю функцию " + name);
-            };
-        }
-
-        private String next() {
-            if (i >= t.size()) throw new AssertionError("конец функции раньше времени");
-            return t.get(i++);
-        }
-
-        private boolean take(String w) {
-            if (i < t.size() && t.get(i).equals(w)) {
-                i++;
-                return true;
-            }
-            return false;
-        }
-
-        private void expect(String w) {
-            String got = next();
-            if (!got.equals(w)) throw new AssertionError("ждал «" + w + "», а там «" + got + "»");
         }
     }
 }

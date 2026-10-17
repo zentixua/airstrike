@@ -25,8 +25,8 @@ English · [Русский](ru/faq.md)
 
 **No sound from the mod.** Check the Ambient/Environment slider.
 
-**The game stutters during a nuclear explosion.** Set "Mushroom cloud detail" to LOW and give the game at least 8 GB of
-memory.
+**The game stutters during a nuclear explosion.** Set "Blast dust and spray detail" and "Mushroom cloud and dust pall" to
+LOW and give the game at least 8 GB of memory.
 
 **A launcher or SAM does not fire.** RMB on it with an empty hand shows why. A SAM needs open sky, missiles in stock and
 a player nearby; it does not shoot down its own side's projectiles, ICBMs or Grad rockets.
