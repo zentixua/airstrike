@@ -19,8 +19,8 @@ import java.nio.file.Path;
 /**
  * Разбор повтора Flashback без окна (README.md): после загрузки клиент открывает повтор, пускает его с
  * {@link Settings#speed} и не рисует; сервер повтора в конце каждого тика отдаёт мир {@link Scan}; дошёл до конца —
- * таблицы закрыты, игра выходит. С {@code -Dreplayscan.film} — съёмка по плану ({@link Film}); без этих свойств мод
- * ничего не делает.
+ * таблицы закрыты, игра выходит. С {@code -Dreplayscan.film} — съёмка по плану ({@link Film}), с
+ * {@code -Dreplayscan.view} — повтор открыт для человека ({@link View}); без этих свойств мод ничего не делает.
  */
 @Mod(value = "replayscan", dist = Dist.CLIENT)
 public final class ReplayScan {
@@ -44,6 +44,13 @@ public final class ReplayScan {
         if (film != null && !film.isBlank()) {
             settings = null;
             Film.start(Path.of(film), modBus);
+            return;
+        }
+        // просмотр человеком (View) — вместо разбора
+        String view = System.getProperty("replayscan.view");
+        if (view != null && !view.isBlank()) {
+            settings = null;
+            View.start(Path.of(view), Integer.parseInt(System.getProperty("replayscan.at", "0")), LOG);
             return;
         }
         if (System.getProperty("replayscan.replay", "").isBlank()) {
