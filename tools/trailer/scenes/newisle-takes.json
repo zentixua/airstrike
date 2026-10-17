@@ -450,21 +450,21 @@
     {"do": "sam", "at": "c1_sam_w", "load": 0},
     {"do": "sam", "at": "c1_sam", "load": 0},
     {"do": "sam", "at": "c1_sam_e", "load": 0},
-    {"do": "crowd", "group": "hq", "at": {"at": [-211, 402], "above": 0}, "n": 3, "spots": [[-210.5, 402.5], [-211.5, 401.5], [-212.5, 400.5]], "roam": 0, "prefix": "Off", "names": ["Volkov"], "creative": true},
+    {"do": "crowd", "group": "hq", "at": {"at": [-205, 408], "above": 0}, "n": 3, "spots": [[-204.5, 408.5], [-205.5, 407.5], [-206.5, 406.5]], "roam": 0, "prefix": "Off", "names": ["Volkov"], "creative": true},
     {"do": "settle"},
     {"do": "crowd.watch", "group": "hq", "at": {"at": [-200, 110], "above": 20}, "jitter": 4}
    ],
    "shots": [
     {"plans": ["n30a"], "seconds": 3.6,
      "strikes": [
-      {"weapon": "drone", "from": [142, 1196], "via": [[-43, 710]], "to": [-330, 72, -38], "eta": 8.14},
-      {"weapon": "drone", "from": [-309, 1242], "via": [[-233, 728]], "to": [-201, 86, -70], "eta": 8.62},
-      {"weapon": "drone", "from": [-342, 1218], "via": [[-225, 711]], "to": [-98, 83, 13], "eta": 6.67},
-      {"weapon": "drone", "from": [-220, 1250], "via": [[-176, 732]], "to": [-136, 62, -35], "eta": 8.37},
-      {"weapon": "drone", "from": [-56, 1193], "via": [[-103, 675]], "to": [-214, 70, -58], "eta": 8.51},
-      {"weapon": "drone", "from": [-86, 1191], "via": [[-193, 683]], "to": [-211, 63, -98], "eta": 10.08},
-      {"weapon": "drone", "from": [-252, 1177], "via": [[-161, 665]], "to": [-177, 83, -18], "eta": 7.95},
-      {"weapon": "drone", "from": [89, 1147], "via": [[-123, 672]], "to": [-256, 83, -31], "eta": 9.27}
+      {"weapon": "drone", "from": [148, 1195], "via": [[-40, 710]], "to": [-330, 72, -38], "eta": 8.29},
+      {"weapon": "drone", "from": [-305, 1242], "via": [[-229, 728]], "to": [-197, 86, -70], "eta": 8.75},
+      {"weapon": "drone", "from": [-334, 1219], "via": [[-219, 711]], "to": [-94, 83, 13], "eta": 6.77},
+      {"weapon": "drone", "from": [-215, 1250], "via": [[-172, 732]], "to": [-132, 62, -35], "eta": 8.47},
+      {"weapon": "drone", "from": [-55, 1193], "via": [[-101, 675]], "to": [-210, 70, -58], "eta": 8.61},
+      {"weapon": "drone", "from": [-82, 1191], "via": [[-190, 683]], "to": [-206, 63, -98], "eta": 10.2},
+      {"weapon": "drone", "from": [-248, 1176], "via": [[-157, 665]], "to": [-173, 83, -18], "eta": 8.06},
+      {"weapon": "drone", "from": [90, 1147], "via": [[-121, 672]], "to": [-252, 83, -31], "eta": 9.4}
      ],
      "ready": [{"do": "sam.config", "kill": 0.6, "engage": 170, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 3}, {"do": "sam", "at": "c1_sam", "load": 3}, {"do": "sam", "at": "c1_sam_e", "load": 3}],
      "expect": {"kills": [2, 6], "interceptors": 5},
