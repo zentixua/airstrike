@@ -218,14 +218,25 @@ float mushGap(Mush m, vec3 q) {
     return max(gap, 0.0) / (1.0 + length(m.drift) / max(m.endTop, 1.0));
 }
 
-// Отрезок луча (из глаза, dir — единичный) в рамке гриба: цилиндр вокруг его оси посреди сноса; вход ≥ выхода — мимо
+// Отрезок луча (из глаза, dir — единичный) в рамке гриба: цилиндр радиуса boundR вдоль оси, наклонённой сносом (доля
+// сноса растёт с высотой — mushLocal; выше endTop запас в boundR). В координатах со сдвигом по высоте ось вертикальна,
+// а луч остаётся лучом: вертикальный цилиндр вокруг середины сноса брал бы на поздних кадрах с ветром пустое шириной в
+// снос. Вход ≥ выхода — мимо
 vec2 mushSpan(Mush m, vec3 dir) {
-    vec2 c = m.base.xz + 0.5 * m.drift;
-    float a = dot(dir.xz, dir.xz), b = dot(dir.xz, c), cc = dot(c, c) - m.boundR * m.boundR;
-    float disc = b * b - a * cc;
-    if (a < 1e-8 || disc <= 0.0) return vec2(1.0, 0.0);
-    float sq = sqrt(disc);
-    vec2 t = vec2(b - sq, b + sq) / a;
+    vec2 k = m.drift / max(m.endTop, 1.0);
+    vec2 d = dir.xz - k * dir.y, c = m.base.xz - k * m.base.y;
+    float a = dot(d, d), b = dot(d, c), cc = dot(c, c) - m.boundR * m.boundR;
+    vec2 t;
+    if (a < 1e-8) {
+        // луч вдоль оси: внутри цилиндра — весь, снаружи — мимо
+        if (cc > 0.0) return vec2(1.0, 0.0);
+        t = vec2(-1e9, 1e9);
+    } else {
+        float disc = b * b - a * cc;
+        if (disc <= 0.0) return vec2(1.0, 0.0);
+        float sq = sqrt(disc);
+        t = vec2(b - sq, b + sq) / a;
+    }
     float lo = m.base.y - 0.05 * m.boundTop, hi = m.base.y + m.boundTop;
     if (abs(dir.y) > 1e-5) {
         float ta = lo / dir.y, tb = hi / dir.y;

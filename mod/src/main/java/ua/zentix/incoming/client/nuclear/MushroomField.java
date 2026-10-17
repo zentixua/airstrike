@@ -218,7 +218,10 @@ public final class MushroomField {
         double t = s.t(), y = d.yieldKt();
         double[] w = DRIFT;
         drift(d, t, w);
-        double boundR = d.blocks(reach(s)) + 0.5 * Math.hypot(w[0], w[1]);
+        // рамка — цилиндр вдоль оси, наклонённой сносом (mushSpan): доля сноса растёт с высотой до конца подъёма,
+        // выше и под землёй ось не наклоняется дальше, наклонный цилиндр уходит в сторону — на столько шире
+        double top = d.blocks(top(s)), end = Math.max(d.blocks(s.endTop()), 1);
+        double boundR = d.blocks(reach(s)) + Math.hypot(w[0], w[1]) * Math.max(0.05 * top, top - end) / end;
         double ringA = d.blocks(s.ringA()), ringB = d.blocks(s.ringB());
         // ослабление шапки: толща поперёк меньшего поперечника сечения кольца
         double across = 2 * Math.min(ringA, ringB);
@@ -228,7 +231,7 @@ public final class MushroomField {
         double wet = a.puffs.burstWet();
         put(into, o, 0, d.burst().x - eye.x, d.burst().z - eye.z, d.groundY() - eye.y, 1);
         put(into, o, 1, w[0], w[1], d.blocks(s.endTop()), boundR);
-        put(into, o, 2, d.blocks(s.capY()), d.blocks(s.capR()), d.blocks(s.ringR()), d.blocks(top(s)));
+        put(into, o, 2, d.blocks(s.capY()), d.blocks(s.capR()), d.blocks(s.ringR()), top);
         put(into, o, 3, ringA, ringB, d.blocks(s.domeY()), d.blocks(s.domeR()));
         // плитка клубов шапки — два меньших поперечника сечения: клуб — пузырь в полсечения
         put(into, o, 4, d.blocks(s.domeH()), capSigma, Math.max(across, 1), t);

@@ -302,9 +302,9 @@ public final class PallPass {
         /** Свет неба кадра на экране — белая стена: днём 1, ночью — как у клубов стены пыли ({@code FarView.ambient}). */
         public float base = 1;
         /**
-         * Свет стены пыли на пелене слотов ({@code client/nuclear/CloudPuffs#pallLight}): glow — свет шара и шапки сверху,
-         * накал гриба, шесть радиусов шара и край зоны пожаров (блоки); hot — цвет накала (rgb) и высота шара или шапки
-         * над землёй под эпицентром (блоки, w). Нули — без отсвета.
+         * Свет стены пыли на пелене слотов ({@code client/nuclear/CloudPuffs#pallLight}): glow — свет шара сверху,
+         * накал гриба, шесть радиусов шара и край зоны пожаров (блоки); hot — цвет накала (rgb) и высота шара над
+         * землёй под эпицентром (блоки, w). Нули — без отсвета.
          */
         public final Vector4f glow0 = new Vector4f(), glow1 = new Vector4f(), hot0 = new Vector4f(), hot1 = new Vector4f();
         /** Сила отсвета стены на пыли при свете неба кадра ({@code CloudPuffs#glowOnSmoke}). */

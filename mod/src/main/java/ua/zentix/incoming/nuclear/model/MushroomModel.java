@@ -93,8 +93,8 @@ public final class MushroomModel {
     public static final double EDGE_HEAT = 0.35;
 
     /**
-     * Температура видимого края шапки, K ({@link #EDGE_HEAT}): её свет виден у объёма гриба и светит вниз, на пыль и
-     * пелену. Ядро горячее, но под толщей края его не видно.
+     * Температура видимого края шапки, K ({@link #EDGE_HEAT}): её свет виден у объёма гриба (пыль
+     * внизу светит только шар — CloudPuffs). Ядро горячее, но под толщей края его не видно.
      */
     public static double edgeTemperature(double t, double yieldKt, boolean surface) {
         return AMBIENT_K + (coreTemperature(t, yieldKt, surface) - AMBIENT_K) * EDGE_HEAT;

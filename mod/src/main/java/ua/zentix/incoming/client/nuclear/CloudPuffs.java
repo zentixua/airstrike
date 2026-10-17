@@ -297,7 +297,7 @@ public final class CloudPuffs {
         m.endTop = Math.max(start, CloudModel.stabilizedTop(y));
         double top = CloudModel.top(t, hob, y);
         double capBot = Math.max(hob, CloudModel.capBottom(t, hob, y));
-        // середина шапки — откуда её накал светит пыль у земли
+        // середина шапки — там и шар, пока он светит пыль у земли
         m.yc = capBot + Math.max(rf, top - capBot) * 0.5;
         m.glow = glow(t, y);
         // шар освещает всё вокруг себя: облако Вильсона, пыль под ним
@@ -415,7 +415,7 @@ public final class CloudPuffs {
 
     /**
      * Свет клуба стены на {@code rr} м от эпицентра и на доле её высоты {@code up} (0 — у земли, 1 — верх): тень, отсвет
-     * (шар и шапка сверху или пожар под стеной) и цвет пыли — в s.
+     * (шар сверху или пожар под стеной) и цвет пыли — в s.
      */
     private void ringLight(Moment m, double rr, double up, Spot s) {
         // низ — с землёй и обломками, темнее; верх светлее — освещён небом
@@ -429,9 +429,9 @@ public final class CloudPuffs {
     }
 
     /**
-     * Отсвет шара, потом раскалённой шапки сверху на пыли у земли 0..1 ({@code pallLit} в {@code pall.glsl} — то же):
-     * на {@code r} от эпицентра по земле и доле высоты пыли {@code up} (низ темнее), {@code overhead} — свет шара и шапки
-     * 0..1, {@code lightR} — шесть радиусов шара ({@link #lightFalloff}); r и lightR — в одних единицах.
+     * Отсвет шара сверху на пыли у земли 0..1 ({@code pallLit} в {@code pall.glsl} — то же):
+     * на {@code r} от эпицентра по земле и доле высоты пыли {@code up} (низ темнее), {@code overhead} — свет шара 0..1,
+     * {@code lightR} — шесть радиусов шара ({@link #lightFalloff}); r и lightR — в одних единицах.
      */
     static double lit(double r, double up, double overhead, double lightR) {
         double x = r / Math.max(lightR, 1e-3);
@@ -460,8 +460,8 @@ public final class CloudPuffs {
     /**
      * Свет стены пыли для пелены за фронтом в момент t (секунды модели) — {@code fx_pall} светит им пыль так же, как
      * стена свои клубы ({@link #lit}, {@link #burn}, {@link #wallColor}), и у фронта пелена продолжает её цвет. В
-     * {@code into}: свет шара и шапки сверху, накал гриба, шесть радиусов шара и край зоны пожаров (блоки), цвет накала
-     * (r, g, b в 0..1), высота шара или шапки над землёй под эпицентром (блоки). false — гриба уже нет (в {@code into}
+     * {@code into}: свет шара сверху, накал гриба, шесть радиусов шара и край зоны пожаров (блоки), цвет накала
+     * (r, g, b в 0..1), высота шара над землёй под эпицентром (блоки). false — гриба уже нет (в {@code into}
      * нули): нет и отсвета.
      */
     public boolean pallLight(double t, float[] into) {
