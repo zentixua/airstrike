@@ -123,7 +123,7 @@ public final class NukePall {
         }
         sigma = (float) s;
         mist = (float) wet;
-        if (headAt != null && (quality() == PallPass.Quality.OFF || !PallPass.available())) NukeDust.veil(headAt, cam, headMax, headWet > 0.5);
+        if (headAt != null && !drawsHead()) NukeDust.veil(headAt, cam, headMax, headWet > 0.5);
         if (muffles()) {
             // глухость меняется плавно: пелена накрывает за секунды
             float target = (float) (1 - Math.exp(-MUFFLE_PER_SIGMA * s));
@@ -367,6 +367,14 @@ public final class NukePall {
         // свечение гриба — чёрное тело в настоящей яркости (белая стена в полдень — 1): в кадр — с привыканием глаза к небу
         into.exposure = (float) Sight.adapted(1, ambient);
         into.glowOnSmoke = (float) CloudPuffs.glowOnSmoke(ambient);
+    }
+
+    /**
+     * Пелена рисует голову стены и пыль у глаза объёмом: качество не OFF, её шейдеры собрались и шум не сломался. Нет —
+     * голову у глаза показывают пелена на экране и клубы у камеры ({@link NukeDust}).
+     */
+    static boolean drawsHead() {
+        return quality() != PallPass.Quality.OFF && PallPass.available();
     }
 
     /**
