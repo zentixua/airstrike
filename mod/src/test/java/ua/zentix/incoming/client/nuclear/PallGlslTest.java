@@ -386,7 +386,7 @@ class PallGlslTest {
         assertTrue(march.contains("vec4 res = vec4(shown, min(transmit + lost, 1.0));"),
                 "пропускание кадра — настоящее и при пересвете");
         assertEquals(1, occurrences(composite, "pallDisplay("), "тень на мире в экран — один раз");
-        assertTrue(composite.contains("pall.a *= pallDisplay(shade("), "тень на мире — в экран");
+        assertTrue(composite.contains("pall.a *= mix(1.0, pallDisplay(shade(p)), seen);"), "тень на мире — в экран, вдали тает в дымке и тумане");
     }
 
     private static int occurrences(String text, String what) {

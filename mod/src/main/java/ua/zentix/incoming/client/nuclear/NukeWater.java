@@ -25,7 +25,8 @@ import java.util.OptionalInt;
 /**
  * Ядерная волна на воде (DESIGN-nuke §6, «Вода»): тёмное кольцо фронта на воде — рябь под ветром за фронтом, с пеной
  * у эпицентра (наклейка на воду в слое эффектов, {@link WaterDecal}: профиль кольца по модели считается здесь, на кадр);
- * стена брызг за фронтом у камеры (частицы, {@link FxBudget#SPRAY}); подрыв на воде — столб воды с короной в объёме
+ * капли с гребней за фронтом у камеры (частицы, {@link FxBudget#SPRAY}; водяную пыль там рисует голова стены в пелене,
+ * {@link #front}); подрыв на воде — столб воды с короной в объёме
  * гриба ({@link MushroomField}) и базисная волна в пелене ({@link PallField#water}). Пыль у земли над водой не встаёт:
  * голова стены там — брызги и водяная пыль ({@link BlastWall}, вода — по карте под пеленой, {@link PallGround}), частицы
  * пыли у камеры — только над сушей ({@link NukeDust#front}).
@@ -160,8 +161,10 @@ public final class NukeWater {
 
     /**
      * Брызги у камеры: пока фронт по воде ближе {@link NukeDust#NEAR} к камере — по его дуге над водой (загруженные
-     * чанки) встают клубы водяной пыли на высоту, на которую ветер за фронтом срывает гребни
-     * ({@link WaterModel#sprayHeight}), и летят капли; гуще, где ветер сильнее.
+     * чанки) с гребней летят капли; гуще, где ветер сильнее. Саму водяную пыль на высоту, на которую ветер за фронтом
+     * срывает гребни ({@link WaterModel#sprayHeight}), рисует пелена объёмом — голова стены над водой
+     * ({@link NukePall#drawsHead}), как и пыль у камеры над сушей ({@link NukeDust}); клубы — только запасные, когда
+     * пелена её не рисует, и гладкие: клуб шире экрана у глаза ближайшим пикселем — лесенка квадратов на весь кадр.
      */
     private static void front(ClientNuclear.Active a, ClientLevel level, Vec3 eye) {
         lastSpots = 0;
@@ -178,9 +181,12 @@ public final class NukeWater {
         double half = l < 1 ? Math.PI : Math.acos(Mth.clamp((l * l + r * r - NukeDust.NEAR * NukeDust.NEAR) / (2 * l * r), -1, 1));
         double toward = Math.atan2(ez, ex);
         double speed = Math.min(SPRAY_SPEED, d.frontRadius(ticks + 1) - slant);
-        // брызги встают позади тёмного кольца: на путь фронта за время подъёма брызг (WaterModel.SPRAY_LAG)
-        double lag = Math.max(0, slant - d.frontRadius(Math.max(0, ticks - WaterModel.SPRAY_LAG * 20 * d.scale())));
+        // брызги встают позади тёмного кольца там же, где их рисует голова стены (BlastWall.slot): позади края пыли (фронт
+        // BlastWall.LIFT_S назад) на путь головы за время подъёма брызг (WaterModel.SPRAY_LAG)
+        double back = (BlastWall.LIFT_S + WaterModel.SPRAY_LAG) * 20 * d.scale();
+        double lag = Math.max(0, slant - d.frontRadius(Math.max(0, ticks - back)));
         int n = Math.min(MAX_SPOTS, (int) Math.round(2 * half * r / STEP * spray * Fx.density(eye)));
+        boolean puffs = !NukePall.drawsHead(a, eye);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (int i = 0; i < n; i++) {
             double ang = toward + (RANDOM.nextDouble() * 2 - 1) * half;
@@ -196,11 +202,13 @@ public final class NukeWater {
             // водяная пыль: пелена у самой воды (клубы прозрачные и крупные — сливаются, а не висят шарами), выше —
             // реже и крупнее, катится с фронтом медленнее его
             double up = Math.pow(RANDOM.nextDouble(), 2.2), h = height * 0.85 * up;
-            double v = speed * (0.35 + 0.45 * RANDOM.nextDouble());
-            Fx.smoke().vel(cos * v, (0.03 + 0.12 * RANDOM.nextDouble()) * (1 - up), sin * v)
-                    .size((float) (2 + 0.1 * h), (float) (6 + Math.min(14, height * 0.3) + 4 * RANDOM.nextDouble())).growFast()
-                    .life(40 + RANDOM.nextInt(50)).color(SPRAY_DARK, SPRAY_LIGHT).alpha((float) (0.22 + 0.25 * spray)).drag(0.94f)
-                    .wind(0).fadeIn(6).fadeFrom(0.3f).budget(FxBudget.SPRAY).spawn(level, x, surface + 0.3 + h, z);
+            if (puffs) {
+                double v = speed * (0.35 + 0.45 * RANDOM.nextDouble());
+                Fx.smoke().vel(cos * v, (0.03 + 0.12 * RANDOM.nextDouble()) * (1 - up), sin * v)
+                        .size((float) (2 + 0.1 * h), (float) (6 + Math.min(14, height * 0.3) + 4 * RANDOM.nextDouble())).growFast()
+                        .life(40 + RANDOM.nextInt(50)).color(SPRAY_DARK, SPRAY_LIGHT).alpha((float) (0.22 + 0.25 * spray)).drag(0.94f)
+                        .smooth().wind(0).fadeIn(6).fadeFrom(0.3f).budget(FxBudget.SPRAY).spawn(level, x, surface + 0.3 + h, z);
+            }
             // капли с гребней: летят с ветром и падают
             if (RANDOM.nextDouble() < 0.4 + 0.6 * spray) {
                 for (int k = 0; k < 2; k++) {

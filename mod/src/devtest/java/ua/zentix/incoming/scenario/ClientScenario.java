@@ -137,6 +137,8 @@ public final class ClientScenario {
     private boolean hover;
     /** Сценарий {@code mushroom}: куда от зрителя эпицентр (поворот, как у игрока), — туда, где суша. */
     private int mushroomYaw = 180;
+    /** Сценарий {@code mushroom}: тень гриба на земле ({@code INCOMING_MUSHROOM=shadow}). */
+    private boolean shadowView;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
     /** Ядерный подрыв у воды ({@code nuke-water}, {@code nuke-lake}): кадры от подрыва ({@link #waterEvents}). */
@@ -598,10 +600,28 @@ public final class ClientScenario {
      * ещё раз, через 2 с после 20-й и 70-й: как за это время сдвинулись и сменились клубы шапки. Ночью
      * ({@code INCOMING_MUSHROOM=night}) — свечение по
      * температуре; по умолчанию — утро, солнце сбоку. Качество — {@code INCOMING_PALL} (по умолчанию MEDIUM).
+     * <p>
+     * Тень гриба ({@code INCOMING_MUSHROOM=shadow}): подрыв в 5 км к востоку, зритель в 200 блоках над землёй смотрит
+     * на запад и вниз — гриба в кадре нет, есть только земля, на которую ложится его тень. Через 3 минуты — кадры
+     * {@code pall_shadow_<время>} при солнце с востока на разной высоте (тень гриба вытянута к западу на высоту шапки,
+     * делённую на тангенс высоты солнца: с 1875 до 3125 она на зрителе, край проходит по нему до и после) и при солнце
+     * с запада (8000: тени нет, пелена та же).
      */
     private void planMushroom() {
         mushroom = true;
         boolean night = "night".equals(System.getenv("INCOMING_MUSHROOM"));
+        if ("shadow".equals(System.getenv("INCOMING_MUSHROOM"))) {
+            shadowView = true;
+            at(40, () -> {
+                cmd("time set 2000");
+                cmd("weather clear");
+                cmd("gamerule doDaylightCycle false");
+                cmd("tp @s 0.5 200 0.5 90 35");
+                hover = true;
+            });
+            at(400, () -> cmd("incoming nuke now at 5000.5 320 0.5 15 ground"));
+            return;
+        }
         at(20, () -> {
             // эпицентр в 10 км — на суше по генератору (у зерна сценария к северу море: подрыв там водяной, и столб воды
             // закрывал бы шар): первое направление, где суша под эпицентром и в 600 блоках вокруг (юбка, пелена), а нет
@@ -648,6 +668,20 @@ public final class ClientScenario {
         if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
         detTick = tick;
         Incoming.LOG.info("SCENARIO detonation at tick {}, burst {}", tick, xyz(ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d.burst()));
+        if (shadowView) {
+            // волна прошла, шапка выше 5 км; кадр — через 3 с после смены времени (пелена копит свет по кадрам)
+            int t = tick + 20 * 180;
+            for (int time : new int[]{1500, 1625, 1750, 1875, 2500, 3125, 3250, 3375, 8000}) {
+                at(t, () -> cmd("time set " + time));
+                pallShot(t + 60, "shadow_" + time);
+                t += 80;
+            }
+            at(t + 20, () -> {
+                Incoming.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+            return;
+        }
         for (int s : new int[]{2, 5, 10, 20, 22, 40, 70, 72, 120, 240}) pallShot(tick + 20 * s, "mushroom_" + s + "s");
         at(tick + 20 * 240 + 20, () -> {
             Incoming.LOG.info("SCENARIO done");

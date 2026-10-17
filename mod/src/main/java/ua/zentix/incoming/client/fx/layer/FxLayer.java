@@ -12,6 +12,7 @@ import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
+import org.joml.Vector4f;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.far.FarRenderer;
 import ua.zentix.incoming.client.far.FarView;
@@ -48,6 +49,7 @@ public final class FxLayer {
     private static final FxLights LIGHTS = new FxLights();
     private static final SourceProbes PROBES = new SourceProbes();
     private static final FxFrame.Fog FOG = new FxFrame.Fog();
+    private static final Vector4f HAZE = new Vector4f();
     private static final Matrix4f VIEW_PROJECTION = new Matrix4f(), VIEW = new Matrix4f();
     private static final FrustumIntersection FRUSTUM = new FrustumIntersection();
     @Nullable
@@ -109,6 +111,12 @@ public final class FxLayer {
         } catch (IOException ex) {
             PallPass.march = PallPass.resolve = PallPass.composite = null;
             Incoming.LOG.error("Nuclear dust pall shaders failed to load: no dust pall", ex);
+        }
+        try {
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_mush_shadow"), DefaultVertexFormat.POSITION), s -> PallPass.shadow = s);
+        } catch (IOException ex) {
+            PallPass.shadow = null;
+            Incoming.LOG.error("Mushroom shadow shader failed to load: no mushroom shadow on the ground", ex);
         }
     }
 
@@ -192,7 +200,8 @@ public final class FxLayer {
             // наклейка на воду — под пеленой и квадратами: пыль, брызги и дым над водой ложатся на неё
             if (WaterDecal.active()) WaterDecal.draw(e, view, scene, FOG);
             // пелена — до квадратов: они ложатся на неё со своей долей пелены перед ними (fx.vsh)
-            boolean pallDrawn = pall != null && scene >= 0 && PallPass.draw(pall, scene, VIEW, e.getProjectionMatrix(), view.camera());
+            boolean pallDrawn = pall != null && scene >= 0 && PallPass.draw(pall, scene, VIEW, e.getProjectionMatrix(), view.camera(),
+                    FOG.haze(view.range(), HAZE));
             if (!pallDrawn) PallPass.reset();
             PallPass.Frame front = pallDrawn ? pall : PallPass.empty();
             // пробы — после пелены: её проход кладёт карты и таблицу грибов кадра, а проба берёт пропускание пелены и грибов
