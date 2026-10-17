@@ -58,6 +58,7 @@ public final class IncomingConfig {
         public final ModConfigSpec.IntValue nukeDefaultYield;
         public final ModConfigSpec.IntValue nukeMaxYield;
         public final ModConfigSpec.DoubleValue nukeEffectsScale;
+        public final ModConfigSpec.DoubleValue nukeWaveSpeed;
         public final ModConfigSpec.BooleanValue nukeBlockDamage;
         public final ModConfigSpec.BooleanValue nukeFires;
         public final ModConfigSpec.BooleanValue nukeTreeFall;
@@ -100,9 +101,9 @@ public final class IncomingConfig {
                     .translation("incoming.config.drone_power").defineInRange("drone_power", 12, 1, 60);
             missilePower = b.comment("Cruise missile blast power (TNT = 4).")
                     .translation("incoming.config.missile_power").defineInRange("missile_power", 20, 1, 60);
-            rocketPower = b.comment("Blast power of each MLRS rocket in a salvo (122 mm, like the Grad; TNT = 4).")
+            rocketPower = b.comment("Blast power of each Grad rocket in a salvo (122 mm; TNT = 4).")
                     .translation("incoming.config.rocket_power").defineInRange("rocket_power", 7, 1, 60);
-            loiterPower = b.comment("Loitering munition blast power (TNT = 4).")
+            loiterPower = b.comment("Lancet blast power (TNT = 4).")
                     .translation("incoming.config.loiter_power").defineInRange("loiter_power", 8, 1, 60);
             bunkerPower = b.comment("Underground blast power of the bunker buster (TNT = 4).")
                     .translation("incoming.config.bunker_power").defineInRange("bunker_power", 20, 1, 60);
@@ -158,7 +159,7 @@ public final class IncomingConfig {
                     .translation("incoming.config.missile_flight_time").defineInRange("missile_flight_time", 30, 5, 600);
             bomberFlightTime = b.comment("B-2 approach until bomb release, seconds.")
                     .translation("incoming.config.bomber_flight_time").defineInRange("bomber_flight_time", 40, 5, 600);
-            loiterTime = b.comment("How long a loitering munition circles over the target before diving, seconds (±20% for each one in a salvo).")
+            loiterTime = b.comment("How long a Lancet circles over the target before diving, seconds (±20% for each one in a salvo).")
                     .translation("incoming.config.loiter_time").defineInRange("loiter_time", 25, 0, 600);
             b.pop();
 
@@ -173,6 +174,11 @@ public final class IncomingConfig {
                     .translation("incoming.config.nuke_max_yield").defineInRange("max_yield", Loadout.Nuke.MAX_YIELD, 1, Loadout.Nuke.MAX_YIELD);
             nukeEffectsScale = b.comment("Scale of all radii: 1.0 is true to life (1 block = 1 m); lower for small worlds.")
                     .translation("incoming.config.nuke_effects_scale").defineInRange("effects_scale", 1.0, 0.005, 1.0);
+            nukeWaveSpeed = b.comment("Speed of the blast wave and its dust wall away from the fireball, as a share of the speed of sound",
+                            "(1.0 is true to life). Lower gives the server more time to build ruins ahead of the wave and lets players",
+                            "watch the wall roll in. Near the fireball the wave is always true to life; beyond the dust wall only the sound",
+                            "travels on, at the speed of sound.")
+                    .translation("incoming.config.nuke_wave_speed").defineInRange("wave_speed", 0.42, 0.15, 1.0);
             nukeBlockDamage = b.comment("The blast wave destroys buildings and trees. Off: no ruins and no crater.")
                     .translation("incoming.config.nuke_block_damage").define("block_damage", true);
             nukeFires = b.comment("The thermal pulse starts fires.")
@@ -245,8 +251,8 @@ public final class IncomingConfig {
             workBudgetMs = b.comment("At most how many milliseconds of each tick the server spends on the mod's heavy work in total (5–45):",
                             "strike destruction, then the nuke (up to destruction_ms_per_tick), then blackout lights (up to",
                             "their ms_per_tick). The full budget comes only from time left free in the tick: a server behind schedule",
-                            "gets 2 ms for each of the three. More: salvo damage and nuclear ruins appear sooner;",
-                            "less: a steadier tick, craters and ruins take longer to finish.")
+                            "gets 2 ms for each of the three, and 6 ms more for nuclear ruins in a player's view. More: salvo damage and",
+                            "nuclear ruins appear sooner; less: a steadier tick, craters and ruins take longer to finish.")
                     .translation("incoming.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
             b.pop();
 
@@ -281,6 +287,7 @@ public final class IncomingConfig {
         public final ModConfigSpec.BooleanValue autoCamera;
         public final ModConfigSpec.DoubleValue zoom;
         public final ModConfigSpec.EnumValue<CloudQuality> nukeCloudQuality;
+        public final ModConfigSpec.EnumValue<DustQuality> nukeDustQuality;
         public final ModConfigSpec.BooleanValue nukeTinnitus;
         public final ModConfigSpec.BooleanValue soundMuffling;
         public final ModConfigSpec.BooleanValue mapPrefetch;
@@ -293,6 +300,11 @@ public final class IncomingConfig {
             CloudQuality(int puffs) {
                 this.puffs = puffs;
             }
+        }
+
+        /** Пелена пыли и дыма после ядерной волны: выключена или объёмом с качеством (client/fx/layer/PallPass). */
+        public enum DustQuality {
+            OFF, LOW, MEDIUM, HIGH
         }
 
         Client(ModConfigSpec.Builder b) {
@@ -308,9 +320,15 @@ public final class IncomingConfig {
                     .translation("incoming.config.zoom").defineInRange("zoom", 4.0, 1.5, 10.0);
             nukeCloudQuality = b.comment("Mushroom cloud detail: LOW / MEDIUM / HIGH = 750 / 1500 / 2500 puffs (plus 4/5 as many for the dust wall).")
                     .translation("incoming.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
+            nukeDustQuality = b.comment("Dust and smoke pall after a nuclear blast wave: OFF / LOW / MEDIUM / HIGH. LOW is lighter on a weak graphics card;",
+                            "MEDIUM and HIGH lower their own detail (not below LOW) while the pall takes more than about 2 ms of graphics card time a frame,",
+                            "but not while Flashback exports a video.",
+                            "OFF leaves only the dust wall and falling ash: no pall, and it does not muffle sounds.")
+                    .translation("incoming.config.nuke_dust_quality").defineEnum("nuke_dust_quality", DustQuality.MEDIUM);
             nukeTinnitus = b.comment("Ringing ears and muffled hearing after a nearby blast wave.")
                     .translation("incoming.config.nuke_tinnitus").define("nuke_tinnitus", true);
-            soundMuffling = b.comment("Strike sounds lose high tones with distance and are muffled behind hills and walls. With Sound Physics Remastered, that mod does it.")
+            soundMuffling = b.comment("Strike sounds lose high tones with distance and are muffled behind hills and walls (with Sound Physics Remastered, that mod does it);",
+                            "inside the nuclear dust pall, distant sounds are muffled too.")
                     .translation("incoming.config.sound_muffling").define("sound_muffling", true);
             mapPrefetch = b.comment("Terrain of the targeting map around the player is prepared in advance (from Distant Horizons) while a designator",
                             "is in the inventory or the map was opened in this world, so the map opens instantly.")

@@ -64,6 +64,11 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_GLASS = register("nuke.glass");
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_TINNITUS = register("nuke.tinnitus");
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_RAIN = register("nuke.rain");
+    // после удара: хлопок вдали, гул горящего города, ветер в огонь, обрушения руин
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_CRACK_FAR = register("nuke.crack_far");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_FIRE = register("nuke.fire");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_FIRE_WIND = register("nuke.fire_wind");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_COLLAPSE = register("nuke.collapse");
     public static final DeferredHolder<SoundEvent, SoundEvent> GEIGER_CLICK = register("geiger.click");
 
     // блэкаут: выход подстанции (хлопок, дуга, затихающий гул), квартал гаснет и загорается, гул и искры подстанции

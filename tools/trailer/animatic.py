@@ -11,7 +11,8 @@
     uv run tools/trailer/animatic.py <лист.json> <папка scout> <выход.mp4> [--music F] [--size 1280x720]
 
 Лист: {"bar": 1.92, "letterbox": {"aspect", "until", "open"}, "music": {"file", "parts": [{"at", "track", "end",
-"fade"}]}, "shots": [{"plan" | "card", "dur" | "bars", "text", "note"}]}. `parts` — куски трека на своих местах
+"fade"}]}, "shots": [{"plan" | "card", "dur" | "bars", "text", "note", "style"}]}. `style` карточки в монтаже (newisle_cut.py): "end" —
+строки конечного титра (по умолчанию), "title" — кегль логотипа (название). `parts` — куски трека на своих местах
 аниматика (как `PARTS` в edit.py, `gain` — дБ, `fade` — затухание в конце, с); нет файла музыки — без звука.
 `letterbox` — кадр `aspect` (2.39:1) чёрными полосами до первого плана `until`, там полосы уходят за `open` секунд.
 Плана нет в `poses.json` или у него нет кадра — серый кадр с его подписью.

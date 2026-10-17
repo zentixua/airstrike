@@ -136,7 +136,7 @@ final class Rig {
 
     /**
      * Удар снаряда {@code weapon}, ближайший к {@code near} (null — первый по времени, {@code nth} — какой по счёту
-     * среди подходящих, с нуля). Объект — снаряд до удара, потом место удара.
+     * среди подходящих, с нуля). Объект — снаряд до удара, потом место, где удар видно ({@link EventLog.Flight#seen}).
      */
     static Function<EventLog.Data, Subject> impact(String weapon, @Nullable Vec3 near, int nth) {
         return d -> {
@@ -146,7 +146,7 @@ final class Rig {
                     .toList();
             if (hits.size() <= nth) return null;
             EventLog.Flight f = hits.get(nth);
-            return new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.impactPos, blastOf(weapon));
+            return new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.seenPos, blastOf(weapon));
         };
     }
 
@@ -207,10 +207,10 @@ final class Rig {
             EventLog.Flight f = hits.get(0);
             if (cam != null) {
                 double clouds = cloudBase();
-                f = hits.stream().max(Comparator.comparingInt((EventLog.Flight x) -> inFrame(cam.at(x.impact), x.impactPos, 0.85) ? 1 : 0)
+                f = hits.stream().max(Comparator.comparingInt((EventLog.Flight x) -> inFrame(cam.at(x.impact), x.seenPos, 0.85) ? 1 : 0)
                         .thenComparingDouble(x -> framed(x, cam, a, x.impact, clouds, false))).orElseThrow();
             }
-            return new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.impactPos, blastOf(weapon));
+            return new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.seenPos, blastOf(weapon));
         };
     }
 
@@ -225,7 +225,7 @@ final class Rig {
             int a = start == null ? 0 : start.t(), b = end == null ? d.ticks - 1 : end.t();
             return d.of(weapon).stream().filter(f -> f.impact >= a && f.impact <= b + Coverage.HIT_MARGIN && f.impactPos != null)
                     .min(Comparator.comparingInt((EventLog.Flight f) -> f.impact))
-                    .map(f -> new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.impactPos,
+                    .map(f -> new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.seenPos,
                             blastOf(weapon)))
                     .orElse(null);
         };
@@ -857,7 +857,7 @@ final class Rig {
     static boolean smokeOnLine(Vec3 from, Vec3 to, List<EventLog.Flight> earlier, int t) {
         for (EventLog.Flight f : earlier) {
             if (f.impact < 0 || f.impact >= t - 10 || f.impact < t - 1200 || f.impactPos == null) continue;
-            Vec3 base = f.impactPos;
+            Vec3 base = f.seenPos;
             for (int k = 0; k <= 50; k += 10) {
                 if (distToSegment(base.add(0, k, 0), from, to) < 10 && base.distanceTo(to) > 12) return true;
             }

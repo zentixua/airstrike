@@ -22,10 +22,16 @@ void main() {
     vec2 ndc = uv * 2.0 - 1.0;
     float depth = texelFetch(Sampler0, ivec2(gl_FragCoord.xy), 0).r;
     float dist = depth >= 1.0 ? 1e9 : along(InvProj, ndc, depth * 2.0 - 1.0);
+    // мир — только перед глазом и конечным расстоянием; иначе (NaN, бесконечность, за глазом) — неба: пелена и слой
+    // эффектов берут расстояние до мира как есть, и NaN из него — чёрный пиксель кадра
+    if (!(dist > 0.0 && dist < 1e8)) dist = 1e9;
     if (DhDepth.x > 0.5) {
         float lod = texture(Sampler1, uv).r;
         if (abs(lod - DhDepth.z) > 1e-7) {
-            dist = min(dist, along(DhInvProj, ndc, DhDepth.y > 0.5 ? lod * 2.0 - 1.0 : lod));
+            float far = along(DhInvProj, ndc, DhDepth.y > 0.5 ? lod * 2.0 - 1.0 : lod);
+            // у дальней плоскости DH и с чужой проекцией (не та матрица, не тот диапазон глубины) LOD выходит за глазом
+            // или бесконечно далеко: такой пиксель — без LOD
+            if (far > 0.0 && far < 1e8) dist = min(dist, far);
         }
     }
     fragColor = vec4(dist, 0.0, 0.0, 1.0);

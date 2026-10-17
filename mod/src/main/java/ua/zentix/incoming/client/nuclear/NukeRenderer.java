@@ -9,12 +9,15 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.far.FarSprites;
@@ -24,6 +27,7 @@ import ua.zentix.incoming.net.S2C;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.FireballModel;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,11 +45,33 @@ import java.util.List;
  */
 public final class NukeRenderer {
     private static final ResourceLocation PLASMA = Incoming.id("textures/nuke/plasma.png");
-    private static final ResourceLocation FLARE = Incoming.id("textures/nuke/flare.png");
     private static final ResourceLocation RAIN = Incoming.id("textures/nuke/rain.png");
     private static final float[][] ICOSPHERE = Icosphere.build(3);
 
+    /** Круглое свечение по формуле ({@code nuke_flare}): ореол шара, голова следа боеголовки, послеобраз вспышки. */
+    @Nullable
+    static ShaderInstance flare;
+
     private NukeRenderer() {}
+
+    /** Шина мода: шейдер свечения (и заново при перезагрузке ресурсов). */
+    public static void registerShaders(RegisterShadersEvent e) {
+        try {
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("nuke_flare"), DefaultVertexFormat.POSITION_TEX_COLOR), s -> flare = s);
+        } catch (IOException ex) {
+            flare = null;
+            Incoming.LOG.error("Nuclear glow shader failed to load: no fireball halo, re-entry streak head or afterimage", ex);
+        }
+    }
+
+    /** Свечение по формуле, сложением света; шейдера нет — false (не рисовать). */
+    static boolean setupFlare() {
+        ShaderInstance s = flare;
+        if (s == null) return false;
+        RenderSystem.setShader(() -> s);
+        FarDraw.blend(true);
+        return true;
+    }
 
     public static void render(RenderLevelStageEvent e) {
         if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL || ClientNuclear.isEmpty()) return;
@@ -97,12 +123,16 @@ public final class NukeRenderer {
         Vec3 cam = view.camera();
         for (ClientNuclear.Active a : all) {
             double vis = a.d.visibility();
-            a.puffs.sprites(a.seconds(view.partial()), view.partial(), view.ambient(), (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
+            CloudPuffs.Sink sink = (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
                 double dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
                 float haze = (float) (1 - Math.exp(-a.d.metres(Math.sqrt(dx * dx + dy * dy + dz * dz)) / vis));
                 out.puff(dx, dy, dz, size * 0.5, rot, tex, Mth.lerp(haze, r, fr), Mth.lerp(haze, g, fg), Mth.lerp(haze, b, fb), alpha * (1 - 0.5f * haze),
                         gr, gg, gb, ga * (1 - 0.7f * haze));
-            });
+            };
+            a.puffs.sprites(a.seconds(view.partial()), view.partial(), view.ambient(), sink);
+            // подрыв на воде: столб, кольцо тумана, базисная волна — над водой под эпицентром; кольцо фронта на воде
+            a.water.sprites(a.seconds(view.partial()), view.ambient(), a.d.groundY() - 0.1, sink);
+            NukeWater.decal(a, view.partial());
         }
     }
 
@@ -165,8 +195,9 @@ public final class NukeRenderer {
             FarDraw.setup(PLASMA, true);
             sphere((float) dx, (float) dy, (float) dz, (float) r, scroll, cr, cg, cb, glow);
             sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.85f, cb * 0.6f, glow * 0.35f);
-            // ореол: плоское свечение к камере, в 4 раза шире шара, тёплое (не нейтральное: поверх неба — не зелень)
-            FarDraw.setup(FLARE, true);
+            // ореол: плоское свечение к камере, в 4 раза шире шара, тёплое (не нейтральное: поверх неба — не зелень);
+            // вблизи он шире экрана — по формуле, без пикселей картинки
+            if (!setupFlare()) continue;
             Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             FarDraw.billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 4), 0, 0, 0, 1, 1, cr, cg * 0.72f, cb * 0.45f, glow * 0.6f);
@@ -223,7 +254,7 @@ public final class NukeRenderer {
             double path = 60_000 * w.scale();
             Vec3 head = end.add(dir.scale(-path * f));
             Vec3 tail = head.add(dir.scale(-Math.min(path * 0.25, path * (1 - f) + 2000 * w.scale())));
-            FarDraw.setup(FLARE, true);
+            if (!setupFlare()) return;
             Vector3f l = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             int steps = 24;

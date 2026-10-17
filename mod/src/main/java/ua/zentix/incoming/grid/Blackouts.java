@@ -90,13 +90,23 @@ public final class Blackouts {
      * выбиты — каждая гасит и свой район.
      */
     public static void nuke(ServerLevel level, Detonation d) {
-        if (!IncomingConfig.SERVER.gridEnabled.get() || !IncomingConfig.SERVER.gridNuke.get()) return;
-        Outage o = blackout(level, d.burst(), d.radiusMax(), NUKE_SPEED, -1);
+        double radius = nukeRadius(d);
+        if (radius <= 0) return;
+        Outage o = blackout(level, d.burst(), radius, NUKE_SPEED, -1);
         List<Node> hit = new ArrayList<>();
         for (Node n : PowerGrid.get(level).nodes()) {
             if (Math.hypot(n.pos().getX() + 0.5 - o.x(), n.pos().getZ() + 0.5 - o.z()) <= o.radius()) hit.add(n);
         }
         hit.forEach(n -> knockOut(level, n));
+    }
+
+    /**
+     * Радиус, в котором ядерный удар гасит сеть ({@link #nuke}; клиентам — с подрывом: там лампы коротят дугой ЭМИ),
+     * блоки; 0 — сеть он не гасит (блэкаут или удар по сети выключены настройкой).
+     */
+    public static double nukeRadius(Detonation d) {
+        if (!IncomingConfig.SERVER.gridEnabled.get() || !IncomingConfig.SERVER.gridNuke.get()) return 0;
+        return Math.min(d.radiusMax(), IncomingConfig.SERVER.gridMaxRadius.get());
     }
 
     /**

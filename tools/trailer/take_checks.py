@@ -25,7 +25,13 @@
   дубля (sounds.jsonl: триггер siren с heard) и в сумме не меньше 6 с;
 - стая в бинокль: план ночной стаи (камера scope, watch-оружие drone, сумерки/ночь — в qa/<план>.jsonl HudQa)
   читается как стая: в квадрате окуляра (`in`) и не закрыты (`open`) не меньше min(6, пущенных сценой) дронов в
-  ≥ 60 % кадров; видимого размера строки qa не дают — предела размера нет.
+  ≥ 60 % кадров; видимого размера строки qa не дают — предела размера нет;
+- толпа провожает ракеты (`crowd.follow` в ready плана): в окне каждого плана люди группы (приставка шага `crowd`)
+  смотрят на ближнюю ракету этого оружия в 300 блоках — курс ±30°, тангаж ±15° от глаза (ноги + 1,62) — не меньше
+  чем в 70 % взглядов: журнал записи пишет курс головы и тангаж людей (с 17.10); n43 ночью 16.10 — люди смотрели
+  мимо ракет на 90–175°, слежение кончалось до окна;
+- карта пульта без рельефа: у плана с открытой картой (result.json: `map_ticks`) нет тиков со строкой «Distant
+  Horizons is still loading its own terrain» (`map_pending`) — план ждёт ответа DH (момент `map`) и только потом пишет.
 
 Вывод (папка кандидата render/<план>/<кандидат>/, каждый провал — PASS плана становится FAIL, дубль переснимается):
 - поворот камеры ≤ 120°/с по state.json (ключи на тик; по тикам × 20, не с интерполяцией до 60 кадров: в файле
@@ -44,6 +50,10 @@
 - застывшие кадры: в frames/<план>/ три и больше одинаковых подряд (хеш файла) — вывод встал;
 - тёмный кадр (планам с `brightness` в cover, T07 n11): средняя яркость кадров вывода ниже предела — рассвет, на
   котором ущелье и ракеты не читаются (23200 мерилось 19 при прошедшем взгляде QA; PIL нет — не провал: замер нечем).
+- стая вразброс (планам со `swarm` в cover, n17 и n02 17.10 — Артём: «колонны по три шахеда — искусственно»): места
+  снарядов оружия `weapon` из журнала вывода в кадре камеры qa.jsonl — не меньше `min` в кадре разом, размахом
+  не меньше `width` ширины и `height` высоты кадра, `hold` секунд подряд; и нет трёх в ровный ряд: средний ближе
+  4 % размаха крайних к их середине в половине кадров, где все трое видны (0,5 с и дольше), — строй, а не случай.
 
     python3 tools/trailer/take_checks.py record <папка дубля> [--scenes ПАПКА] [--take T04]
     python3 tools/trailer/take_checks.py render <папка кандидата> --plan <план> [--fpv] [--icbm] [--no-shake]
@@ -60,14 +70,18 @@ import takes
 READY, IGNITION, BOOST = 0, 1, 2          # FlightPhase (порядковый номер)
 ENTITY_FLAG = 1                            # в строках `f`: место от сущности, не от пакетов сервера
 MSPT_RUN, MSPT_MAX, MSPT_WINDOW = 10, 50.0, 2.0
+DENSITY_ASPECT = 16 / 9   # кадр трейлера (INCOMING_SIZE), угол fov в qa.jsonl — по вертикали
 ICBM_WEAPONS = ("nuke", "icbm")
 # Разгон МБР — числа паспорта WeaponSpec.NUKE: Ascent (тяга 903 700 Н, стартовая масса 36 030 кг, топливо
 # 20 780 кг за 61 с) и Airframe.cruiseSpeed 25 бл/тик; блок = метр, тик = 0,05 с (Ascent.step).
 ICBM_ASCENT, ICBM_TOP_SPEED = (903_700, 36_030, 20_780, 61.0), 25.0
 ICBM_PITCH_TICKS, ICBM_LEAD_TICKS, ICBM_LAG_TICKS, ICBM_BURST = 60, 2, 12, 5.0
+ICBM_MIN_SAMPLES = 10                          # меньше мест от сущности — о полёте по ним не судить
 ICBM_ROUND = 0.01                               # места в журнале округлены до 0,01 блока
 SIREN_EVENT, SIREN_BEFORE_S, SIREN_TOTAL_S, SIREN_MAX_S = "incoming:siren", 2.0, 6.0, 26.5
 FLOCK_MIN, FLOCK_SHARE = 6, 0.6
+GAZE_YAW, GAZE_PITCH, GAZE_SHARE, GAZE_RANGE, GAZE_STEP, EYE = 30.0, 15.0, 0.6, 300.0, 2, 1.62
+GAZE_ONSET = 0.6     # с: разброс мигов, когда люди толпы впервые смотрят на ракету, — не меньше (не головы разом)
 TURN_MAX, AXIS_MAX = 120.0, 15.0
 WAVE_SPEED, SHAKE_RANGE, SHAKE_WINDOW, SHAKE_K, SHAKE_MAX = 17.15, 150.0, 12, 6.0, 3.5
 SHAKE_SHARE = 0.15                         # доля от размаха модели Operator, ниже которой толчка нет
@@ -238,8 +252,10 @@ def _ascent_tick(climbs, climb):
 def _icbm_flight_problems(plan, samples, speeds, climbs):
     """Инварианты одного полёта МБР по местам от сущности; окно — с первого движения (стойка на площадке —
     сущность стоит с IGNITION, пока её чанк не тикает, — не полёт). Первая же причина — в журнал проблем."""
-    if not samples:
-        return []                                # мест от сущности нет (только пакеты сервера) — не повод
+    if len(samples) < ICBM_MIN_SAMPLES:
+        # мест от сущности нет или единицы (только пакеты сервера; T25 n66 17.10 — одно место на 627 после взлёта,
+        # МБР вне кадра плана) — не повод
+        return []
     moving = [(t, p) for k, (t, p) in enumerate(samples) if k and p != samples[k - 1][1]]
     if not moving:
         return [f"{plan}: МБР стоит на площадке весь план (не взлетела)"]
@@ -376,9 +392,158 @@ def flock_in_scope(rec, take):
     return out
 
 
+def _crowd_names(take, group):
+    """Имена людей группы толпы дубля: приставка шага `crowd` (Des0, Des1, …) и названные по имени."""
+    prefix, names = None, set()
+    for a in take.get("stage", []):
+        if a.get("do") == "crowd" and a.get("group") == group:
+            prefix = a.get("prefix", prefix)
+            names.update(a.get("names", ()))
+    return lambda n: n in names or (prefix is not None and n.startswith(prefix))
+
+
+def _gaze_rows(path):
+    """events.jsonl → (отметки [(тик, что)], пути {i: (оружие, {тик: место})}, взгляды {тик: [(имя, глаз, курс, тангаж)]}).
+    Строки людей без взгляда (журналы до 17.10) пропускаются."""
+    marks, flights, gaze = [], {}, {}
+    for r in _jsonl(path):
+        t = r.get("t", 0)
+        if "mark" in r:
+            marks.append((t, r["mark"]))
+        elif "new" in r:
+            flights[r["new"]] = (r.get("weapon", ""), {})
+        elif "f" in r:
+            for e in r["f"]:
+                if e[0] in flights:
+                    flights[e[0]][1][t] = (e[1], e[2], e[3])
+        if "p" in r:
+            rows = [(p[0], (p[1], p[2] + EYE, p[3]), p[4], p[5]) for p in r["p"] if len(p) >= 6]
+            if rows:
+                gaze[t] = rows
+    return marks, flights, gaze
+
+
+def crowd_gaze(rec, take):
+    """Толпа провожает ракеты (`crowd.follow` в ready плана): в окне каждого плана люди группы смотрят на одну из ракет
+    этого оружия в 300 блоках (War.follow: кто на ближнюю, кто на другую) — курс в пределах 30°, тангаж в пределах
+    15° — не меньше чем в 60 % взглядов (раз в 2 тика; остальное — реакция и взгляд на соседа). И поворачивают головы
+    не разом: первый взгляд на ракету у людей группы разбросан хотя бы на GAZE_ONSET (Артём 17.10: «все головы
+    одновременно — искусственно»). Журнал до 17.10 без взглядов — не провал."""
+    out = []
+    for s in take.get("shots", []):
+        follow = [a for a in s.get("ready", []) if a.get("do") == "crowd.follow"]
+        if not follow or not s.get("plans"):
+            continue
+        marks, flights, gaze = _gaze_rows(os.path.join(rec, "replays", f"{s['plans'][0]}.events.jsonl"))
+        if not gaze:
+            continue
+        order = sorted((t, m[5:]) for t, m in marks if m.startswith("plan:"))
+        end = max((t for t, m in marks if m == "end"), default=max(gaze))
+        for a in follow:
+            member, weapon = _crowd_names(take, a.get("group")), a.get("weapon", "")
+            paths = [p for w, p in flights.values() if w == weapon]
+
+            def looks(t, eye, yaw, pitch):
+                """None — ракеты в 300 блоках нет; иначе смотрит ли на одну из них."""
+                near = [p[t] for p in paths if t in p and math.dist(p[t], eye) <= GAZE_RANGE]
+                if not near:
+                    return None
+                for q in near:
+                    d = [q[i] - eye[i] for i in range(3)]
+                    want_yaw = math.degrees(math.atan2(-d[0], d[2]))
+                    want_pitch = -math.degrees(math.atan2(d[1], math.hypot(d[0], d[2])))
+                    if abs(_wrap(yaw - want_yaw)) <= GAZE_YAW and abs(pitch - want_pitch) <= GAZE_PITCH:
+                        return True
+                return False
+
+            for k, (t0, plan) in enumerate(order):
+                t1 = order[k + 1][0] if k + 1 < len(order) else end
+                good = total = 0
+                for t in range(t0, t1, GAZE_STEP):
+                    for name, eye, yaw, pitch in gaze.get(t, ()):
+                        if not member(name):
+                            continue
+                        v = looks(t, eye, yaw, pitch)
+                        if v is None:
+                            continue
+                        total += 1
+                        good += v
+                if total and good < GAZE_SHARE * total:
+                    out.append(f"{plan}: толпа {a.get('group')} смотрит на ракету в {100 * good / total:.0f}% взглядов "
+                               f"(курс ±{GAZE_YAW:.0f}°, тангаж ±{GAZE_PITCH:.0f}°; нужно {GAZE_SHARE:.0%})")
+            first = {}
+            for t in sorted(gaze):
+                for name, eye, yaw, pitch in gaze[t]:
+                    if member(name) and name not in first and looks(t, eye, yaw, pitch):
+                        first[name] = t
+            if len(first) >= 3 and (max(first.values()) - min(first.values())) / 20 < GAZE_ONSET:
+                out.append(f"{order[0][1] if order else '?'}: толпа {a.get('group')} повернула головы к ракете разом — "
+                           f"разброс {(max(first.values()) - min(first.values())) / 20:.2f} с, нужно {GAZE_ONSET:.1f}")
+    return out
+
+
+def map_loading(result):
+    """Карта пульта в кадре со строкой «Distant Horizons is still loading its own terrain» (n07 16.10: пустая сетка без
+    рельефа): result.json дубля пишет у плана тики с открытой картой (`map_ticks`) и из них со строкой ожидания DH
+    (`map_pending`); хоть один такой тик — провал."""
+    out = []
+    for s in (result or {}).get("shots", []):
+        pending = s.get("map_pending", 0)
+        if pending:
+            plan = (s.get("plans") or [s.get("replay", "?")])[0]
+            out.append(f"{plan}: на карте пульта строка загрузки Distant Horizons {pending} тиков из {s.get('map_ticks', 0)}")
+    return out
+
+
+def map_aim(result):
+    """Карта пульта в кадре ставит одну конечную точку, без маршрута (Артём 17.10 о n07: курсор щёлкал каждые полсекунды
+    и маршрут прыгал): result.json пишет у плана, сколько раз на карте вставала новая точка (`map_marks`) и сколько самое
+    большее было точек маршрута (`map_route`). Ни одной точки — щелчок не попал в карту; больше одной или маршрут —
+    месиво. Запись без этих полей (до 17.10) не проверяется."""
+    out = []
+    for s in (result or {}).get("shots", []):
+        if "map_marks" not in s:
+            continue
+        plan = (s.get("plans") or [s.get("replay", "?")])[0]
+        if s["map_marks"] != 1:
+            out.append(f"{plan}: на карте пульта конечных точек {s['map_marks']}, нужна одна")
+        if s.get("map_route", 0):
+            out.append(f"{plan}: на карте пульта точек маршрута {s['map_route']}, маршрут прыгает")
+    return out
+
+
+def sam_outcome(take, result):
+    """Исход ПВО плана против `expect` его записи в листе дублей: `{"kills": [от, до], "interceptors": n}` — сбито ЗРК
+    столько ударов плана (поле `intercepted` у удара в result.json) и зенитных ракет в полёте за запись не меньше
+    `sam_launched` (Артём 17.10 о n17: батарей стреляет много, сбито одно-два, остальные шахеды прорываются к городу).
+    План без `expect` не должен терять удары от ЗРК. Исход случаен (вероятность поражения), поэтому провал — пересъёмка."""
+    out = []
+    by_plans = {tuple(s.get("plans", [])): s for s in (result or {}).get("shots", [])}
+    for spec in take.get("shots", []):
+        want = spec.get("expect")
+        s = by_plans.get(tuple(spec.get("plans", [])))
+        if s is None:
+            continue
+        plan = spec["plans"][0]
+        kills = sum(1 for k in s.get("strikes", []) if k.get("intercepted"))
+        if not want:
+            # ЗРК в плане нет, а удар сбит: остался ЗРК прошлой сцены (17.10: sam.clear в незагруженном чанке —
+            # старый ЗРК у (-538, 308) сбил шахед n46 до его окна)
+            if kills:
+                out.append(f"{plan}: сбито ЗРК {kills}, а ЗРК в плане нет")
+            continue
+        lo, hi = want.get("kills", [0, len(s.get("strikes", []))])
+        if not lo <= kills <= hi:
+            out.append(f"{plan}: сбито {kills}, нужно {lo}–{hi}")
+        if s.get("sam_launched", 0) < want.get("interceptors", 0):
+            out.append(f"{plan}: зенитных ракет {s.get('sam_launched', 0)}, нужно не меньше {want['interceptors']}")
+    return out
+
+
 def record_problems(rec, take, result):
     """Проверки записи, провал которых лечит пересъёмка: список причин для attempt() конвейера."""
-    return same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take)
+    return (same_tick_launches(rec) + icbm_flight(rec) + flock_in_scope(rec, take) + crowd_gaze(rec, take)
+            + map_loading(result) + map_aim(result) + sam_outcome(take, result))
 
 
 def record_warnings(rec, take, result):
@@ -585,7 +750,145 @@ def dim_frames(cand, plan, floor):
     return []
 
 
-def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=None):
+def _frame(cam, fov, pos):
+    """Точка мира в кадре камеры строки qa.jsonl (место, курс, тангаж; угол кадра по вертикали, кадр 16:9):
+    (x, y) от −1 до 1 по ширине (вправо) и высоте (вверх) или None — вне кадра."""
+    x, y, z, yaw, pitch = cam[:5]
+    dx, dy, dz = pos[0] - x, pos[1] - y, pos[2] - z
+    ry, rp = math.radians(yaw), math.radians(pitch)
+    # в осях камеры: вперёд, вправо, вверх (курс Minecraft: 0 — на +z, тангаж плюс — вниз)
+    fx, fy, fz = -math.sin(ry) * math.cos(rp), -math.sin(rp), math.cos(ry) * math.cos(rp)
+    rx, rz = -math.cos(ry), -math.sin(ry)
+    ux, uy, uz = -math.sin(ry) * math.sin(rp), math.cos(rp), math.cos(ry) * math.sin(rp)
+    ahead = dx * fx + dy * fy + dz * fz
+    if ahead <= 0:
+        return None
+    half = math.tan(math.radians(fov) / 2)
+    sx = (dx * rx + dz * rz) / ahead / (half * DENSITY_ASPECT)
+    sy = (dx * ux + dy * uy + dz * uz) / ahead / half
+    return (sx, sy) if abs(sx) <= 1 and abs(sy) <= 1 else None
+
+
+def _cams(cand):
+    """Камера вывода по тикам: {тик: (cam, fov)} из qa.jsonl (первая строка тика)."""
+    cams = {}
+    for r in _jsonl(os.path.join(cand, "qa.jsonl")):
+        if r.get("cam") and "t" in r:
+            cams.setdefault(int(round(r["t"])), (r["cam"], r.get("fov", 70.0)))
+    return cams
+
+
+def hits_in_frame(cand, plan, span):
+    """Удары в кадре вывода за первые `span` секунд окна плана: место удара из журнала вывода в поле зрения камеры
+    кадра (qa.jsonl: место, курс, тангаж, угол кадра по вертикали; кадр 16:9). Без лучей по блокам: ковёр меряется
+    числом вспышек в кадре, а не тем, сколько каждой видно."""
+    marks, impacts = {}, []
+    for r in _jsonl(os.path.join(cand, f"{plan}.events.jsonl")):
+        if "mark" in r:
+            marks.setdefault(r["mark"], r["t"])
+        elif "impact" in r and r.get("pos"):
+            impacts.append((r.get("at", r["t"]), r["pos"]))
+    start = marks.get("start")
+    cams = _cams(cand)
+    if start is None or not cams:
+        return None
+    count = 0
+    for t, pos in impacts:
+        if not start <= t <= start + span * 20:
+            continue
+        cam, fov = cams.get(t) or cams[min(cams, key=lambda k: abs(k - t))]
+        if _frame(cam, fov, pos):
+            count += 1
+    return count / span
+
+
+def sparse_hits(cand, plan, density):
+    """Ковёр реже нормы плана (`density` в cover: {"min": ударов в кадре за секунду, "span": секунд окна} — кусок
+    монтажа): n41 17.10 — 1–2 вспышки разом вместо «по всему кадру». Провал — дубль переснимается."""
+    if not density:
+        return []
+    rate = hits_in_frame(cand, plan, float(density.get("span", 5)))
+    if rate is not None and rate < float(density["min"]):
+        return [f"ударов в кадре {rate:.1f} в секунду < {float(density['min']):.1f}"]
+    return []
+
+
+SWARM_ROW = 0.04          # средний из трёх ближе этой доли размаха крайних к их середине — в ряд
+SWARM_ROW_SHARE = 0.5     # в ряд в такой доле кадров, где все трое видны, — строй
+SWARM_ROW_TICKS = 10      # трое вместе в кадре меньше стольких тиков — не строй, мелькнули
+SWARM_ROW_SPAN = 0.1      # крайние ближе (доля высоты кадра) — кучка, а не ряд
+
+
+def swarm_frames(cand, plan, weapon):
+    """Снаряды оружия в кадре вывода по тикам окна: [(тик, {путь: (x, y)})] — места из журнала вывода, камера из qa.jsonl."""
+    flights, _ = read_events(os.path.join(cand, f"{plan}.events.jsonl"))
+    cams = _cams(cand)
+    out = []
+    for t in sorted(cams):
+        cam, fov = cams[t]
+        pts = {}
+        for f in flights:
+            if f.weapon == weapon and t in f.pos:
+                p = _frame(cam, fov, f.pos[t])
+                if p:
+                    pts[f.i] = p
+        out.append((t, pts))
+    return out
+
+
+def swarm_verdict(frames, swarm):
+    """Провалы стаи по кадрам [(тик, {путь: (x, y)})] (тики подряд — кадры подряд): мало разом и вразброс, тройки в ряд.
+    Отдельно от журнала — тем же меряется постановка до записи (расчёт путей)."""
+    need, hold = int(swarm["min"]), float(swarm.get("hold", 1.0))
+    width, height = float(swarm.get("width", 0.5)), float(swarm.get("height", 0.25))
+    best = run = 0
+    prev = None
+    for t, pts in frames:
+        xs, ys = [p[0] for p in pts.values()], [p[1] for p in pts.values()]
+        ok = len(pts) >= need and max(xs) - min(xs) >= 2 * width and max(ys) - min(ys) >= 2 * height
+        run = run + 1 if ok and prev is not None and t == prev + 1 else (1 if ok else 0)
+        best = max(best, run)
+        prev = t
+    out = []
+    if best / 20 < hold:
+        out.append(f"стая: {need}+ в кадре вразброс {best / 20:.1f} с подряд, нужно {hold:.1f}")
+    together, rows = {}, {}
+    for _, pts in frames:
+        ids = sorted(pts)
+        sp = {i: (pts[i][0] * DENSITY_ASPECT, pts[i][1]) for i in ids}
+        for a in range(len(ids)):
+            for b in range(a + 1, len(ids)):
+                for c in range(b + 1, len(ids)):
+                    key = (ids[a], ids[b], ids[c])
+                    together[key] = together.get(key, 0) + 1
+                    pa, pb, pc = sp[ids[a]], sp[ids[b]], sp[ids[c]]
+                    for p, q, m in ((pa, pc, pb), (pa, pb, pc), (pb, pc, pa)):
+                        span = math.hypot(p[0] - q[0], p[1] - q[1])
+                        if span >= 2 * SWARM_ROW_SPAN and math.hypot(m[0] - (p[0] + q[0]) / 2,
+                                                                     m[1] - (p[1] + q[1]) / 2) <= SWARM_ROW * span:
+                            rows[key] = rows.get(key, 0) + 1
+                            break
+    lines = sorted((k for k, n in rows.items()
+                    if together[k] >= SWARM_ROW_TICKS and n >= SWARM_ROW_SHARE * together[k]),
+                   key=lambda k: -rows[k] / together[k])
+    if lines:
+        k = lines[0]
+        out.append(f"стая: {len(lines)} троек в ровный ряд (пути {k[0]}, {k[1]}, {k[2]} — "
+                   f"{100 * rows[k] / together[k]:.0f}% кадров)")
+    return out
+
+
+def swarm_problems(cand, plan, swarm):
+    """Стая вразброс по кадрам вывода (`swarm` в cover плана); нет журнала или камеры — не провал."""
+    if not swarm:
+        return []
+    frames = swarm_frames(cand, plan, swarm.get("weapon", "drone"))
+    if not frames:
+        return []
+    return swarm_verdict(frames, swarm)
+
+
+def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=None, density=None, swarm=None):
     """Все проверки вывода папки кандидата: PASS плана с любой из них — FAIL (дубль переснимается)."""
     out = camera_turn(cand) + axis_fail(cand) + frozen_frames(cand, plan)
     if shake:
@@ -596,6 +899,10 @@ def render_problems(cand, plan, fpv=False, icbm=False, shake=True, brightness=No
         out += icbm_in_frame(cand)
     if brightness:
         out += dim_frames(cand, plan, float(brightness))
+    if density:
+        out += sparse_hits(cand, plan, density)
+    if swarm:
+        out += swarm_problems(cand, plan, swarm)
     return out
 
 

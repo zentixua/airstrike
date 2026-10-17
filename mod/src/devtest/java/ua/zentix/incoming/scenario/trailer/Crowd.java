@@ -17,7 +17,7 @@ import java.util.List;
  * несколько тиков и только пока мир не стоит; делает сам бот своими пакетами.
  */
 final class Crowd {
-    enum Mode {WANDER, FLEE, WATCH, COWER}
+    enum Mode {WANDER, FLEE, WATCH, COWER, FOLLOW}
 
     static final class Person {
         final String name;
@@ -57,6 +57,20 @@ final class Crowd {
         return people;
     }
 
+    /**
+     * Уже стоящий бот (боец уличного боя) — в эту толпу, без нового появления: после вспышки ядерки бойцы пригибаются,
+     * смотрят на гриб и бегут, как жители ({@code fight.adopt}). Режим — смотрит туда, куда смотрел, пока реплика не
+     * скажет иначе: бродить посреди боя ему нельзя.
+     */
+    Person adopt(String name, Vec3 at, Vec3 look) {
+        Person p = new Person(name, at, 0);
+        p.mode = Mode.WATCH;
+        p.point = look;
+        p.nextAt = server.getTickCount();
+        people.add(p);
+        return p;
+    }
+
     /** Все в этом круге бегут к точке (вход в подземку, подъезд) — врассыпную, с разбросом у цели. */
     void flee(Vec3 near, double radius, Vec3 to) {
         for (Person p : people) {
@@ -83,6 +97,11 @@ final class Crowd {
             p.point = at.add(random.nextGaussian() * jitter, random.nextGaussian() * jitter * 0.3, random.nextGaussian() * jitter);
             p.nextAt = server.getTickCount() + random.nextInt(14);
         }
+    }
+
+    /** Провожает ракеты взглядом ({@code War.follow}): толпа его больше не водит, смотрит слежение. */
+    void follow(Person p) {
+        p.mode = Mode.FOLLOW;
     }
 
     /** Отвернуться от точки и закрыть лицо (взгляд вниз, присесть): вспышка. */
@@ -173,6 +192,9 @@ final class Crowd {
                 a.add(Cast.lookAt(p.point));
                 cast.act(p.name, a, true);
                 return 40 + random.nextInt(40);
+            }
+            case FOLLOW -> {
+                return 40;
             }
             case COWER -> {
                 Vec3 away = sp.position().subtract(p.point).multiply(1, 0, 1).normalize();

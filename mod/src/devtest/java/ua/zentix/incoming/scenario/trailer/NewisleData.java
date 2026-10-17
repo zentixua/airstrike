@@ -115,17 +115,17 @@ final class NewisleData {
     }
 
     /** Действия, которые идут сразу (реплика записи, {@code ready}, {@code end}; в сцене — тоже). */
-    static final java.util.Set<String> INSTANT = java.util.Set.of("campfire", "lamps", "crowd.watch", "crowd.cower", "crowd.flee",
-            "crowd.follow", "crowd.remove", "launchers.fire", "launcher.redstone", "sam", "sam.clear", "gunners.fire", "gunners.stop",
-            "fight.arm", "fight.start", "fight.stop", "fight.remove", "silo.open", "silo.close", "nuke.order", "nuke.clear", "nuke.key",
+    static final java.util.Set<String> INSTANT = java.util.Set.of("campfire", "fill", "lamps", "crowd.watch", "crowd.cower", "crowd.flee",
+            "crowd.follow", "crowd.remove", "launchers.fire", "launcher.redstone", "sam", "sam.config", "sam.clear", "gunners.fire", "gunners.stop",
+            "fight.arm", "fight.start", "fight.stop", "fight.adopt", "fight.remove", "silo.open", "silo.close", "nuke.order", "nuke.clear", "nuke.key",
             "salvo", "scope",
-            "map.open", "map.route", "map.close", "retarget");
+            "map.open", "map.aim", "map.close", "retarget", "artem.cue");
     /** Действия сцены — шагами (ждут, ставят людей и постройки): только в {@code stage} и {@code after} дубля. */
     static final java.util.Set<String> STEPS = java.util.Set.of("wait", "settle", "flights.wait", "crowd", "gunners", "fight",
             "launchers", "silo.build", "commander", "player", "hidden", "boat", "airship", "grid.node", "station.wire");
     /** Моменты записи ({@code when.kind}). */
     static final java.util.Set<String> MOMENTS = java.util.Set.of("none", "siren", "lit", "interceptor", "onboard", "warning", "front",
-            "icbm");
+            "icbm", "map");
 
     final JsonObject scenario, takes;
     /** Кадры камеры плана по разведке; нет плана — нет его позы (конвейер останавливается до съёмки). */
@@ -400,6 +400,13 @@ final class NewisleData {
             if (to == null) to = r.get("to");
         } else {
             from = point(s.get("from"), 0, FLAT);
+            // свои точки пути у каждого удара (стая вразброс, n17 и n02 17.10): как у пути сценария, только x и z
+            if (s.has("via")) {
+                for (JsonElement v : s.getAsJsonArray("via")) {
+                    JsonArray a = v.getAsJsonArray();
+                    via.add(new Vec3(a.get(0).getAsDouble(), 0, a.get(1).getAsDouble()));
+                }
+            }
         }
         if (to == null) to = planTarget;
         if (to == null) throw new IllegalArgumentException("у удара нет цели: " + s);

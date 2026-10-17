@@ -81,6 +81,11 @@ class IcbmFlightTest(unittest.TestCase):
         write(os.path.join(root, "replays", "n1.events.jsonl"), rows)
         return T.icbm_flight(root)
 
+    def test_a_lone_entity_sample_says_nothing(self):
+        # T25 n66 17.10: МБР давно в небе, у клиента одно место от сущности на 627 — не «стоит на площадке»
+        self.assertEqual([], self.check([(169, (0.0, 627.0, 0.0))]))
+        self.assertEqual(1, len(self.check([(t, (0.0, 100.0, 0.0)) for t in range(40)])))
+
     def flight(self, standstill=25, ticks=170, pad=100.0, lag=0, jump=0.0, drop=0.0, side=0.0):
         """Путь записи: стойка на площадке, потом кривая модели с отставанием lag тиков и пачками
         (4 тика одно место из каждых 6); на 80-м тике полёта — скачок вверх jump, падение drop или сдвиг
@@ -195,6 +200,74 @@ class FlockTest(unittest.TestCase):
     def test_other_plans_and_cameras_are_not_checked(self):
         take = {"shots": [{"plans": ["n1"], "camera": "scene", "watch": {"weapon": "drone"}}]}
         self.assertEqual([], T.flock_in_scope(tempfile.mkdtemp(), take))
+
+
+class CrowdGazeTest(unittest.TestCase):
+    """Толпа провожает ракеты (n43): журнал записи пишет курс головы и тангаж; люди смотрят на ближнюю ракету."""
+    TAKE = {"stage": [{"do": "crowd", "group": "desert", "prefix": "Des"}],
+            "shots": [{"plans": ["n52", "n43"], "ready": [{"do": "crowd.follow", "group": "desert", "weapon": "missile"}]}]}
+
+    def rec(self, look, gaze=True):
+        """Ракета идёт на восток в 100 блоках к югу и в 40 выше глаз; look(t, глаз, ракета) → (курс, тангаж)."""
+        rows = [{"t": 0, "mark": "plan:n52"}, {"t": 0, "new": 0, "id": "a", "weapon": "missile", "bomber": False},
+                {"t": 40, "mark": "plan:n43"}, {"t": 80, "mark": "end"}]
+        for t in range(0, 80):
+            m = (-50 + 2 * t, 141.6, 100.0)
+            eye = (0.0, 101.62, 0.0)
+            yaw, pitch = look(t, eye, m)
+            person = ["Des0", 0.0, 100.0, 0.0] + ([yaw, pitch] if gaze else [])
+            rows.append({"t": t, "f": [[0, m[0], m[1], m[2], 4, 1]]})
+            rows.append({"t": t, "me": [0, 70, 0], "p": [["Sokol", 5.0, 70.0, 5.0, 0.0, 0.0], person]})
+        root = tempfile.mkdtemp()
+        write(os.path.join(root, "replays", "n52.events.jsonl"), rows)
+        return root
+
+    @staticmethod
+    def at_missile(t, eye, m):
+        d = [m[i] - eye[i] for i in range(3)]
+        return (T.math.degrees(T.math.atan2(-d[0], d[2])), -T.math.degrees(T.math.atan2(d[1], T.math.hypot(d[0], d[2]))))
+
+    def test_people_following_the_missile_pass(self):
+        self.assertEqual([], T.crowd_gaze(self.rec(self.at_missile), self.TAKE))
+
+    def test_people_looking_away_fail_each_plan(self):
+        # как n43 16.10: слежение кончилось до окна, головы стоят на месте — курс к северу, ракета к югу
+        out = T.crowd_gaze(self.rec(lambda t, eye, m: (180.0, 0.0)), self.TAKE)
+        self.assertEqual(["n52", "n43"], [p.split(":")[0] for p in out], out)
+        self.assertIn("0% взглядов", out[1])
+
+    def test_level_gaze_under_a_high_missile_fails_on_pitch(self):
+        out = T.crowd_gaze(self.rec(lambda t, eye, m: (self.at_missile(t, eye, m)[0], 0.0)), self.TAKE)
+        self.assertEqual(2, len(out), out)
+
+    def test_heads_turning_together_fail(self):
+        # трое повернули головы в один тик (Артём 17.10: пролог, «все разом»), разброс реакций — проходит
+        def crowd(onsets):
+            rows = [{"t": 0, "mark": "plan:n52"}, {"t": 0, "new": 0, "id": "a", "weapon": "missile", "bomber": False},
+                    {"t": 80, "mark": "end"}]
+            for t in range(0, 80):
+                m = (-50 + 2 * t, 141.6, 100.0)
+                people = []
+                for k, on in enumerate(onsets):
+                    eye = (2.0 * k, 101.62, 0.0)
+                    yaw, pitch = self.at_missile(t, eye, m) if t >= on else (180.0, 0.0)
+                    people.append([f"Des{k}", 2.0 * k, 100.0, 0.0, yaw, pitch])
+                rows.append({"t": t, "f": [[0, m[0], m[1], m[2], 4, 1]]})
+                rows.append({"t": t, "p": people})
+            root = tempfile.mkdtemp()
+            write(os.path.join(root, "replays", "n52.events.jsonl"), rows)
+            return root
+        take = {"stage": [{"do": "crowd", "group": "desert", "prefix": "Des"}],
+                "shots": [{"plans": ["n52"], "ready": [{"do": "crowd.follow", "group": "desert", "weapon": "missile"}]}]}
+        out = T.crowd_gaze(crowd([4, 4, 4]), take)
+        self.assertEqual(1, len(out), out)
+        self.assertIn("разом", out[0])
+        self.assertEqual([], T.crowd_gaze(crowd([4, 12, 22]), take))
+
+    def test_old_journal_without_gaze_and_other_people_are_not_checked(self):
+        self.assertEqual([], T.crowd_gaze(self.rec(lambda t, eye, m: (180.0, 0.0), gaze=False), self.TAKE))
+        take = {"stage": [{"do": "crowd", "group": "desert", "prefix": "Cit"}], "shots": self.TAKE["shots"]}
+        self.assertEqual([], T.crowd_gaze(self.rec(lambda t, eye, m: (180.0, 0.0)), take))
 
 
 def state(rows):
@@ -355,6 +428,61 @@ class DimFramesTest(unittest.TestCase):
         self.assertEqual([], T.dim_frames(self.frames(19), "n1", None))
 
 
+class MapLoadingTest(unittest.TestCase):
+    def test_dh_loading_line_on_the_remote_map_fails(self):
+        result = {"shots": [{"plans": ["n07"], "map_ticks": 120, "map_pending": 37}]}
+        out = T.map_loading(result)
+        self.assertEqual(1, len(out))
+        self.assertIn("n07", out[0])
+        self.assertIn("37 тиков из 120", out[0])
+        self.assertEqual(out, T.record_problems(tempfile.mkdtemp(), {"shots": []}, result))
+
+    def test_built_map_and_plans_without_map_pass(self):
+        self.assertEqual([], T.map_loading({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_pending": 0},
+                                                      {"plans": ["n13"]}]}))
+        self.assertEqual([], T.map_loading(None))
+
+
+class MapAimTest(unittest.TestCase):
+    def test_one_mark_without_route_passes(self):
+        self.assertEqual([], T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 1, "map_route": 0}]}))
+
+    def test_jumping_route_and_missed_click_fail(self):
+        out = T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 1, "map_route": 4}]})
+        self.assertEqual(["n07: на карте пульта точек маршрута 4, маршрут прыгает"], out)
+        out = T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 0, "map_route": 0}]})
+        self.assertEqual(["n07: на карте пульта конечных точек 0, нужна одна"], out)
+        result = {"shots": [{"plans": ["n07"], "map_ticks": 120, "map_marks": 3, "map_route": 0}]}
+        self.assertEqual(T.map_aim(result), T.record_problems(tempfile.mkdtemp(), {"shots": []}, result))
+
+    def test_recording_before_the_counters_is_not_checked(self):
+        self.assertEqual([], T.map_aim({"shots": [{"plans": ["n07"], "map_ticks": 120, "map_pending": 0}]}))
+        self.assertEqual([], T.map_aim(None))
+
+
+class SamOutcomeTest(unittest.TestCase):
+    TAKE = {"shots": [{"plans": ["n17"], "expect": {"kills": [1, 2], "interceptors": 6}}, {"plans": ["n46"]}]}
+
+    def result(self, kills, launched):
+        strikes = [{"weapon": "drone", "intercepted": True} for _ in range(kills)] + [{"weapon": "drone", "eta": 9.0}] * 5
+        return {"shots": [{"plans": ["n17"], "strikes": strikes, "sam_launched": launched}, {"plans": ["n46"], "strikes": []}]}
+
+    def test_one_or_two_down_out_of_many_launches_pass(self):
+        self.assertEqual([], T.sam_outcome(self.TAKE, self.result(1, 8)))
+        self.assertEqual([], T.sam_outcome(self.TAKE, self.result(2, 6)))
+
+    def test_too_many_down_or_too_few_launches_fail(self):
+        self.assertEqual(["n17: сбито 4, нужно 1–2"], T.sam_outcome(self.TAKE, self.result(4, 8)))
+        self.assertEqual(["n17: сбито 0, нужно 1–2"], T.sam_outcome(self.TAKE, self.result(0, 8)))
+        self.assertEqual(["n17: зенитных ракет 3, нужно не меньше 6"], T.sam_outcome(self.TAKE, self.result(1, 3)))
+        r = self.result(3, 8)
+        self.assertEqual(T.sam_outcome(self.TAKE, r), T.record_problems(tempfile.mkdtemp(), self.TAKE, r))
+
+    def test_shot_without_expect_must_lose_nothing_to_a_sam(self):
+        self.assertEqual([], T.sam_outcome({"shots": [{"plans": ["n17"]}]}, self.result(0, 0)))
+        self.assertEqual(["n17: сбито ЗРК 1, а ЗРК в плане нет"], T.sam_outcome({"shots": [{"plans": ["n17"]}]}, self.result(1, 0)))
+
+
 class RecordProblemsTest(unittest.TestCase):
     def test_old_recording_without_new_data_is_not_a_failure(self):
         self.assertEqual([], T.record_problems(tempfile.mkdtemp(), {"siren": True, "shots": []}, {}))
@@ -368,3 +496,79 @@ class RecordProblemsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HitsInFrameTest(unittest.TestCase):
+    """Плотность ковра: удары в поле зрения камеры вывода за кусок монтажа."""
+
+    def cand(self, impacts, cam=(0, 100, 0, 0, 10), fov=50):
+        root = tempfile.mkdtemp()
+        with open(os.path.join(root, "n41.events.jsonl"), "w") as f:
+            f.write(json.dumps({"t": 100, "mark": "start"}) + "\n")
+            for i, (t, pos) in enumerate(impacts):
+                f.write(json.dumps({"t": t - 1, "impact": i, "at": t, "pos": pos}) + "\n")
+        with open(os.path.join(root, "qa.jsonl"), "w") as f:
+            for t in range(90, 260):
+                f.write(json.dumps({"t": t, "cam": list(cam), "fov": fov}) + "\n")
+        return root
+
+    def test_hits_ahead_count_and_behind_or_aside_do_not(self):
+        ahead = [(110 + 10 * k, [20 * (k % 3 - 1), 70, 200]) for k in range(10)]   # курс 0 — на +z
+        behind = [(115, [0, 70, -200]), (125, [400, 70, 100]), (135, [0, 400, 150])]   # сзади, сбоку, над кадром
+        cand = self.cand(ahead + behind)
+        self.assertAlmostEqual(2.0, T.hits_in_frame(cand, "n41", 5.0))
+        self.assertEqual([], T.sparse_hits(cand, "n41", {"min": 2, "span": 5}))
+        self.assertEqual(1, len(T.sparse_hits(cand, "n41", {"min": 3, "span": 5})))
+
+    def test_hits_after_the_span_are_not_counted(self):
+        cand = self.cand([(110, [0, 70, 200]), (250, [0, 70, 200])])
+        self.assertAlmostEqual(0.2, T.hits_in_frame(cand, "n41", 5.0))
+
+    def test_no_density_in_cover_means_no_check(self):
+        self.assertEqual([], T.sparse_hits(tempfile.mkdtemp(), "n41", None))
+
+
+class SwarmTest(unittest.TestCase):
+    """Стая вразброс: сколько шахедов в кадре разом и нет ли троек в ровный ряд (n17, n02 17.10)."""
+
+    SWARM = {"min": 4, "hold": 1.0, "width": 0.25, "height": 0.2}
+
+    def cand(self, paths, ticks=range(100, 160), cam=(0, 100, 0, 0, 0), fov=60):
+        """Пути {номер: функция тик -> место}: журнал вывода (new и строки f) и камера qa.jsonl."""
+        root = tempfile.mkdtemp()
+        with open(os.path.join(root, "n17.events.jsonl"), "w") as f:
+            for i in paths:
+                f.write(json.dumps({"t": ticks[0], "new": i, "weapon": "drone"}) + "\n")
+            for t in ticks:
+                f.write(json.dumps({"t": t, "f": [[i, *p(t), 4, 0] for i, p in paths.items()]}) + "\n")
+        with open(os.path.join(root, "qa.jsonl"), "w") as f:
+            for t in ticks:
+                f.write(json.dumps({"t": t, "cam": list(cam), "fov": fov}) + "\n")
+        return root
+
+    @staticmethod
+    def still(x, y, z):
+        return lambda t: (x, y, z)
+
+    def test_scattered_swarm_passes(self):
+        spots = [(-60, 180, 200), (40, 110, 160), (-20, 150, 260), (70, 140, 230), (-90, 105, 180), (10, 125, 300)]
+        cand = self.cand({i: self.still(*p) for i, p in enumerate(spots)})
+        self.assertEqual([], T.swarm_problems(cand, "n17", self.SWARM))
+
+    def test_column_of_three_is_a_row(self):
+        spots = [(-60, 180, 200), (40, 110, 160), (-20, 150, 300)]
+        row = [(-80 + 40 * k, 130, 250) for k in range(3)]        # ровный ряд поперёк кадра
+        cand = self.cand({i: self.still(*p) for i, p in enumerate(spots + row)})
+        problems = T.swarm_problems(cand, "n17", self.SWARM)
+        self.assertEqual(1, len(problems))
+        self.assertIn("ряд", problems[0])
+
+    def test_too_few_in_frame_together(self):
+        spots = [(-60, 180, 200), (40, 110, 160), (0, 120, -200), (400, 120, 100)]   # двое сзади и сбоку
+        cand = self.cand({i: self.still(*p) for i, p in enumerate(spots)})
+        problems = T.swarm_problems(cand, "n17", self.SWARM)
+        self.assertEqual(1, len(problems))
+        self.assertIn("в кадре", problems[0])
+
+    def test_no_swarm_in_cover_means_no_check(self):
+        self.assertEqual([], T.swarm_problems(tempfile.mkdtemp(), "n17", None))

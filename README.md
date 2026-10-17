@@ -4,8 +4,8 @@ English · [Русский](README.ru.md)
 
 ![Cruise missiles dive onto a factory with tall chimneys and explode one after another](docs/media/hero.webp)
 
-A Minecraft 1.21.1 mod for NeoForge that adds modern air strikes and air defense. The weapons are a Shahed-style
-kamikaze drone, a Lancet-style loitering munition, a cruise missile, a Grad-style rocket launcher, a B-2 with
+A Minecraft 1.21.1 mod for NeoForge that adds modern air strikes and air defense. The weapons are the Shahed-136
+kamikaze drone, the Lancet loitering munition, a cruise missile, the Grad rocket launcher, a B-2 with
 a bunker-buster bomb and an ICBM with a nuclear warhead. A surface-to-air missile system shoots down drones, cruise
 missiles and bombers.
 
@@ -80,4 +80,5 @@ cd mod
 Made by ZentixUA. Incoming is free software under the GNU General Public License version 3
 ([LICENSE](LICENSE)). You may use, modify and redistribute it, including in modpacks, under the same license and with
 its source code. Sounds are made from Freesound recordings under CC0 and CC BY 4.0; the authors are listed in
-[SOUND-CREDITS.md](SOUND-CREDITS.md). The jar bundles the sable-companion library (MIT).
+[SOUND-CREDITS.md](SOUND-CREDITS.md). The jar bundles the sable-companion library (MIT) and
+a copy of FastNoiseLite by Jordan Peck (MIT).

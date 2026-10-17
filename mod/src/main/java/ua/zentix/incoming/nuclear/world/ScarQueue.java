@@ -73,6 +73,15 @@ public final class ScarQueue {
          * просился): от этого — срок удержания и сколько игрок ждал руин.
          */
         long asked = Long.MIN_VALUE;
+        /** Номер подрыва ({@link Detonation#id}), по которому чанк уже в {@link #ahead}: −1 — ни по какому. */
+        int aheadEvent = -1;
+        /**
+         * Только с {@link NukeDiag#ON}: почему работа ждала (счёт по {@link NukeDiag.Wait}) и сколько тиков она стояла
+         * в очереди готовых, а бюджет тика кончился раньше, — для строки «DIAG late seen chunk».
+         */
+        @Nullable
+        int[] diagWaits;
+        int diagSkipped;
 
         Job(long chunk, boolean mayHold) {
             this.chunk = chunk;
@@ -100,9 +109,26 @@ public final class ScarQueue {
     /**
      * За сколько тиков до прихода стены к центру чанка его уже можно разрушать: у эпицентра фронт идёт быстро (сотни
      * чанков за тик), и тик раньше под стеной пыли не видно, а работа растягивается на лишний тик; дальше стена идёт
-     * 3 блока за тик — тик раньше это 3 блока.
+     * со скоростью дальней зоны ({@code Detonation.wave}, несколько блоков за тик) — тик раньше это несколько блоков.
      */
     private static final int EARLY = 1;
+    /**
+     * За сколько тиков до волны чанк, который видит игрок, проверяется заранее ({@link #lookAhead}): готовый план, который
+     * устарел (трава проросла, игрок поставил блок), и чанк без плана получают фоновый план сейчас — к приходу волны он
+     * готов. Фоновый план видимого чанка — первым в пуле руин, 1–3 тика; запас — на сборку мусора и пул, занятый
+     * долгими задачами.
+     */
+    private static final int LOOKAHEAD = 20;
+    /**
+     * Сколько сверх малого срока полосы (сервер без свободного времени в тике, {@link WorkClock#canStartVisible}) получают
+     * руины чанков, которые видит игрок, и их проверка заранее, нс. Волна идёт по городу у игрока, когда серверу и так
+     * тесно (боты, загрузка чанков, другие очереди ядерки): на netcup 16.10 (15 кт, бот в 1 км) тик был без свободного
+     * времени, полосе доставалось 1–3 мс на всю ядерку, очередь брала 0–2 видимых чанка за тик, их копилось до 255,
+     * и руины вставали до 64 тиков после фронта — при подмене по готовому плану 0,24 мс в среднем. 6 мс — 20–30 таких
+     * подмен за тик, больше, чем фронт открывает игроку (около 10 чанков за тик); к тику — не больше 6 мс и только пока
+     * видимые ждут или волна подходит к ним (проверка заранее).
+     */
+    private static final long SEEN_BUSY_NANOS = 6_000_000L;
     /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
     private static final int NEIGHBOUR_RETRY = 10;
     /**
@@ -123,6 +149,13 @@ public final class ScarQueue {
     private static final int LOOKED = 0, PLANNED_WAITS = 1, WORKED = 2;
     /** Для строки медленного ядерного тика и проверок: работ осмотрено в этом тике и сколько из них ждали. */
     private int inspected, waitedThisTick;
+    /**
+     * Только с {@link NukeDiag#ON}, за тик: руин в видимых чанках и наибольшее их отставание, руин в остальных, проверок
+     * заранее; откуда взят план последних руин ({@link #ruin}).
+     */
+    private int diagSeen, diagUnseen, diagAhead;
+    private long diagSeenLag;
+    private String diagSource = "";
 
     /** Тикетов с соседями за отпущенные квадраты зоны ({@link #holdForTile}) сразу, не больше. */
     private static final int TILE_HOLDS = 64;
@@ -146,6 +179,11 @@ public final class ScarQueue {
     private final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap underHold = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap();
     private long lastSlowChunk = Long.MIN_VALUE / 2;
     private final PriorityQueue<Job> byDue = new PriorityQueue<>(Comparator.comparingLong(j -> j.due));
+    /** Работы по приходу волны: проверка заранее ({@link #lookAhead}) — за {@link #LOOKAHEAD} тиков до него. */
+    private final PriorityQueue<Ahead> ahead = new PriorityQueue<>(Comparator.comparingLong(Ahead::wave));
+
+    /** Работа, номер подрыва ({@link Detonation#id}: место подрыва в {@code events} меняется, если пришёл более ранний) и приход волны. */
+    private record Ahead(Job job, int detonation, long wave) {}
     /**
      * Чанки, чей срок пришёл: сперва те, что видит игрок ({@link #watched}: их руины — ровно с фронтом, изменения
      * уходят ему в том же тике), потом остальные (их никто не видит — отставание на несколько тиков не заметно; они всё
@@ -175,10 +213,12 @@ public final class ScarQueue {
      * в памяти при подрыве, которые видел игрок, без загруженных соседей (плана заранее нет — окно не снять), [20] чанков
      * с загруженными соседями ([10]) по готовому плану — доля [20]/[10] из одного множества ([11] — из всех [9]),
      * [21] соседей окон очереди, прочитанных с диска ({@link RuinContext#requestWindow}), [22] из них нет на диске целыми,
-     * [23] наибольшее ожидание игрока: от первой просьбы чанка к игроку после волны ({@link #withholds}) до его руин (тики).
+     * [23] наибольшее ожидание игрока: от первой просьбы чанка к игроку после волны ({@link #withholds}) до его руин (тики),
+     * [24] и [25] наибольшее отставание у чанков, которые видит игрок, по готовому плану и по плану на месте (тики),
+     * [26] видимых чанков с планом заново до волны ({@link #lookAhead}: готовый устарел или его не было).
      */
     private final Map<Integer, long[]> preparedStats = new HashMap<>();
-    private static final int STATS = 24;
+    private static final int STATS = 27;
     /**
      * Чанки в памяти при подрыве, чьи руины ещё не встали (по номеру подрыва): когда пусто — строки критериев в лог сразу,
      * не дожидаясь, пока очередь разойдётся вся (сценарий проверки может кончиться раньше).
@@ -294,8 +334,10 @@ public final class ScarQueue {
      * Б: ушло игроку до руин): когда встали руины всех чанков, бывших в памяти при подрыве, и в конце.
      */
     private static void criteria(int detonation, long[] st, String when) {
-        Incoming.LOG.info("Ruins for detonation #{} ({}): lag behind the wave near players up to {} ticks, elsewhere up to {}; stale plan {}; "
-                + "a player waited for chunk ruins up to {} ticks (from the first chunk request after the wave)", detonation, when, st[2], st[5], st[1], st[23]);
+        Incoming.LOG.info("Ruins for detonation #{} ({}): lag behind the wave near players up to {} ticks (prepared plan {}, planned on the spot {}), "
+                        + "elsewhere up to {}; stale plan {}, re-planned ahead of the wave near players {}; "
+                        + "a player waited for chunk ruins up to {} ticks (from the first chunk request after the wave)",
+                detonation, when, st[2], st[24], st[25], st[5], st[1], st[26], st[23]);
         Incoming.LOG.info("Ruins for detonation #{}: {} chunks loaded at detonation, {} of them with loaded neighbours; from prepared plan {} ({} % of all, "
                         + "{} % of chunks with neighbours); on a player's screen without neighbours {}",
                 detonation, st[9], st[10], st[11], percent(st[11], st[9]), percent(st[20], st[10]), st[19]);
@@ -448,6 +490,15 @@ public final class ScarQueue {
         if (job.ready) return;
         job.due = job.wave = due(job.events.get(job.event), chunk.getPos());
         byDue.add(job);
+        lookAheadLater(job);
+    }
+
+    /** Проверить чанк заранее ({@link #lookAhead}) перед приходом волны его текущего подрыва — один раз на подрыв. */
+    private void lookAheadLater(Job job) {
+        int id = job.events.get(job.event).id();
+        if (job.aheadEvent == id) return;
+        job.aheadEvent = id;
+        ahead.add(new Ahead(job, id, job.wave));
     }
 
     /**
@@ -474,10 +525,21 @@ public final class ScarQueue {
      * невидимыми, пока {@link #WITHHOLD_LIMIT} не отдаст эти чанки игроку без руин.
      */
     private static boolean watched(ServerLevel level, ChunkPos pos) {
+        java.util.function.LongPredicate test = seenForTest;
+        if (test != null && test.test(pos.toLong())) return true;
         for (ServerPlayer player : level.players()) {
             if (player.getChunkTrackingView().contains(pos)) return true;
         }
         return false;
+    }
+
+    /** Для проверок: чанки, которые видит игрок, сверх настоящих игроков (у мок-игрока GameTest обзора нет). */
+    @Nullable
+    private static volatile java.util.function.LongPredicate seenForTest;
+
+    /** Для проверок: считать видимыми игроку и эти чанки; null — только настоящих игроков. */
+    public static void seenForTest(@Nullable java.util.function.LongPredicate chunks) {
+        seenForTest = chunks;
     }
 
     /** Есть ли чанки, которые, может быть, нельзя отдавать игрокам (быстрая проверка перед перебором). */
@@ -580,6 +642,7 @@ public final class ScarQueue {
         background.clear();
         jobs.clear();
         byDue.clear();
+        ahead.clear();
         readySeen.clear();
         readyUnseen.clear();
         logs.clear();
@@ -599,10 +662,10 @@ public final class ScarQueue {
     }
 
     /**
-     * Когда до чанка доходит стена: по его центру, не по ближнему краю — фронт идёт 3 блока за тик, и по краю дальняя
-     * сторона чанка менялась бы секунду до стены.
+     * Когда до чанка доходит стена: по его центру, не по ближнему краю — фронт вдали идёт несколько блоков за тик, и по
+     * краю дальняя сторона чанка менялась бы заметно раньше стены.
      */
-    static long due(Detonation d, ChunkPos p) {
+    public static long due(Detonation d, ChunkPos p) {
         double dx = p.getMiddleBlockX() + 0.5 - d.burst().x, dz = p.getMiddleBlockZ() + 0.5 - d.burst().z, dy = d.burst().y - d.groundY();
         return d.gameTime() + (long) d.arrivalTicks(Math.sqrt(dx * dx + dy * dy + dz * dz));
     }
@@ -614,6 +677,24 @@ public final class ScarQueue {
      * @param clock бюджет тика: за столбец берёмся, только если он успеет
      */
     public void work(ServerLevel level, long now, WorkClock clock) {
+        if (!NukeDiag.ON) {
+            queue(level, now, clock);
+            return;
+        }
+        diagSeen = diagUnseen = diagAhead = 0;
+        diagSeenLag = 0;
+        queue(level, now, clock);
+        for (Job j : readySeen) j.diagSkipped++;
+        if (diagSeen > 0 || !readySeen.isEmpty()) {
+            Incoming.LOG.info("DIAG ruin tick {}: seen ruined {} (lag up to {}), seen left {}, unseen ruined {}, unseen left {}, checked ahead {}, "
+                            + "inspected {} (waited {}), nuclear lane {} ms, stopped: {}", now, diagSeen, diagSeenLag, readySeen.size(), diagUnseen,
+                    readyUnseen.size(), diagAhead, inspected, waitedThisTick, ms(clock.usedThisTickNanos()),
+                    readySeen.isEmpty() && readyUnseen.isEmpty() ? "queue empty"
+                            : (readySeen.isEmpty() ? clock.canStart() : clock.canStartVisible(SEEN_BUSY_NANOS)) ? "time over (overdue)" : "budget");
+        }
+    }
+
+    private void queue(ServerLevel level, long now, WorkClock clock) {
         // сначала — в очередь чанки, загруженные при подрывах. Порядок здесь не важен: очередь сама идёт по приходу
         // волны, а на постановку тысяч чанков уходит несколько тиков — волна за это время проходит пару чанков
         while (!scans.isEmpty() && clock.canStart()) {
@@ -675,7 +756,7 @@ public final class ScarQueue {
                 continue;
             }
             // план в работе — ждём; готов или задачи уже нет (план забрала подготовка руин или задачу бросили) — в очередь
-            RuinContext ctx = NuclearWorld.get(level).ruins(job.events.get(job.event), now);
+            RuinContext ctx = NuclearWorld.get(level).ruins(level, job.events.get(job.event), now);
             if (ctx.running(job.chunk) && !ctx.done(job.chunk)) continue;
             it.remove();
             job.ready = true;
@@ -687,10 +768,15 @@ public final class ScarQueue {
             (watched(level, new ChunkPos(job.chunk)) ? readySeen : readyUnseen).add(job);
         }
         inspected = waitedThisTick = 0;
-        while (clock.canStart()) {
-            if (inspected > 0 && clock.overdue()) return;
-            if (readySeen.isEmpty() && readyUnseen.isEmpty()) return;
-            Job job = !readySeen.isEmpty() ? readySeen.removeFirst() : readyUnseen.removeFirst();
+        // видимые игроку, чей срок пришёл; видимые, к которым подходит волна (проверка заранее); остальные. Видимым и
+        // проверке заранее — срок дальше на сервере без свободного времени (SEEN_BUSY_NANOS), остальным — срок полосы
+        while (clock.canStartVisible(SEEN_BUSY_NANOS)) {
+            if (inspected > 0 && clock.overdueVisible(SEEN_BUSY_NANOS)) return;
+            Job job;
+            if (!readySeen.isEmpty()) job = readySeen.removeFirst();
+            else if (lookAheadNext(level, now, clock)) continue;
+            else if (!readyUnseen.isEmpty() && clock.canStart() && !(inspected > 0 && clock.overdue())) job = readyUnseen.removeFirst();
+            else return;
             job.ready = false;
             if (jobs.get(job.chunk) != job) continue; // выгружен или снят
             long c0 = clock.begin();
@@ -713,6 +799,77 @@ public final class ScarQueue {
                 }
             }
         }
+    }
+
+    /**
+     * Следующий чанк, к которому через {@link #LOOKAHEAD} тиков придёт волна и который видит игрок, — проверка заранее
+     * ({@link #lookAhead}). Невидимые и снятые с очереди пропускаются без часов (проверка — перебор игроков).
+     *
+     * @return проверен чанк (осмотр в счёте тика); false — проверять сейчас нечего
+     */
+    private boolean lookAheadNext(ServerLevel level, long now, WorkClock clock) {
+        for (Ahead a; (a = ahead.peek()) != null && a.wave() - LOOKAHEAD <= now; ) {
+            ahead.poll();
+            Job job = a.job();
+            // снят, уже по другому подрыву, срок уже пришёл
+            if (jobs.get(job.chunk) != job || job.event >= job.events.size() || job.events.get(job.event).id() != a.detonation()
+                    || job.ready || job.wave <= now + EARLY) continue;
+            ChunkPos pos = new ChunkPos(job.chunk);
+            if (!watched(level, pos)) continue;
+            long c0 = clock.begin();
+            boolean worked = false;
+            try {
+                worked = lookAhead(level, job, pos, now);
+                diagAhead++;
+            } catch (RuntimeException e) {
+                // в срок чанк пройдёт обычным путём
+                Incoming.LOG.error("Ruins: checking chunk {} ahead of the wave failed with an exception", pos, e);
+            } finally {
+                if (worked) clock.end(c0);
+                else clock.spent(c0);
+                inspected++;
+                if (!worked) waitedThisTick++;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Чанк, который видит игрок, незадолго до волны: готовый план сверяется с чанком (места плана — те же блоки, что
+     * в снимке), устаревший снимается, и ему, как и чанку без плана, — фоновый план сейчас, первым в пуле руин. Без
+     * этого готовый план, который устарел за полёт МБР (трава проросла, игрок поставил блок), обнаруживался в срок,
+     * и руины видимого чанка вставали на несколько тиков позже волны. Окно, которого нет в памяти, начинает читаться с
+     * диска; план — в срок, обычным путём.
+     *
+     * @return сделана единица работы (сверка плана, снимки окна)
+     */
+    private boolean lookAhead(ServerLevel level, Job job, ChunkPos pos, long now) {
+        LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
+        if (chunk == null) return false;
+        Detonation d = job.events.get(job.event);
+        Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(d.id());
+        RuinPlan plan = plans != null ? plans.get(job.chunk) : null;
+        Parked kept = parked.get(job.chunk);
+        if (plan == null && kept != null && kept.detonation() == d.id()) return false;
+        long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[STATS]);
+        if (plan != null) {
+            if (plan.current(chunk)) return true;
+            plans.remove(job.chunk);
+            stalePlans++;
+            st[1]++;
+        }
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, now);
+        if (background(ctx, job.chunk) && ctx.running(job.chunk)) {
+            // план уже строится (подготовка отдала его дальней ступенью) — если ещё ждёт в очереди, то первым
+            ctx.promote(job.chunk, RuinWorkers.Priority.SEEN);
+            return plan != null;
+        }
+        if (!background(ctx, job.chunk)) return plan != null;
+        if (ctx.requestWindow(level, pos, RuinWorkers.Priority.SEEN) > 0) return plan != null;
+        if (!ctx.submit(level, chunk, RuinWorkers.Priority.SEEN)) return plan != null;
+        st[26]++;
+        return true;
     }
 
     /** Для строки медленного ядерного тика: «inspected N, waited M» очереди готовых в последнем тике. */
@@ -740,11 +897,13 @@ public final class ScarQueue {
         else st[5] = Math.max(st[5], lag);
         if (plan != null) {
             long t0 = System.nanoTime();
-            if (plan.apply(level, chunk, budget)) {
+            if (plan.apply(level, chunk, d, budget)) {
                 long took = System.nanoTime() - t0;
                 thrown(level, d, chunk, plan);
+                diagSource = "prepared";
                 appliedPrepared++;
                 st[0]++;
+                if (seen) st[24] = Math.max(st[24], lag);
                 st[3] += took;
                 st[4] = Math.max(st[4], took);
                 var memory = atDetonation.get(d.id());
@@ -767,14 +926,17 @@ public final class ScarQueue {
             return AGAIN;
         }
         long t0 = System.nanoTime();
-        RuinContext ctx = NuclearWorld.get(level).ruins(d, level.getGameTime());
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, level.getGameTime());
+        boolean server = false;
         Parked kept = parked.get(key);
+        diagSource = "parked";
         if (kept != null && kept.detonation() == d.id()) {
             plan = kept.plan();
             if ((waitRadius = plan.waitsNeighbours(level, chunk)) > 0) return WAIT;
             parked.remove(key);
         } else if (background(ctx, key)) {
             // фоновый план готов ({@link #work} берёт его, только когда готов): достроить и поставить
+            diagSource = "background";
             plan = ctx.collect(level, chunk);
             if (plan == null) return AGAIN;
             if ((waitRadius = plan.waitsNeighbours(level, chunk)) > 0) {
@@ -784,8 +946,17 @@ public final class ScarQueue {
         } else {
             if (!RuinPlanner.blastsReady(level, d, chunk)) return AGAIN;
             plan = RuinPlanner.plan(level, d, chunk);
+            diagSource = "server thread";
+            server = true;
         }
-        plan.apply(level, chunk, budget);
+        if (!plan.apply(level, chunk, d, budget) && !server) {
+            // блоки на местах плана сменились, пока его строили фоновые потоки: заново — в потоке сервера, по чанку как есть
+            // (без этого чанк остался бы целым с отметкой руин). План потока сервера построен в этом же тике — он верен
+            stalePlans++;
+            st[1]++;
+            ctx.planOnServer(key);
+            return AGAIN;
+        }
         var memory = atDetonation.get(d.id());
         if (memory == null || !memory.contains(key)) {
             st[13]++;
@@ -796,6 +967,7 @@ public final class ScarQueue {
         thrown(level, d, chunk, plan);
         appliedFresh++;
         st[6]++;
+        if (seen) st[25] = Math.max(st[25], lag);
         st[7] += took;
         st[8] = Math.max(st[8], took);
         deferLogs(level, d, plan);
@@ -869,6 +1041,45 @@ public final class ScarQueue {
         }
     }
 
+    /** Причина ожидания — в общий счёт «DIAG ruin queue» и в счёт работы ({@link Job#diagWaits}). */
+    private static void waited(Job job, NukeDiag.Wait w) {
+        NukeDiag.waited(w);
+        if (!NukeDiag.ON) return;
+        if (job.diagWaits == null) job.diagWaits = new int[NukeDiag.Wait.values().length];
+        job.diagWaits[w.ordinal()]++;
+    }
+
+    /** Руины чанка встали (только с {@link NukeDiag#ON}): в счёт тика, а видимый позже волны — строкой ({@link #diagLate}). */
+    private void diagRuined(ServerLevel level, Job job, ChunkPos pos, long lag, boolean seen) {
+        if (seen) {
+            diagSeen++;
+            diagSeenLag = Math.max(diagSeenLag, lag);
+        } else diagUnseen++;
+        if (seen && lag > 5) diagLate(level, job, pos, lag);
+        // счёт ожиданий — одного подрыва: у чанка, который ждёт следующий подрыв, он начинается заново
+        job.diagWaits = null;
+        job.diagSkipped = 0;
+    }
+
+    /** Строка «DIAG late seen chunk»: видимый чанк, чьи руины встали позже волны, — почему. */
+    private void diagLate(ServerLevel level, Job job, ChunkPos pos, long lag) {
+        int near = Integer.MAX_VALUE;
+        for (ServerPlayer p : level.players()) {
+            ChunkPos at = p.chunkPosition();
+            near = Math.min(near, Math.max(Math.abs(at.x - pos.x), Math.abs(at.z - pos.z)));
+        }
+        StringBuilder waits = new StringBuilder();
+        if (job.diagWaits != null) {
+            for (NukeDiag.Wait w : NukeDiag.Wait.values()) {
+                if (job.diagWaits[w.ordinal()] == 0) continue;
+                if (!waits.isEmpty()) waits.append(", ");
+                waits.append(w.text).append(' ').append(job.diagWaits[w.ordinal()]);
+            }
+        }
+        Incoming.LOG.info("DIAG late seen chunk {}: lag {} ticks, {} chunks from the nearest player, plan {}, ticks left in the ready queue {}, waited: {}",
+                pos, lag, near, diagSource, job.diagSkipped, waits.isEmpty() ? "nothing" : waits);
+    }
+
     /**
      * Первый в очереди чанк (его срок пришёл): руины одной единицей работы. Что нужно от соседей, зависит от плана:
      * готовому (заранее или из фоновой задачи) — ничего, кроме радиуса 1 у подмены через мир у края и у аппаратов
@@ -892,48 +1103,52 @@ public final class ScarQueue {
         ChunkPos pos = new ChunkPos(job.chunk);
         LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
         Detonation d = job.events.get(job.event);
-        RuinContext ctx = NuclearWorld.get(level).ruins(d, now);
+        RuinContext ctx = NuclearWorld.get(level).ruins(level, d, now);
         boolean ready = hasPlan(d.id(), job.chunk), background = background(ctx, job.chunk);
         if (chunk == null) {
             // сам ниже полной загрузки (край видимости): разрушим, когда поднимется
-            NukeDiag.waited(NukeDiag.Wait.BELOW_FULL);
+            waited(job, NukeDiag.Wait.BELOW_FULL);
             waitNeighbours(level, job, now, 0);
             return LOOKED;
         }
         if (!ready && !background && !NuclearTickets.neighbourhoodLoaded(level, pos, RuinPlanner.REACH)) {
             // план в потоке сервера читает мир окна: соседи грузятся тикетом
-            NukeDiag.waited(NukeDiag.Wait.SERVER_PLAN);
+            waited(job, NukeDiag.Wait.SERVER_PLAN);
             waitNeighbours(level, job, now, RuinPlanner.REACH);
             return LOOKED;
         }
         job.waitsNeighbours = false;
+        boolean seen = watched(level, pos);
+        // чанк, который видит игрок, — первым в пуле руин: дальние задачи (LOD вдали, руины с диска) держат пул полным
+        RuinWorkers.Priority priority = seen ? RuinWorkers.Priority.SEEN : RuinWorkers.Priority.NEAR;
         boolean submit = !ready && background && !ctx.running(job.chunk);
         if (!ready && background && ctx.running(job.chunk) && !ctx.done(job.chunk)) {
-            NukeDiag.waited(NukeDiag.Wait.BACKGROUND);
+            // план строится; отданный подготовкой дальней ступенью и ещё не начатый — на ступень чанка у волны
+            ctx.promote(job.chunk, priority);
+            waited(job, NukeDiag.Wait.BACKGROUND);
             this.background.add(job);
             return LOOKED;
         }
-        int reading = submit ? ctx.requestWindow(level, pos) : 0;
+        int reading = submit ? ctx.requestWindow(level, pos, priority) : 0;
         long[] st = preparedStats.get(d.id());
         if (st != null) {
             st[21] = ctx.windowReads;
             st[22] = ctx.windowAbsent;
         }
-        if (submit && (reading > 0 || !RuinWorkers.admit())) {
+        if (submit && (reading > 0 || !RuinWorkers.admit(priority))) {
             // снимки соседей ещё читаются с диска или задач у подрыва много — через тик
-            NukeDiag.waited(reading > 0 ? NukeDiag.Wait.WINDOW : NukeDiag.Wait.ADMIT);
+            waited(job, reading > 0 ? NukeDiag.Wait.WINDOW : NukeDiag.Wait.ADMIT);
             job.due = now + 1;
             byDue.add(job);
             return LOOKED;
         }
         // забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает: пожары давно бы догорели
         ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
-        boolean seen = watched(level, pos);
         if (submit) {
             // плана нет: снимки — этой единицей, план — в фоне; работа ждёт его в background
-            if (ctx.submit(level, chunk)) this.background.add(job);
+            if (ctx.submit(level, chunk, priority)) this.background.add(job);
             else {
-                NukeDiag.waited(NukeDiag.Wait.SUBMIT);
+                waited(job, NukeDiag.Wait.SUBMIT);
                 job.due = now + 1;
                 byDue.add(job);
             }
@@ -941,17 +1156,21 @@ public final class ScarQueue {
         }
         int r = ruin(level, d, chunk, budget, Math.max(0, now - job.wave), seen);
         if (r == AGAIN) {
-            // посчитан разлом соседа или план устарел: следующей единицей, первым в той же очереди
-            NukeDiag.waited(NukeDiag.Wait.AGAIN);
+            // посчитан разлом соседа или план устарел: следующей единицей, но за теми, что уже ждут в той же очереди.
+            // Первым он держал бы их всех: план на месте — до 9 разломов окна по единице и обрушение, по несколько мс
+            // каждая, а подмена готового плана — 0,2 мс; на netcup 16.10 один такой чанк держал 60–85 видимых чанков
+            // с готовым планом 38 тиков. Порядок чанков плану не важен (RuinContext)
+            waited(job, NukeDiag.Wait.AGAIN);
             job.ready = true;
-            (seen ? readySeen : readyUnseen).addFirst(job);
+            (seen ? readySeen : readyUnseen).addLast(job);
             return WORKED;
         }
         if (r == WAIT) {
-            NukeDiag.waited(waitRadius > 1 ? NukeDiag.Wait.PLAN_R2 : NukeDiag.Wait.PLAN_R1);
+            waited(job, waitRadius > 1 ? NukeDiag.Wait.PLAN_R2 : NukeDiag.Wait.PLAN_R1);
             waitNeighbours(level, job, now, waitRadius);
             return PLANNED_WAITS;
         }
+        if (NukeDiag.ON) diagRuined(level, job, pos, Math.max(0, now - job.wave), seen);
         chunk.setData(ModAttachments.CHUNK_SCAR, d.id());
         chunk.setUnsaved(true);
         if (job.asked != Long.MIN_VALUE) {
@@ -970,6 +1189,7 @@ public final class ScarQueue {
         } else {
             job.due = job.wave = due(job.events.get(job.event), chunk.getPos());
             byDue.add(job);
+            lookAheadLater(job);
         }
         return WORKED;
     }

@@ -127,6 +127,34 @@ public final class StrikeGameTests {
 
     private StrikeGameTests() {}
 
+    /**
+     * Неровный навес над округой стрелка {@code c} (±48 блоков, дальше всех мест пусковой {@code LaunchSite}): полосы на
+     * двух высотах над самым высоким блоком округи — под ним нет неба, на нём нет ровного места. Высота — от самого
+     * высокого блока, а не от стрелка: сетка GameTest не убирает площадки прошлых партий, и место нашлось бы на соседней
+     * выше навеса (CI 16.10, другой состав части: пусковая на y −17 у края площадки над навесом на −46). После проверки
+     * навес убирается: над чужой постройкой он выше, чем расчищает площадка следующей партии, и шахед соседней проверки
+     * разбивался о него (CI 16.10, {@code drone_dive_mast} сразу после {@code operator_route}).
+     */
+    private static void roofOver(GameTestHelper h, BlockPos c) {
+        ServerLevel level = h.getLevel();
+        int top = c.getY();
+        for (int x = -48; x <= 48; x++) for (int z = -48; z <= 48; z++) {
+            BlockPos q = c.offset(x, 0, z);
+            if (Terrain.ready(level, q)) top = Math.max(top, level.getHeight(Heightmap.Types.MOTION_BLOCKING, q.getX(), q.getZ()));
+        }
+        List<BlockPos> roof = new ArrayList<>();
+        for (int x = -48; x <= 48; x++) for (int z = -48; z <= 48; z++) {
+            BlockPos r = new BlockPos(c.getX() + x, top + (Math.floorMod(x, 3) == 0 ? 10 : 13), c.getZ() + z);
+            if (Terrain.ready(level, r) && level.getBlockState(r).isAir()) {
+                level.setBlock(r, Blocks.STONE.defaultBlockState(), 2);
+                roof.add(r);
+            }
+        }
+        afterTest(h, () -> roof.forEach(r -> {
+            if (Terrain.ready(level, r) && level.getBlockState(r).is(Blocks.STONE)) level.setBlock(r, Blocks.AIR.defaultBlockState(), 2);
+        }));
+    }
+
     /** Верх блока цели. */
     private static Vec3 top(GameTestHelper h, BlockPos block) {
         return Vec3.atCenterOf(h.absolutePos(block)).add(0, 0.5, 0);
@@ -900,11 +928,7 @@ public final class StrikeGameTests {
         h.assertTrue(Math.abs(first.x - gate.x) < 1.5 && Math.abs(first.z - gate.z) < 1.5, "первая точка не на курсе пусковой: " + first + " против " + gate);
         launcher.discard();
         // навес над всей округой, полосами на двух высотах: ни одного места под пусковую ни под ним, ни на нём
-        BlockPos c = BlockPos.containing(shooter.position());
-        for (int x = -48; x <= 48; x++) for (int z = -48; z <= 48; z++) {
-            BlockPos r = c.offset(x, Math.floorMod(x, 3) == 0 ? 10 : 13, z);
-            if (Terrain.ready(level, r)) level.setBlock(r, Blocks.STONE.defaultBlockState(), 2);
-        }
+        roofOver(h, BlockPos.containing(shooter.position()));
         StrikeProjectile far = StrikeService.launchGuided(level, WeaponType.DRONE, point, 0, shooter, Waypoints.NONE);
         h.assertTrue(far != null && far.isVirtual(), "без места пусковой шахед не зашёл издалека: " + far);
         h.assertTrue(level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), LauncherEntity::isAlive).isEmpty(), "пусковая поставлена под навес");
@@ -942,11 +966,7 @@ public final class StrikeGameTests {
         h.assertTrue(p.rangeLeft() >= 1.5 * planned, "запас хода " + p.rangeLeft() + " меньше полутора путей по точкам " + planned);
         launcher.discard();
         // места пусковой нет — заход издалека
-        BlockPos c = BlockPos.containing(shooter.position());
-        for (int x = -48; x <= 48; x++) for (int z = -48; z <= 48; z++) {
-            BlockPos r = c.offset(x, Math.floorMod(x, 3) == 0 ? 10 : 13, z);
-            if (Terrain.ready(level, r)) level.setBlock(r, Blocks.STONE.defaultBlockState(), 2);
-        }
+        roofOver(h, BlockPos.containing(shooter.position()));
         StrikeProjectile far = StrikeService.launchGuided(level, WeaponType.DRONE, point, 0, shooter, via);
         h.assertTrue(far != null && far.isVirtual(), "без места пусковой шахед по маршруту не зашёл издалека: " + far);
         Vec3 entry = via.afar(point, WeaponType.DRONE.spec().route().finalLeg());
@@ -2859,6 +2879,7 @@ public final class StrikeGameTests {
             // падает вперёд по курсу (+z), не рулит: вбок не уходит, вперёд — не дальше двух высот падения
             h.assertTrue(entry[0].z > from.z && entry[0].z - from.z < 2 * (from.y - ground[0]) && Math.abs(entry[0].x - from.x) < 8,
                     "бомба вошла в грунт не на своём пути: " + entry[0].subtract(from));
+            assertFlightReleased(h, id);
         });
     }
 
@@ -2922,6 +2943,8 @@ public final class StrikeGameTests {
             // вход на 1 блок выше точки попадания (дым из скважины); попадание — верх плиты
             h.assertTrue(Math.abs(entry[0].y - 1 - (roof + 1)) < 2, "бомба вошла не в плиту над собой: y=" + (int) entry[0].y + ", плита " + roof);
             h.assertTrue(Math.abs(entry[0].z - risenZ[0]) < 4, "бомба вошла в плиту не там, где плита встала над ней: " + (entry[0].z - risenZ[0]));
+            // под плитой — воздух до земли: бомба проходит его в грунте и уходит в соседние чанки
+            assertFlightReleased(h, id);
         });
     }
 
@@ -3014,6 +3037,7 @@ public final class StrikeGameTests {
             h.assertTrue(raised[0], "цель не поднялась");
             h.assertFalse(flight(level, id) != null, "ракета ещё летит, до цели " + (int) last[0].distanceTo(high));
             h.assertTrue(last[0].distanceTo(high) < 24, "ракета взорвалась не у цели: " + last[0].subtract(high));
+            assertFlightReleased(h, id);
         });
     }
 
@@ -3022,6 +3046,24 @@ public final class StrikeGameTests {
     private static StrikeProjectile flight(ServerLevel level, UUID id) {
         return VirtualFlights.get(level).flights().stream().filter(v -> v.getUUID().equals(id)).findFirst()
                 .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+    }
+
+    /**
+     * Полёт кончился — снаряда нет ни в мире, ни вне его — и удары отработали, а у мода не осталось ни одного тикета
+     * с ключом снаряда: ни своих чанков ({@code incoming_projectile}), ни района цели и полосы ({@code incoming_flight}),
+     * ни их тикетов загрузки. Снаряд, который застрял в мире там, где не тикает, держал бы их до остановки сервера.
+     */
+    private static void assertFlightReleased(GameTestHelper h, UUID id) {
+        ServerLevel level = h.getLevel();
+        StrikeProjectile p = flight(level, id);
+        if (p != null) {
+            BlockPos at = p.blockPosition();
+            throw new GameTestAssertException("снаряд не кончился: " + (p.isVirtual() ? "вне мира" : level.isPositionEntityTicking(at) ? "в мире" : "в мире без тика")
+                    + " на " + at.toShortString() + ", фаза " + p.flightPhase() + "; его тикеты " + TicketProbe.types(level, id));
+        }
+        h.assertTrue(StrikeWorld.get(level).impacts().size() == 0, "удары ещё в очереди");
+        List<String> left = TicketProbe.types(level, id);
+        h.assertTrue(left.isEmpty(), "после полёта остались его тикеты: " + left + "; районы " + StrikeWorld.get(level).areas().describe());
     }
 
     /** Снаряд под «рельефом» на 60 блоков выше цели над местом пуска долетает до цели и взрывается у неё. */
@@ -3039,6 +3081,7 @@ public final class StrikeGameTests {
             h.assertFalse(flight(level, id) != null, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
             h.assertTrue(last[0].distanceTo(aim) < 24, "снаряд взорвался не у цели: " + last[0].subtract(aim));
             assertCrater(h, RUNWAY_TARGET, "у цели");
+            assertFlightReleased(h, id);
         });
     }
 

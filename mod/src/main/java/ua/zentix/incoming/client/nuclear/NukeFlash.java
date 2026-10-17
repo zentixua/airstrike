@@ -2,16 +2,21 @@ package ua.zentix.incoming.client.nuclear;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
-import ua.zentix.incoming.Incoming;
+import org.joml.Matrix4f;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.render.ScreenProjection;
 import ua.zentix.incoming.nuclear.Detonation;
@@ -27,8 +32,6 @@ import ua.zentix.incoming.nuclear.model.ThermalModel;
  * треть (засветка неба).
  */
 public final class NukeFlash {
-    private static final ResourceLocation FLARE = Incoming.id("textures/nuke/flare.png");
-
     @Nullable
     private static ClientNuclear.Active current;
     /** Сила вспышки 0..1 для этого игрока. */
@@ -150,15 +153,27 @@ public final class NukeFlash {
         float life = (afterLeft - partial) / afterTotal;
         float a = Mth.clamp(life * 1.3f, 0, 0.6f) * Math.min(1, strength * 1.5f);
         if (a <= 0.01f) return;
-        int x = (int) (s[0] * w), y = (int) (s[1] * h), size = (int) px;
+        ShaderInstance shader = NukeRenderer.flare;
+        if (shader == null) return;
+        float x = s[0] * w, y = s[1] * h;
+        RenderSystem.setShader(() -> shader);
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
-        g.setColor(0.55f, 0.24f, 0.08f, a);
-        g.blit(FLARE, x - size, y - size, 2 * size, 2 * size, 0, 0, 64, 64, 64, 64);
-        g.setColor(0.6f, 0.4f, 0.2f, a * 0.5f);
-        g.blit(FLARE, x - size / 3, y - size / 3, 2 * (size / 3), 2 * (size / 3), 0, 0, 64, 64, 64, 64);
-        g.setColor(1, 1, 1, 1);
+        // пятно до 800 пикселей — свечением по формуле (из картинки — квадратами по её пикселю)
+        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        Matrix4f m = g.pose().last().pose();
+        spot(b, m, x, y, px, 0.55f, 0.24f, 0.08f, a);
+        spot(b, m, x, y, px / 3, 0.6f, 0.4f, 0.2f, a * 0.5f);
+        BufferUploader.drawWithShader(b.buildOrThrow());
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
+    }
+
+    /** Квадрат свечения с серединой (x, y) и полуразмером half, в пикселях интерфейса. */
+    private static void spot(BufferBuilder b, Matrix4f m, float x, float y, float half, float r, float g, float bl, float a) {
+        b.addVertex(m, x - half, y - half, 0).setUv(0, 0).setColor(r, g, bl, a);
+        b.addVertex(m, x - half, y + half, 0).setUv(0, 1).setColor(r, g, bl, a);
+        b.addVertex(m, x + half, y + half, 0).setUv(1, 1).setColor(r, g, bl, a);
+        b.addVertex(m, x + half, y - half, 0).setUv(1, 0).setColor(r, g, bl, a);
     }
 }

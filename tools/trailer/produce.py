@@ -244,6 +244,10 @@ class Guard:
         self.protected = [p for p in protected if p]
         self.writable = [p for p in writable if p]
 
+    def protects(self, path):
+        """Путь под защищённым корнем: писать и удалять туда нельзя."""
+        return any(under(path, p) for p in self.protected)
+
     def check(self, path, what):
         for p in self.protected:
             if under(path, p):
@@ -413,12 +417,17 @@ class Conveyor:
     def world_name(self, take, n, src):
         """Имя копии мира попытки: nw-<дубль>-a<n>, а занятое входом или снимком — с суффиксом r1, r2… Дубль снова в
         очереди начинает попытки с a0, а его прежний мир a0 бывает входом цепочки: копия поверх себя стёрла вход (15.10).
-        Пересъёмка то же держит: её прежний снимок (retake_of) остаётся чьим-то входом — живого дубля Артёма."""
+        Пересъёмка то же держит: её прежний снимок (retake_of) остаётся чьим-то входом — живого дубля Артёма. Занят и
+        мир, который уже лежит в saves, и защищённый: прогон вслепую с копией состояния ночи не знает миров, которые
+        ночь сменила или бросила, и копия ложилась поверх них (16.10: nw-T14-a0 из очереди удаления ночи, nw-T24-a0 —
+        запись T24, прерванная остановкой ночи; nw-T07-a0r1 под защитой — отказ). Свою неудачную попытку дубль убирает
+        сам (`take`), поэтому новое имя мир не плодит."""
         used = {os.path.basename(src), self.state.get("chain")}
         for st in self.state["takes"].values():
             used |= {st.get("snapshot"), st.get("kept"), st.get("before"), st.get("retake_of")}
         name, k = f"nw-{take}-a{n}", 0
-        while name in used:
+        while name in used or self.guard.protects(os.path.join(self.saves, name)) \
+                or os.path.exists(os.path.join(self.saves, name)):
             k += 1
             name = f"nw-{take}-a{n}r{k}"
         return name
@@ -429,6 +438,17 @@ class Conveyor:
             self.remove(dst)
         self.m.copy_tree(src, dst)
         return name
+
+    def set_aside(self, path):
+        """Папку — рядом под именем с днём и временем (a0 → a0-1710-0851): вывод из неё остаётся по своему пути."""
+        stamp = time.strftime("%d%m-%H%M", time.localtime(self.m.now()))
+        dst, k = f"{path}-{stamp}", 1
+        while os.path.exists(dst):
+            k += 1
+            dst = f"{path}-{stamp}-{k}"
+        os.rename(self.guard.check(path, "перенос"), self.guard.check(dst, "перенос в"))
+        self.say(f"прежняя запись {os.path.basename(path)} — в {os.path.basename(dst)}")
+        return dst
 
     def remove(self, path):
         self.guard.check(path, "удаление")
@@ -652,13 +672,16 @@ class Conveyor:
         return out
 
     def render_flags(self, take, rec, plan, path):
-        """Какие проверки вывода нужны плану: FPV, МБР, тёмный кадр (brightness в cover); onboard, HUD и ядерные — без тряски."""
+        """Какие проверки вывода нужны плану: FPV, МБР, тёмный кадр (brightness в cover), плотность ковра (density в cover),
+        стая вразброс (swarm в cover); onboard, HUD и ядерные — без тряски."""
         shot = next((s for s in self.takes[take].get("shots", []) if plan in s.get("plans", [])), {})
         flights, nuke = take_checks.read_events(os.path.join(rec, "replays", f"{plan}.events.jsonl"))
         return {"fpv": shot.get("camera") == "fpv" or os.path.basename(path).startswith("fpv"),
                 "icbm": any(f.weapon in take_checks.ICBM_WEAPONS for f in flights),
                 "shake": not (nuke or shot.get("camera") == "onboard" or shot.get("hud")),
-                "brightness": (shot.get("cover") or {}).get(plan, {}).get("brightness")}
+                "brightness": (shot.get("cover") or {}).get(plan, {}).get("brightness"),
+                "density": (shot.get("cover") or {}).get(plan, {}).get("density"),
+                "swarm": (shot.get("cover") or {}).get(plan, {}).get("swarm")}
 
     def take(self, take):
         """Дубль цепочки до итога: запись, проверка, вывод, пересъёмка запасной камерой, пропуск."""
@@ -674,6 +697,13 @@ class Conveyor:
         # продолжение после остановки: пересъёмки, что уже были, в счёт
         variant = sum(1 for x in st["attempts"] if not x.get("interrupted"))
         kept = st.get("kept")
+        if kept and not any(x.get("world") == kept for x in st["attempts"]):
+            # запасной снимок не из попыток этого прогона: дубль сброшен (retake или руками в state.json). Его мир — в
+            # очередь удаления (мир, который ещё чей-то вход или голова цепочки, release держит сам), запасным станет
+            # первая записанная попытка: иначе её мир удалялся на старте следующей, а из её повтора выводятся планы
+            # (LOD DH — из мира записи; 17.10: nw-T24-a0r4, перевыводы n36 без LOD)
+            self.release(kept)
+            kept = st["kept"] = None
         t0 = self.m.now()
         for n in range(len(st["attempts"]), 20):
             if variant > retries:
@@ -703,7 +733,7 @@ class Conveyor:
             saved = bool(a["result"] and a["result"].get("saved"))
             if a["ok"]:
                 if kept and kept != a["world"]:
-                    self.remove(os.path.join(self.saves, kept))
+                    self.release(kept)      # из повтора прежней попытки могли вывести планы: LOD DH — из её мира
                 kept = a["world"]
                 st.update(status="chained" if chain_only else "passed", snapshot=kept)
                 break
@@ -718,6 +748,10 @@ class Conveyor:
             # мир, где удары уже легли, — запасной снимок цепочки, если ни одна попытка не пройдёт
             if saved and kept is None:
                 kept = st["kept"] = a["world"]
+            elif any(r[0] == "PASS" for r in plans.values()):
+                # выведенные планы неудачной попытки черновик берёт (17.10: n33 и n47 — из T24 a0r4, не прошедшей из-за
+                # n36): перевывод по замечанию — из её повтора, LOD DH — из её мира; в очередь удаления, а не прочь
+                self.release(a["world"])
             else:
                 self.remove(os.path.join(self.saves, a["world"]))
             variant += 1
@@ -806,9 +840,9 @@ class Conveyor:
             raise Stopped(f"монтаж {what} не собрался ({killed or f'код {code}'}): {os.path.join(out, f'cut-{what}.log')}")
 
     def missing_plans(self):
-        """Планы листа аниматика, которых нет среди прошедших (чистовой их ждёт)."""
+        """Планы монтажного листа (newisle_cut.SHEET), которых нет среди прошедших (чистовой их ждёт)."""
         import newisle_cut
-        sheet = load_json(os.path.join(SCENES, "newisle-animatic.json"))
+        sheet = load_json(newisle_cut.SHEET)
         dirs = newisle_cut.shot_dirs(self.state, self.data)
         return [s["plan"] for s in sheet["shots"] if "plan" in s and s["plan"] not in dirs]
 
@@ -861,6 +895,14 @@ class Conveyor:
                 self.say(f"{take}: пересъёмка пропущена — нет входного мира в saves")
                 continue
             self.state["released"] = [w for w in self.state.get("released", []) if w != src]
+            # прежний запасной снимок дубля — в очередь удаления: kept пересъёмки — мир её записанной попытки
+            if st.get("kept") and st["kept"] not in (st.get("snapshot"), src):
+                self.release(st["kept"])
+            # прежние записи — в сторону, а не под удаление первой попыткой пересъёмки: их выводы стоят в монтаже, пока
+            # новая запись не прошла (17.10: пересъёмка T05 стёрла запись n07 из черновика)
+            for a in st.get("attempts", []):
+                if a.get("rec") and os.path.isdir(a["rec"]):
+                    self.set_aside(a["rec"])
             self.state["takes"][take] = {"attempts": [], "retake_input": src, "retake_of": st.get("snapshot")}
             self.say(f"{take}: пересъёмка со своего входа ({src or 'мастер'})")
         os.replace(path, path + ".done")
@@ -1067,9 +1109,14 @@ def check_take(result, log, take, rec=None):
         spec = next((sh for sh in take.get("shots", []) if sh.get("plans") == s.get("plans")), {})
         passes = [(i, k["pass"]["at"][:2]) for i, k in enumerate(spec.get("strikes", [])) if "pass" in k]
         journal = pass_actual_events(rec, name, passes) if rec else {}
+        secs = spec.get("seconds")
         for i, k in enumerate(s.get("strikes", [])):
             if not k.get("bound"):
                 out.append(f"{name}: удар {k.get('weapon')} не найден у клиента")
+            elif k.get("intercepted"):
+                continue        # сбит ЗРК: удара нет, срок не к чему мерить (сколько сбито — take_checks.sam_outcome)
+            elif secs and k["eta"] > secs and min(k.get("actual", secs + 1), k.get("actual_client", secs + 1)) > secs:
+                continue        # и срок, и удар — после конца записи: в кадры плана он не попадает (n17: стая бьёт город позже)
             elif i in journal:
                 # пролёт меряем по журналу повтора: часы постановщика под нагрузкой скачут (T10, 15.10);
                 # несколько ударов с одной точкой — каждый eta находит свой пролёт из журнала

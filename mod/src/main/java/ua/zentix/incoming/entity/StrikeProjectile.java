@@ -1152,7 +1152,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return true;
     }
 
-    /** Перемещение без проверок (бомбардировщик, бурение). */
+    /**
+     * Перемещение без проверок (бомбардировщик, бурение). Снаряд в мире двигается только так: тикеты его чанков
+     * ({@link ChunkHold}) идут за ним. Сдвинутый мимо ({@code setPos}) в чанк, где сущности не тикают, он стоял бы там без
+     * конца полёта, а его тикеты держали бы и его, и район цели до остановки сервера.
+     */
     protected void moveAlong(ServerLevel level, Vec3 next, Vec3 dir) {
         setPos(next.x, next.y, next.z);
         setYRot(flight.yaw());

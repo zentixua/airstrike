@@ -73,26 +73,26 @@ class ChatGateTest(unittest.TestCase):
             f.write(options)
         return root
 
-    LINE = "☢ %s asks for the second key: %s at %s, %s. Confirm with %s (%s s left)"    # 17 слов
+    LINE = "☢ %s asks for the second key: %s at %s, %s. Confirm with %s (%s s left)"    # до двоеточия 7 слов
 
     def test_short_cut_and_low_chat_fail(self):
         with tempfile.TemporaryDirectory() as root:
             repo = self.record(self.lang(root, self.LINE))          # chatScale нет — как у игры по умолчанию (1)
             takes = {"takes": [{"id": "T", "shots": [{"plans": ["c1"], "chat": True}]}]}
-            s = sheet([{"plan": "c1", "dur": 4.0}], until=None)
+            s = sheet([{"plan": "c1", "dur": 3.0}], until=None)
             out = CC.chat_gate(s, takes, repo)
             self.assertEqual(2, len(out), out)                      # и короче чтения, и ниже 2,5% высоты
-            self.assertIn("4.0 с < 7.4 с", out[0][1])
+            self.assertIn("3.0 с < 3.9 с", out[0][1])
             self.assertIn("высоты", out[1][1])
 
     def test_long_cut_and_scaled_chat_pass(self):
         with tempfile.TemporaryDirectory() as root:
             repo = self.record(self.lang(root, self.LINE), "guiScale:3\nchatScale:1.5\n")
             takes = {"takes": [{"id": "T", "shots": [{"plans": ["c1"], "chat": True}]}]}
-            s = sheet([{"plan": "c1", "dur": 8.0}], until=None)
+            s = sheet([{"plan": "c1", "dur": 4.0}], until=None)
             self.assertEqual([], CC.chat_gate(s, takes, repo))
-            s = sheet([{"plan": "c1", "dur": 6.0}], until=None)
-            self.assertEqual(1, len(CC.chat_gate(s, takes, repo)))  # 1,5 + 0,35 × 17 = 7,45 с
+            s = sheet([{"plan": "c1", "dur": 3.8}], until=None)
+            self.assertEqual(1, len(CC.chat_gate(s, takes, repo)))  # 1,5 + 0,35 × 7 = 3,95 с
 
     def test_real_record_options(self):
         gui, chat = CC.record_options(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -124,12 +124,31 @@ class SirenGateTest(unittest.TestCase):
             dirs = {"a1": self.render_dir(root, "a1", 0, 10), "b1": self.render_dir(root, "b1", 0, 4)}
             out = CC.siren_gate(TAKES, SCENARIO, {}, dirs)
             self.assertEqual(["b1"], [p for p, _ in out], out)
-            self.assertIn("4.0 с против 10.0 с", out[0][1])
+            self.assertIn("4.0 с сирены на 30.0 с окна (0.13) против 0.33 у T1", out[0][1])
 
     def test_growing_or_equal_siren_is_fine_and_silent_takes_are_not_compared(self):
         with tempfile.TemporaryDirectory() as root:
             dirs = {"a1": self.render_dir(root, "a1", 0, 5), "b1": self.render_dir(root, "b1", 0, 12)}
             self.assertEqual([], CC.siren_gate(TAKES, SCENARIO, {}, dirs))
+
+    def test_shorter_take_with_siren_over_its_whole_window_is_fine(self):
+        # прежняя мера (сумма секунд дубля): 6 с у b1 против 20 с у a1 — «тише», хотя сирена звучит всё окно у обоих
+        with tempfile.TemporaryDirectory() as root:
+            dirs = {"a1": self.render_dir(root, "a1", 0, 20, seconds=20.0),
+                    "b1": self.render_dir(root, "b1", 0, 6, seconds=6.0)}
+            self.assertEqual([], CC.siren_gate(TAKES, SCENARIO, {}, dirs))
+
+    def test_only_the_quieter_plan_of_a_take_fails(self):
+        takes = {"takes": [
+            {"id": "T1", "siren": True, "shots": [{"plans": ["a1"], "seconds": 4, "strikes": [{}]}]},
+            {"id": "T2", "siren": True, "shots": [{"plans": ["b1"], "seconds": 4, "strikes": [{}, {}]},
+                                                 {"plans": ["b2"], "seconds": 4, "camera": "onboard"}]}]}
+        with tempfile.TemporaryDirectory() as root:
+            dirs = {"a1": self.render_dir(root, "a1", 0, 20, seconds=20.0),
+                    "b1": self.render_dir(root, "b1", 0, 7, seconds=7.0),
+                    "b2": self.render_dir(root, "b2", 30, 31, seconds=5.0)}       # сирена после окна — тишина
+            out = CC.siren_gate(takes, {"plans": []}, {}, dirs)
+            self.assertEqual(["b2"], [p for p, _ in out], out)
 
 
 class GuiFitsFrameTest(unittest.TestCase):

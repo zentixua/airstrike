@@ -13,6 +13,8 @@
                                             assets/incoming/sounds.json, SOUND-CREDITS.md
   uv run tools/build_sounds.py blasts    → пересобрать файлы только этих разделов (остальные файлы не трогаются;
                                             sounds.json и авторы — по всем разделам)
+  uv run tools/build_sounds.py --alone after → только эти разделы, без записей остальных (синтез, когда Freesound
+                                            недоступен): прочие события sounds.json и авторы остаются как были
 
 Записи — только с лицензией, разрешающей распространение: CC0 (общественное достояние) и CC BY (с указанием
 автора: SOUND-CREDITS.md в корне и credits.txt рядом со звуками в jar). Список — SOURCES ниже. Записи берутся
@@ -834,6 +836,18 @@ def nuke():
     variants("geiger.click", "subtitles.incoming.geiger", "geiger_click", clicks)
 
 
+def after():
+    """После ядерного удара — синтез (записей нет): хлопок N-волны вдали, гул горящего города (петли), обрушения в
+    руинах. Ветер в огонь — петля урагана nuke_wind (раздел nuke) под своим субтитром."""
+    cracks = [syn.nuke_crack_far(4.0, n_wave=nw, bounce=b) for nw, b in [(0.30, 0.020), (0.42, 0.031)]]
+    variants("nuke.crack_far", "subtitles.incoming.nuke.blast", "nuke_crack_far", cracks)
+    PRELOAD.add("nuke.crack_far")
+    fires = [norm(loop(syn.nuke_fire(14.0), 12.0, 1.0), -15.5) for _ in range(2)]
+    variants("nuke.fire", "subtitles.incoming.nuke.fire", "nuke_fire", fires)
+    EVENTS["nuke.fire_wind"] = ("subtitles.incoming.nuke.fire_wind", ["nuke_wind"])
+    variants("nuke.collapse", "subtitles.incoming.nuke.collapse", "nuke_collapse", [syn.nuke_collapse(4.5) for _ in range(3)])
+
+
 def misc():
     write("designator_lock", syn.lock_beep(), "designator.lock", "subtitles.incoming.designator.lock")
     write("silent", np.zeros(int(0.05 * SR)), "silent")
@@ -907,16 +921,24 @@ ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine",
          "bomber.engine.far", "bomb.fall", "bomb.fall.far", "bomb.drill", "siren", "blast.near", "blast.sub",
          "blast.far", "blast.mid", "blast.tail", "debris.fall", "blast.fire", "bomb.crack", "bomb.impact", "bomb.quake", "bomb.deep", "bomb.vent", "bomb.cave",
          "designator.lock", "silent", "nuke.alarm", "nuke.launch", "nuke.crack", "nuke.boom_far", "nuke.roar",
-         "nuke.wind", "nuke.rumble", "nuke.glass", "nuke.tinnitus", "nuke.rain", "geiger.click", "rocket.launch",
+         "nuke.wind", "nuke.rumble", "nuke.glass", "nuke.tinnitus", "nuke.rain", "nuke.crack_far", "nuke.fire",
+         "nuke.fire_wind", "nuke.collapse", "geiger.click", "rocket.launch",
          "rocket.incoming", "rocket.blast", "loiter.engine",
          "loiter.engine.far", "loiter.dive", "loiter.launch", "grid.fail", "grid.spark", "grid.hum", "grid.power_down",
          "grid.power_up"]
 
 
-def write_json():
-    assert set(ORDER) == set(EVENTS), set(ORDER) ^ set(EVENTS)
+def write_json(old=None):
+    """sounds.json по EVENTS; old — прежний sounds.json (--alone): события разделов, которые не собирались, — из него."""
+    if old is None:
+        assert set(ORDER) == set(EVENTS), set(ORDER) ^ set(EVENTS)
+    else:
+        assert set(ORDER) == set(EVENTS) | set(old), set(ORDER) ^ (set(EVENTS) | set(old))
     data = {}
     for ev in ORDER:
+        if ev not in EVENTS:
+            data[ev] = old[ev]
+            continue
         sub, files = EVENTS[ev]
         entry = {"subtitle": sub} if sub else {}
         entry["sounds"] = [{"name": f"incoming:{f}", "preload": True} if ev in PRELOAD else {"name": f"incoming:{f}"}
@@ -950,18 +972,43 @@ def write_credits():
 
 
 if __name__ == "__main__":
-    PARTS = (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket, loiter, grid)
-    only = set(sys.argv[1:])
+    PARTS = (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, after, misc, rocket, loiter, grid)
+    args = sys.argv[1:]
+    # --alone: только названные разделы (без записей Freesound — например, синтез в облаке): прочие события
+    # sounds.json и авторы остаются как были
+    alone = "--alone" in args
+    only = set(a for a in args if a != "--alone")
     unknown = only - {p.__name__ for p in PARTS}
     if unknown:
         sys.exit(f"нет таких разделов: {', '.join(sorted(unknown))}; есть: {', '.join(p.__name__ for p in PARTS)}")
+    if alone and not only:
+        sys.exit("--alone — с разделами")
+    old = None
+    if alone:
+        with open(os.path.join(ASSETS, "sounds.json"), encoding="utf-8") as fh:
+            old = json.load(fh)
     for part in PARTS:
+        if alone and part.__name__ not in only:
+            continue
         print(part.__name__ + ("" if not only or part.__name__ in only else " (файлы не пишутся)"))
         WRITING = not only or part.__name__ in only
         # свой генератор у каждого раздела: правка одного раздела не сдвигает случайные числа другим
         rng = np.random.default_rng(zlib.crc32(part.__name__.encode()))
         syn.rng = np.random.default_rng(zlib.crc32(("syn." + part.__name__).encode()))
         part()
+    if alone:
+        if USED:
+            sys.exit("--alone: разделы берут записи — авторы в SOUND-CREDITS.md сменились бы; собрать без --alone")
+        stale = {f["name"].split(":")[1] + ".ogg" for ev in EVENTS if ev in old for f in old[ev]["sounds"]}
+        old = {ev: entry for ev, entry in old.items() if ev not in EVENTS}
+        write_json(old)
+        used = {f + ".ogg" for _, files in EVENTS.values() for f in files}
+        used |= {f["name"].split(":")[1] + ".ogg" for entry in old.values() for f in entry["sounds"]}
+        for f in stale - used:  # прежние файлы этих событий, которых больше нет
+            if os.path.exists(os.path.join(OUT, f)):
+                os.remove(os.path.join(OUT, f))
+        print("готово:", len(EVENTS), "событий пересобрано")
+        sys.exit(0)
     write_json()
     write_credits()
     used = {f + ".ogg" for _, files in EVENTS.values() for f in files}

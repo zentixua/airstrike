@@ -31,40 +31,18 @@
   "id": "n02",
   "title": "Shaheds low over the lake east of the bridge",
   "time": "dawn",
-  "camera": "path",
+  "camera": "fixed",
   "frames": [
    {
     "t": 0.0,
     "eye": [
-     -120.0,
-     72.0,
-     440.0
+     -151.5,
+     102.0,
+     100.5
     ],
-    "yaw": 174.0,
-    "pitch": -15.4,
-    "fov": 60.0
-   },
-   {
-    "t": 1.5,
-    "eye": [
-     -110.0,
-     72.0,
-     395.0
-    ],
-    "yaw": 171.9,
-    "pitch": -17.0,
-    "fov": 60.0
-   },
-   {
-    "t": 3.0,
-    "eye": [
-     -100.0,
-     72.0,
-     350.0
-    ],
-    "yaw": 169.3,
-    "pitch": -18.8,
-    "fov": 60.0
+    "yaw": -0.0,
+    "pitch": -9.1,
+    "fov": 70.0
    }
   ],
   "target": [
@@ -75,7 +53,7 @@
   "distance": 446.0,
   "sight": true,
   "ok": true,
-  "notes": "путь 92 блоков"
+  "notes": "крыша (−152, 100), 4 блока над ней: на юг над заливом лучи чистые на 300+ блоков (nw-T08-a0); фронт шахедов в 300 блоках — во всю ширину кадра"
  },
  {
   "id": "n03",
@@ -237,7 +215,7 @@
  },
  {
   "id": "n07",
-  "title": "Volkov at the console: the next salvo, four routes",
+  "title": "Volkov at the console: one target for the next salvo",
   "time": "night",
   "camera": "hud",
   "frames": [
@@ -345,53 +323,53 @@
  },
  {
   "id": "n11",
-  "title": "Two cruise missiles cross the gorge in profile",
+  "title": "Two cruise missiles fly down the gorge into the dawn",
   "time": "dawn",
   "camera": "path",
   "frames": [
    {
     "t": 0.0,
     "eye": [
-     -1032.0,
-     150.0,
-     -133.0
+     -1063.5,
+     89.0,
+     -67.5
     ],
-    "yaw": -27.4,
-    "pitch": 41.1,
+    "yaw": -97.0,
+    "pitch": -16.0,
     "fov": 50.0
    },
    {
     "t": 2.0,
     "eye": [
-     -1022.0,
-     154.5,
-     -135.5
+     -1061.5,
+     88.8,
+     -67.0
     ],
-    "yaw": -17.7,
-    "pitch": 44.1,
+    "yaw": -97.0,
+    "pitch": -16.0,
     "fov": 50.0
    },
    {
     "t": 4.0,
     "eye": [
-     -1012.0,
-     159.0,
-     -138.0
+     -1059.5,
+     88.5,
+     -66.5
     ],
-    "yaw": -7.7,
-    "pitch": 46.2,
+    "yaw": -97.0,
+    "pitch": -16.0,
     "fov": 50.0
    }
   ],
   "target": [
    -1004.0,
-   97.0,
+   100.0,
    -79.0
   ],
   "distance": 61.0,
   "sight": true,
   "ok": true,
-  "notes": "путь 22 блоков"
+  "notes": "ущелье в 60 блоках к западу от прохода, 8 над склоном, на восток-северо-восток и 16° вверх; небо ~40 % кадра, 20 из 20 точек пути ракет в кадре на фоне неба — лучом по блокам на входе T07 (nw-T06-a1)"
  },
  {
   "id": "n12",
@@ -553,31 +531,31 @@
  },
  {
   "id": "n17",
-  "title": "Shaheds over the lake, SAM fires",
-  "time": "dawn",
-  "camera": "roof",
+  "title": "Shahed swarm over the lake, four SAM batteries fire",
+  "time": "sunrise",
+  "camera": "fixed",
   "frames": [
    {
     "t": 0.0,
     "eye": [
-     -154.9,
-     134.7,
-     57.4
+     -69.5,
+     78.0,
+     170.5
     ],
-    "yaw": 25.1,
-    "pitch": 8.8,
+    "yaw": 80.0,
+    "pitch": -11.0,
     "fov": 55.0
    }
   ],
   "target": [
-   -250.0,
-   100.0,
-   260.0
+   -200.0,
+   112.0,
+   220.0
   ],
-  "distance": 224.0,
+  "distance": 144,
   "sight": true,
   "ok": true,
-  "notes": "крыша 65 блоков над землёй, у края, до цели 224"
+  "notes": "место задано: низко над водой восточнее линии ЗРК, солнце восхода за спиной; три ЗРК и путь стаи у берега в кадре (лучом по блокам nw-T09-a0)"
  },
  {
   "id": "n18",
@@ -637,53 +615,53 @@
  },
  {
   "id": "n20",
-  "title": "FPV over the street fight in the west district",
+  "title": "FPV low over the avenue fight, strikes land all around",
   "time": "day",
   "camera": "fpv",
   "frames": [
    {
     "t": 0.0,
     "eye": [
-     -520.0,
-     91.0,
-     6.0
+     -500.0,
+     75.0,
+     9.0
     ],
     "yaw": -90.0,
-    "pitch": 29.0,
+    "pitch": 0.0,
     "fov": 75.0
    },
    {
     "t": 2.0,
     "eye": [
-     -455.0,
-     85.0,
-     6.0
+     -445.0,
+     75.0,
+     9.0
     ],
-    "yaw": -92.6,
-    "pitch": 18.5,
+    "yaw": -90.0,
+    "pitch": 0.0,
     "fov": 75.0
    },
    {
     "t": 4.0,
     "eye": [
      -390.0,
-     91.0,
-     3.0
+     75.0,
+     9.0
     ],
-    "yaw": -92.6,
-    "pitch": 18.5,
+    "yaw": -90.0,
+    "pitch": 0.0,
     "fov": 75.0
    }
   ],
   "target": [
    -400.0,
-   67.0,
-   6.0
+   66.0,
+   9.0
   ],
-  "distance": 120.0,
+  "distance": 100.0,
   "sight": true,
   "ok": true,
-  "notes": "путь 131 блоков"
+  "notes": "путь 110 блоков по оси проезжей части на 9 блоков над дорогой (дорога y 66, nw-T15-a0)"
  },
  {
   "id": "n21",
@@ -848,31 +826,31 @@
  },
  {
   "id": "n24",
-  "title": "B-2 bombs a North bunker in the desert",
+  "title": "B-2 bombs the North's air defence command bunker by City 1",
   "time": "day",
-  "camera": "ground",
+  "camera": "fixed",
   "frames": [
    {
-    "t": 2,
+    "t": 0.0,
     "eye": [
-     -484.5,
-     74.7,
-     -1062.5
+     67.5,
+     71.0,
+     -593.5
     ],
-    "yaw": -153.0,
-    "pitch": 5.1,
-    "fov": 35.0
+    "yaw": 31.7,
+    "pitch": -3.3,
+    "fov": 45.0
    }
   ],
   "target": [
-   -440.0,
-   66.0,
-   -1150.0
+   -14.0,
+   82.0,
+   -390.0
   ],
-  "distance": 98.0,
+  "distance": 59.0,
   "sight": true,
   "ok": true,
-  "notes": "земля, до цели 98"
+  "notes": "площадка (40, −540) ровная ±2, между камерой и насыпью ничего выше земли, за ней две башни центра (nw-T13-a2)"
  },
  {
   "id": "n25a",
@@ -1185,6 +1163,34 @@
   "notes": "крыша 73 блоков над землёй, у края, до цели 105"
  },
  {
+  "id": "n30a",
+  "title": "Night: Volkov's staff on the shore watch the North shoot the shaheds down",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -203.7,
+     65.6,
+     411.6
+    ],
+    "yaw": -182.0,
+    "pitch": -10.1,
+    "fov": 38.0
+   }
+  ],
+  "target": [
+   -200.0,
+   72.0,
+   140.0
+  ],
+  "distance": 290.0,
+  "sight": true,
+  "ok": true,
+  "notes": "камера ниже по склону, головы офицеров на гребне (−281, 389) выше линии огней города; дерево на гребне убирает постановка"
+ },
+ {
   "id": "n30",
   "title": "Second key",
   "time": "night",
@@ -1297,6 +1303,224 @@
   "notes": "улица [-111, -141]→[-111, 47] (189 блоков, стороны 15), 0 блоков от замысла"
  },
  {
+  "id": "n60",
+  "title": "Night: North and South soldiers fight in a City 2 street",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -779.5,
+     64.6,
+     731.5
+    ],
+    "yaw": 1.5,
+    "pitch": -0.0,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -780.0,
+   66.0,
+   742.0
+  ],
+  "distance": 20.0,
+  "sight": true,
+  "ok": true,
+  "notes": "улица x −780 (земля 62) между цепями, на уровне лиц: бой Юга (z 742) в кадре"
+ },
+ {
+  "id": "n61",
+  "title": "Night: the flash on the soldiers' faces",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -780.5,
+     64.6,
+     735.5
+    ],
+    "yaw": -4.4,
+    "pitch": -0.0,
+    "fov": 35.0
+   }
+  ],
+  "target": [
+   -780.0,
+   66.0,
+   742.0
+  ],
+  "distance": 8.5,
+  "sight": true,
+  "ok": true,
+  "notes": "6,5 блока до лиц цепи Юга, свет эпицентра — из-за камеры через крыши"
+ },
+ {
+  "id": "n62",
+  "title": "Night: from behind, the soldiers' silhouettes and the mushroom; the street lights die",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -748.5,
+     131.6,
+     665.5
+    ],
+    "yaw": -139.0,
+    "pitch": -8.2,
+    "fov": 25.0
+   }
+  ],
+  "target": [
+   -167.0,
+   266.0,
+   -4.0
+  ],
+  "distance": 994.8,
+  "sight": true,
+  "ok": true,
+  "notes": "крыша высотки Города 2 (−750…−741, 650–665, верх 128–130): за спинами солдат, луч на гриб чистый; внизу кварталы с гаснущими фонарями"
+ },
+ {
+  "id": "n63",
+  "title": "Night: enemies look at each other, lower their rifles, one runs",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -781.5,
+     64.6,
+     747.5
+    ],
+    "yaw": -178.0,
+    "pitch": -0.0,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -780.0,
+   66.0,
+   723.0
+  ],
+  "distance": 11.6,
+  "sight": true,
+  "ok": true,
+  "notes": "из-за спин цепи Юга вдоль улицы на цепь Севера: враги смотрят друг на друга"
+ },
+ {
+  "id": "n64",
+  "title": "Night: civilians flee down a City 2 street away from the light",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -848.5,
+     64.6,
+     711.5
+    ],
+    "yaw": -91.3,
+    "pitch": -1.2,
+    "fov": 55.0
+   }
+  ],
+  "target": [
+   -805.0,
+   66.0,
+   711.0
+  ],
+  "distance": 43.5,
+  "sight": true,
+  "ok": true,
+  "notes": "улица z 710 (земля 62): жители бегут на запад, на камеру"
+ },
+ {
+  "id": "n65",
+  "title": "Night: from above, the dust blanket rolls over the bay toward City 2",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -520,
+     230,
+     420
+    ],
+    "yaw": -140.2,
+    "pitch": 16.2,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -167.0,
+   66.0,
+   -4.0
+  ],
+  "distance": 575.6,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
+  "id": "n66",
+  "title": "Night: the crowd on the hill by City 2 watches the wave come, and you are among them",
+  "time": "night",
+  "camera": "path",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -562.7,
+     74.2,
+     919.0
+    ],
+    "yaw": -156.8,
+    "pitch": -9.9,
+    "fov": 50.0
+   },
+   {
+    "t": 5.0,
+    "eye": [
+     -564.3,
+     76.2,
+     922.7
+    ],
+    "yaw": -156.8,
+    "pitch": -9.8,
+    "fov": 50.0
+   },
+   {
+    "t": 12.0,
+    "eye": [
+     -564.3,
+     76.2,
+     922.7
+    ],
+    "yaw": -156.8,
+    "pitch": -9.8,
+    "fov": 50.0
+   }
+  ],
+  "target": [
+   -167.0,
+   66.0,
+   -4.0
+  ],
+  "distance": 1004.3,
+  "sight": true,
+  "ok": true,
+  "notes": "ядерная сцена 17.10 (данные к перезаписи T24/T25): поза по замыслу, лучи по блокам — перед записью"
+ },
+ {
   "id": "n34",
   "title": "Flash over City 1",
   "time": "night",
@@ -1351,6 +1575,34 @@
   "sight": true,
   "ok": true,
   "notes": "крыша 63 блоков над землёй, у края, до цели 875"
+ },
+ {
+  "id": "n35b",
+  "title": "A stranger on a City 2 roof runs from the wave",
+  "time": "night",
+  "camera": "fixed",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -743.3,
+     131.1,
+     662.0
+    ],
+    "yaw": -139.1,
+    "pitch": 0.0,
+    "fov": 40.0
+   }
+  ],
+  "target": [
+   -167.0,
+   195.0,
+   -4.0
+  ],
+  "distance": 883.0,
+  "sight": true,
+  "ok": true,
+  "notes": "задано руками по позе n35: крыша n35, камера в 6 блоках за спиной прохожего и на 1,5 вбок; крышу и луч проверить на шаге 3"
  },
  {
   "id": "n36",
@@ -1494,53 +1746,103 @@
  },
  {
   "id": "n41",
-  "title": "Night: a Grad carpet over City 1 from above",
+  "title": "Night: a Grad carpet across City 1, seen from the harbour",
   "time": "night",
   "camera": "path",
   "frames": [
    {
     "t": 0.0,
     "eye": [
-     -95.0,
-     215.0,
-     -170.0
+     -85.0,
+     165.0,
+     -428.0
     ],
-    "yaw": 41.6,
-    "pitch": 41.6,
+    "yaw": 16.6,
+    "pitch": 12.7,
     "fov": 50.0
    },
    {
-    "t": 2.0,
+    "t": 5.0,
     "eye": [
-     -170.0,
-     215.0,
-     -110.0
+     -117.5,
+     165.0,
+     -428.0
     ],
-    "yaw": 9.5,
-    "pitch": 74.1,
+    "yaw": 11.1,
+    "pitch": 13.0,
     "fov": 50.0
    },
    {
-    "t": 4.0,
+    "t": 10.0,
     "eye": [
-     -245.0,
-     215.0,
-     -50.0
+     -150.0,
+     165.0,
+     -428.0
     ],
-    "yaw": -113.2,
-    "pitch": 54.6,
+    "yaw": 5.4,
+    "pitch": 13.2,
     "fov": 50.0
    }
   ],
   "target": [
-   -175.0,
-   108.0,
-   -80.0
+   -102.5,
+   72.0,
+   -207.5
   ],
-  "distance": 120.0,
+  "distance": 220.0,
   "sight": true,
   "ok": true,
-  "notes": "путь 192 блоков"
+  "notes": "путь 65 блоков над гаванью у порта (y 165), взгляд поперёк Города 1 на (−180, 90, −110); цель первого удара видна лучом по блокам nw-T20-a0"
+ },
+ {
+  "id": "n41b",
+  "title": "Night: the strikes walk up the avenue behind fleeing people",
+  "time": "night",
+  "camera": "street",
+  "frames": [
+   {
+    "t": 0.0,
+    "eye": [
+     -84.5,
+     70.0,
+     -34.5
+    ],
+    "yaw": 97.0,
+    "pitch": -16.0,
+    "fov": 60.0
+   },
+   {
+    "t": 1.5,
+    "eye": [
+     -86.5,
+     70.0,
+     -34.5
+    ],
+    "yaw": 97.0,
+    "pitch": -16.0,
+    "fov": 60.0
+   },
+   {
+    "t": 3.0,
+    "eye": [
+     -88.5,
+     70.0,
+     -34.5
+    ],
+    "yaw": 97.0,
+    "pitch": -16.0,
+    "fov": 60.0
+   }
+  ],
+  "target": [
+   -127.5,
+   96.5,
+   -44.5
+  ],
+  "distance": 44.0,
+  "sight": true,
+  "ok": true,
+  "notes": "проспект z −35 у восточного конца, 3 блока над дорогой (66), 4 блока к западу за 3 с; удар ракеты в восточную грань близнеца (x −128, y 96) и ряд «Града» по оси проспекта в кадре — лучом по блокам на входном мире T21 (nw-T20-a0); взгляд на 16° вверх: люди у камеры — у нижнего края, удар с подъёмом шара — у верхнего"
  },
  {
   "id": "n42",
@@ -1735,13 +2037,13 @@
    {
     "t": 0.0,
     "eye": [
-     -585.5,
-     66.5,
-     -1042.5
+     -576.3,
+     78.7,
+     -1043.4
     ],
-    "yaw": -22.0,
-    "pitch": -6.6,
-    "fov": 50.0
+    "yaw": -13.8,
+    "pitch": -16.0,
+    "fov": 70.0
    }
   ],
   "target": [
@@ -1752,7 +2054,7 @@
   "distance": 1127.0,
   "sight": false,
   "ok": true,
-  "notes": "воздух ±2 в мастере и цепочке, все варианты"
+  "notes": "место задано: крыша за толпой, сбоку от часовой башни; подрыв в кадре (лучом по блокам nw-T22-a0)"
  },
  {
   "id": "n48",

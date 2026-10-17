@@ -1,5 +1,7 @@
 #version 150
 
+#moj_import <incoming:pall.glsl>
+
 // Слой эффектов (client/fx/layer): дым, пламя, искры, вспышки и всё дальнее одним проходом после мира.
 in vec3 Position;
 in vec2 UV0;
@@ -11,7 +13,7 @@ in ivec2 UV1;
 // свет мира (карта освещения)
 in ivec2 UV2;
 // x: туман Minecraft 0..1; y: 1 — частица (ближайшим пикселем, как из атласа Minecraft), −1 — плитка атласа дальних
-// моделей (свет в ней уже есть); z: непрозрачность частицы без текстуры
+// моделей (свет в ней уже есть), ½ — ореол far/glow (крупный — по формуле, fx.fsh); z: непрозрачность частицы без текстуры
 in vec3 Normal;
 
 uniform sampler2D Sampler2;
@@ -26,6 +28,18 @@ uniform mat4 ProjMat;
 // против света вокруг глаза, с цветом, и его огонь на экране (w)
 uniform mat4 FxBalls;
 uniform mat4 FxBallLight;
+// пелена ядерного удара (pall.glsl, PallPass): таблица поля, слоты подрывов, рамка, её средний свет (w — 1, если есть)
+uniform sampler2D Sampler5;
+uniform mat4 PallSlot0;
+uniform mat4 PallSlot1;
+uniform vec3 PallMin;
+uniform vec3 PallMax;
+uniform vec4 PallAmbient;
+// огненный шторм: карты огня слотов и слоты огня (pall.glsl) — свет пожаров снизу на дыме и пыли слоя
+uniform sampler2D Sampler7;
+uniform sampler2D Sampler8;
+uniform mat4 PallFire0;
+uniform mat4 PallFire1;
 
 out vec2 texCoord0;
 out vec4 vertexColor;
@@ -34,6 +48,8 @@ out float softness;
 out float fog;
 out float nearest;
 out float opacity;
+// сколько пропускает пелена между глазом и квадратом (её свет — в fx.fsh, по пелене на кадре)
+out float pallFront;
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 // дальше стольких радиусов шар не освещает (от половины — плавно к нулю): теней нет, и ночью свет шара за сотни блоков
@@ -55,6 +71,40 @@ vec3 balls(vec3 p, float gain) {
     return sum;
 }
 
+// свет горящего города снизу на точке p (от камеры): пламя со всей площади шириной ~2h под ней, как зарево на пелене
+// (fx_pall), вполовину: клуб частиц освещён снизу только с одной стороны; у земли — сильнее, выше дым между ними его гасит
+vec3 firelight(sampler2D map, mat4 S, mat4 F, vec3 p) {
+    if (F[0].x <= 0.0) return vec3(0.0);
+    float h = p.y - S[0].z;
+    float flame = textureLod(map, fireUv(S, F, p.xz), fireGlowLod(h, F[0].y)).r;
+    return F[3].rgb * (0.5 * F[1].w * flame * exp(-max(h, 0.0) / F[0].z));
+}
+
+// Пелена перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем; квадрат
+// ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно).
+float pall(vec3 p) {
+    float len = length(p);
+    if (PallAmbient.w < 0.5 || len < 1e-3) return 1.0;
+    vec3 dir = p / len;
+    vec2 span = pallBox(dir, PallMin, PallMax);
+    float t0 = span.x, t1 = min(span.y, len);
+    if (t1 <= t0) return 1.0;
+    float tau = 0.0, ds = (t1 - t0) / 6.0, dense;
+    vec2 column, height;
+    for (int i = 0; i < 6; i++) {
+        vec3 q = dir * (t0 + (float(i) + 0.5) * ds);
+        if (PallSlot0[1].w > 0.5) {
+            vec4 f = pallField(Sampler5, PallSlot0, q, column, height, dense);
+            tau += (f.x + f.y) * ds;
+        }
+        if (PallSlot1[1].w > 0.5) {
+            vec4 f = pallField(Sampler5, PallSlot1, q, column, height, dense);
+            tau += (f.x + f.y) * ds;
+        }
+    }
+    return exp(-tau);
+}
+
 void main() {
     vec4 view = ModelViewMat * vec4(Position, 1.0);
     gl_Position = ProjMat * view;
@@ -65,6 +115,7 @@ void main() {
         // свет шаров — к карте освещения: в долях света неба на экране (карта при открытом небе без блоков) и вместе не
         // ярче света дня — экран больше не покажет; светящееся своим светом (FULL_BRIGHT) его не берёт
         vec3 add = balls(Position / unfold, dot(texelFetch(Sampler2, ivec2(0, 15), 0).rgb, LUMA));
+        if (PallAmbient.w > 0.5) add += firelight(Sampler7, PallSlot0, PallFire0, Position / unfold) + firelight(Sampler8, PallSlot1, PallFire1, Position / unfold);
         light.rgb += add / max(1.0, dot(add, LUMA));
     }
     // блик и вуаль у глаза за ними ничто не режет: их видно, сколько видно в кадре самого источника
@@ -80,4 +131,5 @@ void main() {
     fog = Normal.x;
     nearest = Normal.y;
     opacity = Normal.z;
+    pallFront = pall(Position / unfold);
 }

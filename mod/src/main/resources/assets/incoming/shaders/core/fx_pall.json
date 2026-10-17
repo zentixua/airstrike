@@ -1,0 +1,41 @@
+{
+    "vertex": "incoming:fx_depth",
+    "fragment": "incoming:fx_pall",
+    "samplers": [
+        { "name": "Sampler0" },
+        { "name": "Sampler1" },
+        { "name": "Sampler2" },
+        { "name": "Sampler3" },
+        { "name": "Sampler4" },
+        { "name": "Sampler5" },
+        { "name": "Sampler6" }
+    ],
+    "uniforms": [
+        { "name": "InvViewProj", "type": "matrix4x4", "count": 16, "values": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] },
+        { "name": "PallForward", "type": "float", "count": 3, "values": [0.0, 0.0, -1.0] },
+        { "name": "PallSlot0", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallSlot1", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallMin", "type": "float", "count": 3, "values": [0.0, 0.0, 0.0] },
+        { "name": "PallMax", "type": "float", "count": 3, "values": [0.0, 0.0, 0.0] },
+        { "name": "PallSun", "type": "float", "count": 4, "values": [0.0, 1.0, 0.0, 1.0] },
+        { "name": "PallSunLight", "type": "float", "count": 3, "values": [1.0, 1.0, 1.0] },
+        { "name": "PallSkyLight", "type": "float", "count": 3, "values": [0.5, 0.6, 0.8] },
+        { "name": "PallFireLight", "type": "float", "count": 3, "values": [1.0, 0.4, 0.1] },
+        { "name": "PallGlow0", "type": "float", "count": 4, "values": [0.0, 0.0, 1.0, 1.0] },
+        { "name": "PallGlow1", "type": "float", "count": 4, "values": [0.0, 0.0, 1.0, 1.0] },
+        { "name": "PallHot0", "type": "float", "count": 4, "values": [0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallHot1", "type": "float", "count": 4, "values": [0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallGlowOnSmoke", "type": "float", "count": 1, "values": [1.0] },
+        { "name": "PallFrame", "type": "float", "count": 4, "values": [0.0, 24.0, 2.0, 4000.0] },
+        { "name": "PallFire0", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallFire1", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallFireMin", "type": "float", "count": 3, "values": [0.0, 0.0, 0.0] },
+        { "name": "PallFireMax", "type": "float", "count": 3, "values": [0.0, 0.0, 0.0] },
+        { "name": "PallWhirlPos", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallWhirlShape", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallWhirlLean", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallGround0", "type": "float", "count": 4, "values": [0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallGround1", "type": "float", "count": 4, "values": [0.0, 0.0, 0.0, 0.0] },
+        { "name": "PallFloorFrom", "type": "float", "count": 1, "values": [160.0] }
+    ]
+}

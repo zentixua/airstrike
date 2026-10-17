@@ -331,5 +331,37 @@ class LoudnessTest(unittest.TestCase):
         self.assertAlmostEqual(longer["gain_db"], info["gain_db"], delta=0.01)
 
 
+@unittest.skipIf(M is None, "нет пакетов edit.py (numpy, scipy, soundfile, pillow)")
+class TitleFitTest(unittest.TestCase):
+    """Титр заливки (стиль title, кегль логотипа) не шире кадра без полей 5 %: длинная строка ужимается или переносится."""
+
+    def test_long_fill_title_fits_with_margins(self):
+        for line in ("n49 — утром с Артёмом", "n35b — ворота монтажа: сирена тише истории: 0.0 с сирены на 5.0 с окна"):
+            box = M.text_span((line,), "title")
+            if box is None:
+                self.skipTest("нет шрифтов edit.FONTS (сеть или кэш)")
+            x0, y0, x1, y1 = box
+            self.assertGreaterEqual(x0, 0.05 - 1e-3, line)
+            self.assertLessEqual(x1, 0.95 + 1e-3, line)
+            self.assertTrue(0 <= y0 < y1 <= 1, line)
+
+    def test_short_title_keeps_its_size(self):
+        t = M.E.Titles(1920, 1080)
+        try:
+            (_, font, _, _, _), = t.layout(M.E.Text(0, 1, ("Incoming",), "title"))
+        except (OSError, SystemExit):
+            self.skipTest("нет шрифтов edit.FONTS (сеть или кэш)")
+        self.assertEqual(190, font.size)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(M is None, "нет пакетов edit.py (numpy, scipy, soundfile, pillow)")
+class ShotNameTest(unittest.TestCase):
+    """Второй кусок того же плана из другого вывода: дубль «n31@wide» читает кадры плана n31."""
+
+    def test_variant_reads_its_plan(self):
+        self.assertEqual("n31", M.shot_name("n31@wide"))
+        self.assertEqual("n31", M.shot_name("n31"))

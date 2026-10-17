@@ -18,6 +18,8 @@ import net.minecraft.world.level.lighting.LightEngine;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.flash.FlashChar;
+import ua.zentix.incoming.registry.ModTags;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,19 +74,31 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
 
     /**
      * Как блок ведёт себя в физике руин. {@code rubble} — даёт завал, когда рушится (прочность от 1: не трава, не
-     * стекло), {@code wood} — завал из дерева (рубится топором).
+     * стекло), {@code wood} — завал из дерева (рубится топором). {@code flash} — гарь вспышки на гранях: материал
+     * ({@link ua.zentix.incoming.nuclear.flash.FlashChar#material}) и хеш блока выше двух бит ({@link #flashMaterial},
+     * {@link #flashHash}).
      */
     record Props(BlockResponse response, boolean air, boolean full, boolean bearing, int span, boolean fluid, boolean waterlogged, boolean leaves,
                  boolean log, boolean fixed, boolean rubble, boolean wood, int flags, int lightBlock, int emission, VoxelShape occludeUp,
-                 VoxelShape occludeDown, BlockState normal) {
+                 VoxelShape occludeDown, BlockState normal, int flash) {
         /** Непрозрачно для карты высот {@code RuinPlan.HEIGHTMAP_TYPES[i]}: бит {@code 1 << i}. */
         static final int OPAQUE = 1;
         static final int STURDY_UP = 1 << 4, FLAMMABLE = 1 << 5, REPLACEABLE = 1 << 6, SLOW = 1 << 7, SOURCE = 1 << 8,
                 SHAPE_LIGHT = 1 << 9, GRASS = 1 << 10, MOSS = 1 << 11, SAND = 1 << 12, DIRT = 1 << 13, SNOW = 1 << 14,
-                SOUL_BASE = 1 << 15, FIRE = 1 << 16, NO_FLUID = 1 << 17;
+                SOUL_BASE = 1 << 15, FIRE = 1 << 16, NO_FLUID = 1 << 17, PLANT = 1 << 18, SNOW_LAYER = 1 << 19,
+                /** Снег для дёрна под ним ({@code SnowyDirtBlock}: тег {@code minecraft:snow} — слой, блок, рыхлый снег). */
+                SNOWY_TOP = 1 << 20;
 
         boolean is(int flag) {
             return (flags & flag) != 0;
+        }
+
+        int flashMaterial() {
+            return flash & 3;
+        }
+
+        int flashHash() {
+            return flash >>> 2;
         }
 
         /** Непрозрачно для карты высот {@code RuinPlan.HEIGHTMAP_TYPES[type]}. */
@@ -194,12 +208,17 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         if (st.is(BlockTags.SAND)) flags |= Props.SAND;
         if (st.is(BlockTags.DIRT)) flags |= Props.DIRT;
         if (st.is(Blocks.SNOW_BLOCK)) flags |= Props.SNOW;
+        if (st.is(Blocks.SNOW)) flags |= Props.SNOW_LAYER;
+        if (st.is(BlockTags.SNOW)) flags |= Props.SNOWY_TOP;
+        // то, что вспышка сжигает над землёй, — растения тега nuke_plants (тот же тег держит их порог давления); сухой
+        // куст — то, что от них остаётся
+        if (!liquid && st.getFluidState().isEmpty() && !st.is(Blocks.DEAD_BUSH) && st.is(ModTags.NUKE_PLANTS)) flags |= Props.PLANT;
         if (st.is(BlockTags.SOUL_FIRE_BASE_BLOCKS)) flags |= Props.SOUL_BASE;
         if (st.is(Blocks.FIRE)) flags |= Props.FIRE;
         return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE),
                 flags, st.getLightBlock(at, BlockPos.ZERO), st.getLightEmission(at, BlockPos.ZERO),
                 LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.UP), LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.DOWN),
-                RuinPlan.normal(st));
+                RuinPlan.normal(st), FlashChar.material(st) | FlashChar.hash(st.getBlock()) << 2);
     }
 
     /** Отражённое давление при падении по нормали (воздух, γ = 1.4), psi. */

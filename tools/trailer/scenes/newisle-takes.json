@@ -1,9 +1,15 @@
 {
  "about": "Дубли трейлера на Newisle для постановщика (mod/src/devtest/.../trailer/Newisle.java) и конвейера (tools/trailer/produce.py). Дубль — одна запись на одной копии мира: время суток и погода стоят весь дубль, планы — по порядку истории, после дубля мир сохраняется снимком, следующий дубль цепочки (`from: chain`) идёт на копии этого снимка. `intact` — копия нетронутого мастера (живые дубли Артёма); `branch:<дубль>` — копия снимка после того дубля, дальше цепочка эту копию не берёт (МБР из шахты). У дубля с `artem` два прогона: живой (Артём в игре, копия мастера) и цепочный (удары без записи). План — запись повтора (`shots`); несколько планов на одном повторе — `plans` с `offsets` (секунда окна, где начинается план; камеры ставит вывод после записи). Удары — из newisle.json (`strikes` плана, `eta` — секунда плана), `strikes` здесь заменяет их для постановки: `route` — путь из `routes` (пуск — с начала пути, точки `via`), `pass` — точка пролёта: `eta` — когда снаряд у неё, а не удар. Точки — как в newisle.json: [x, z] (верх колонки + 2), [x, y, z], {at, above}, {at, ground}, имя места; у людей и пусковых [x, z] — ноги на верху колонки. Действия (`do`) — Newisle.java (Actions); `stage` идёт до планов, `ready` — когда камера плана готова, `cues` — на секундах плана, `end` — в конце плана, `after` — после планов. `minutes` — оценка записи до первого замера (конвейер считает сроки по замерам).",
- "clock": {"night": 20000, "dawn": 23500, "dawn_late": 23800, "morning": 1000, "day": 4000, "afternoon": 8000, "sunset": 12300, "dusk": 13000},
+ "clock": {"night": 20000, "dawn": 23500, "sunrise": 0, "morning": 1000, "day": 4000, "afternoon": 8000, "sunset": 12300, "dusk": 13000},
  "limits": {"retries": 2, "stall_seconds": 600, "heap_share": 0.95, "take_factor": 2.0, "night_hours": 9.5, "disk_floor_gb": 4, "ram_floor_gb": 3, "client_gb": 10, "pause_minutes": 30, "flights_wait_s": 120, "launch_lag": {"missile": 2.2}},
  "smoke": ["T02", "T04", "T24"],
  "places": {
+  "c2_fight_s": {"line": [-783, 742], "step": [2, 0], "n": 4},
+  "c2_fight_n": {"line": [-783, 704], "step": [2, 0], "n": 4},
+  "c2_civil": {"at": [-805, 711], "above": 0},
+  "c2_flee": {"at": [-850, 712], "above": 0},
+  "c2_grid": {"at": [-790, 722], "above": 0},
+  "c2_hill": {"at": [-558, 908], "above": 0},
   "c1_metro_in": [-144, 12],
   "station_floor": [-141, 55, 8],
   "station_box": {"min": [-172, 48, -12], "max": [-116, 64, 28]},
@@ -11,8 +17,8 @@
   "farm_drones": {"line": [-1114, 338], "step": [7, 0], "n": 4},
   "farm_crew": [-1092, 318],
   "mg_group": [-340, 120],
-  "fight_west": {"line": [-472, -4], "step": [8, 0], "n": 6},
-  "fight_east": {"line": [-468, 16], "step": [8, 0], "n": 6},
+  "fight_west": {"line": [-482, 4], "step": [3, 2], "n": 6},
+  "fight_east": {"line": [-432, 4], "step": [-3, 2], "n": 6},
   "loiter_circle": [-230, 330],
   "airship_at": [-530, 330],
   "grid_a": [-200, -40],
@@ -86,17 +92,12 @@
    "after": [{"do": "crowd.remove", "group": "cafe"}]
   },
   {
-   "id": "T05", "title": "Волков прокладывает залп", "from": "chain", "clock": "night", "siren": true, "minutes": 5,
+   "id": "T05", "title": "Волков ставит цель залпа", "from": "chain", "clock": "night", "siren": true, "minutes": 5,
    "stage": [{"do": "player", "at": "camera:n07", "look": "c1_core", "item": "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:4,spread:0}]"}],
    "shots": [
-    {"plans": ["n07"], "seconds": 6, "camera": "player", "hud": true, "when": {"kind": "none"},
-     "cues": [
-      {"at": 0.0, "do": "map.open", "target": "c1_core"},
-      {"at": 0.3, "do": "map.route", "route": "desert_hook"},
-      {"at": 1.6, "do": "map.route", "route": "gorge"},
-      {"at": 2.9, "do": "map.route", "route": "bridge"},
-      {"at": 4.2, "do": "map.route", "route": "east_lake"}
-     ],
+    {"plans": ["n07"], "seconds": 6, "camera": "player", "hud": true,
+     "ready": [{"do": "map.open", "target": "c1_core"}], "when": {"kind": "map"},
+     "cues": [{"at": 0.0, "do": "map.aim", "target": "c1_core", "ticks": 20}],
      "end": [{"do": "map.close"}]}
    ]
   },
@@ -122,7 +123,7 @@
    "after": [{"do": "crowd.remove", "group": "crew"}]
   },
   {
-   "id": "T07", "title": "Первый свет: ущелье", "from": "branch:T06", "clock": "dawn_late", "siren": true, "minutes": 10,
+   "id": "T07", "title": "Первый свет: ущелье", "from": "branch:T06", "clock": "dawn", "siren": true, "minutes": 10,
    "shots": [
     {"plans": ["n11"], "seconds": 7,
      "strikes": [
@@ -152,50 +153,99 @@
    ]
   },
   {
-   "id": "T09", "title": "Шахеды над озером", "from": "chain", "clock": "dawn", "siren": true, "minutes": 8,
+   "id": "T09", "title": "Шахеды широким фронтом над заливом, ПВО сбивает часть (камера с южного края Города 1 навстречу)", "from": "chain", "clock": "dawn", "siren": true, "minutes": 10,
+   "stage": [
+    {"do": "sam", "at": "c1_sam_w", "load": 0},
+    {"do": "sam", "at": "c1_sam", "load": 0},
+    {"do": "sam", "at": "c1_sam_e", "load": 0},
+    {"do": "gunners", "group": "mg", "at": "mg_group", "n": 4, "spread": 3, "prefix": "Mg", "gun": "pointblank:ak47"},
+    {"do": "settle"}
+   ],
    "shots": [
     {"plans": ["n02"], "seconds": 6,
      "strikes": [
-      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-124, 268], "above": 10}, "eta": 3.0},
-      {"weapon": "drone", "route": "east_lake", "pass": {"at": [-124, 268], "above": 10}, "eta": 4.0}
+      {"weapon": "drone", "from": [-110, 1303], "via": [[-136, 784]], "to": [-60, 136, 19], "eta": 6.87},
+      {"weapon": "drone", "from": [-558, 1233], "via": [[-437, 727]], "to": [-127, 84, 22], "eta": 7.27},
+      {"weapon": "drone", "from": [-236, 1301], "via": [[-235, 781]], "to": [-282, 75, -73], "eta": 9.42},
+      {"weapon": "drone", "from": [-659, 1245], "via": [[-441, 772]], "to": [-159, 135, -26], "eta": 9.2},
+      {"weapon": "drone", "from": [489, 1193], "via": [[235, 739]], "to": [-153, 132, -34], "eta": 9.65},
+      {"weapon": "drone", "from": [-273, 1292], "via": [[-233, 774]], "to": [-173, 138, -13], "eta": 7.99},
+      {"weapon": "drone", "from": [-23, 1282], "via": [[28, 765]], "to": [-51, 129, -63], "eta": 9.46},
+      {"weapon": "drone", "from": [47, 1262], "via": [[46, 742]], "to": [-94, 146, -86], "eta": 9.91},
+      {"weapon": "drone", "from": [-219, 1298], "via": [[-172, 781]], "to": [2, 138, 45], "eta": 7.93},
+      {"weapon": "drone", "from": [-314, 1289], "via": [[-255, 773]], "to": [-242, 141, 31], "eta": 7.66},
+      {"weapon": "drone", "from": [332, 1254], "via": [[112, 783]], "to": [-223, 74, -83], "eta": 12.39},
+      {"weapon": "drone", "from": [-436, 1287], "via": [[-340, 775]], "to": [-236, 103, -24], "eta": 9.67},
+      {"weapon": "drone", "from": [44, 1258], "via": [[-54, 747]], "to": [-313, 136, 2], "eta": 9.82},
+      {"weapon": "drone", "from": [-99, 1242], "via": [[-7, 730]], "to": [-42, 147, 34], "eta": 7.7},
+      {"weapon": "drone", "from": [-401, 1253], "via": [[-309, 741]], "to": [-262, 140, -9], "eta": 9.13},
+      {"weapon": "drone", "from": [-282, 1254], "via": [[-187, 743]], "to": [-224, 146, -107], "eta": 11.58},
+      {"weapon": "drone", "from": [-225, 1277], "via": [[-284, 761]], "to": [-336, 141, 26], "eta": 9.18},
+      {"weapon": "drone", "from": [-80, 1288], "via": [[-127, 770]], "to": [-112, 94, -103], "eta": 12.75},
+      {"weapon": "drone", "from": [95, 1232], "via": [[-32, 728]], "to": [-71, 109, 45], "eta": 9.91},
+      {"weapon": "drone", "from": [-11, 1310], "via": [[48, 793]], "to": [20, 102, -46], "eta": 14.59}
      ],
-     "cover": {"n02": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD"}}}
-   ]
+     "ready": [{"do": "sam.config", "kill": 0.8, "engage": 170, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 1}, {"do": "sam", "at": "c1_sam", "load": 2}, {"do": "sam", "at": "c1_sam_e", "load": 1}],
+     "cues": [{"at": 0.0, "do": "gunners.fire", "group": "mg", "weapon": "drone", "range": 200}],
+     "expect": {"kills": [3, 4], "interceptors": 4},
+     "end": [{"do": "gunners.stop", "group": "mg"}, {"do": "sam.config"}],
+     "cover": {"n02": {"subject": "scene", "swarm": {"weapon": "drone", "min": 10, "hold": 2.0, "width": 0.55, "height": 0.3}}}}
+   ],
+   "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 100}]
   },
   {
-   "id": "T10", "title": "ЗРК и мобильная группа", "from": "branch:T09", "clock": "dawn", "siren": true, "minutes": 12,
+   "id": "T10", "title": "ЗРК против стаи шахедов и мобильная группа", "from": "branch:T09", "clock": "sunrise", "siren": true, "minutes": 12,
    "stage": [
+    {"do": "sam", "at": "c1_sam_w", "load": 0},
     {"do": "sam", "at": "c1_sam", "load": 0},
+    {"do": "sam", "at": "c1_sam_e", "load": 0},
+    {"do": "sam", "at": "c1_sam_e2", "load": 0},
     {"do": "player", "at": {"at": [-530, 296], "above": 40}, "look": "c1_sam", "mode": "spectator"},
     {"do": "wait", "s": 4},
     {"do": "sam.clear", "at": [-530, 296], "r": 40},
+    {"do": "player", "at": {"at": [-200, 260], "above": 40}, "look": "c1_sam", "mode": "spectator"},
     {"do": "gunners", "group": "mg", "at": "mg_group", "n": 4, "spread": 3, "prefix": "Mg", "gun": "pointblank:ak47"},
     {"do": "settle"},
     {"do": "wait", "s": 10}
    ],
    "shots": [
-    {"plans": ["n17"], "seconds": 6,
+    {"plans": ["n17"], "seconds": 5,
      "strikes": [
-      {"weapon": "drone", "route": "lake_south", "eta": 1.2},
-      {"weapon": "drone", "route": "lake_south", "eta": 2.4}
+      {"weapon": "drone", "from": [-49, 1193], "via": [[-125, 679]], "to": [-222, 111, -76], "eta": 7.31},
+      {"weapon": "drone", "from": [22, 1161], "via": [[-122, 662]], "to": [-200, 113, -14], "eta": 7.25},
+      {"weapon": "drone", "from": [-212, 1147], "via": [[-166, 629]], "to": [-267, 114, -18], "eta": 6.68},
+      {"weapon": "drone", "from": [-264, 1178], "via": [[-252, 658]], "to": [-265, 130, -69], "eta": 8.85},
+      {"weapon": "drone", "from": [-200, 1163], "via": [[-228, 644]], "to": [-163, 84, 27], "eta": 6.97},
+      {"weapon": "drone", "from": [-182, 1194], "via": [[-182, 674]], "to": [-146, 81, -23], "eta": 9.09},
+      {"weapon": "drone", "from": [-469, 1113], "via": [[-361, 604]], "to": [-310, 79, -42], "eta": 8.46},
+      {"weapon": "drone", "from": [-307, 1147], "via": [[-218, 635]], "to": [-212, 135, 6], "eta": 8.38},
+      {"weapon": "drone", "from": [-337, 1170], "via": [[-237, 660]], "to": [-192, 106, -6], "eta": 11.51}
      ],
-     "ready": [{"do": "sam", "at": "c1_sam", "load": 32}],
-     "when": {"kind": "interceptor", "at": "c1_sam", "r": 60},
-     "cover": {"n17": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"]}}},
+     "ready": [
+      {"do": "sam.config", "kill": 0.2, "engage": 120, "reload": 0},
+      {"do": "sam", "at": "c1_sam_w", "load": 2},
+      {"do": "sam", "at": "c1_sam", "load": 2},
+      {"do": "sam", "at": "c1_sam_e", "load": 2},
+      {"do": "sam", "at": "c1_sam_e2", "load": 2}
+     ],
+     "expect": {"kills": [1, 2], "interceptors": 4},
+     "end": [{"do": "sam.config"}],
+     "cover": {"n17": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"], "swarm": {"weapon": "drone", "min": 8, "hold": 2.0, "width": 0.5, "height": 0.25}}}},
     {"plans": ["n46"], "seconds": 7,
      "strikes": [{"weapon": "drone", "route": "bridge", "to": "c1_tower_w", "pass": {"at": [-361, 104], "above": 51}, "eta": 3}],
-     "ready": [{"do": "sam.clear", "at": "c1_sam", "r": 24}],
+     "ready": [{"do": "sam.clear", "at": "c1_sam", "r": 100}],
      "cues": [{"at": 1.0, "do": "gunners.fire", "group": "mg", "weapon": "drone", "range": 160}],
      "end": [{"do": "gunners.stop", "group": "mg"}],
      "cover": {"n46": {"subject": "flight", "weapon": "drone", "need": "OVERHEAD", "spare": ["tripod"]}}}
    ],
-   "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 24}]
+   "after": [{"do": "crowd.remove", "group": "mg"}, {"do": "sam.clear", "at": "c1_sam", "r": 100}]
   },
   {
    "id": "T11", "title": "Дирижабль Юга над озером", "from": "chain", "clock": "morning", "siren": true, "minutes": 14,
    "stage": [{"do": "airship", "at": "airship_at", "yaw": 0, "ground": "n18"}],
    "shots": [],
-   "cover": {"n18": {"subject": "impact", "weapon": "missile", "need": "HIT", "spare": ["tripod"]}}
+   "cover": {"n18": {"subject": "impact", "weapon": "missile", "need": "HIT", "spare": ["tripod"]},
+             "n18b": {"subject": "scene", "replay": "n18", "offset": 3.5, "spare": ["own45", "own68"]}}
   },
   {
    "id": "T12", "title": "Кафе и станция днём", "from": "branch:T11", "clock": "morning", "siren": true, "minutes": 12,
@@ -243,10 +293,41 @@
     {"plans": ["n29b"], "seconds": 5, "strikes": [
       {"weapon": "drone", "from": [100, 200], "to": "airport_runway", "eta": 3.5},
       {"weapon": "drone", "from": [160, 200], "to": {"at": [380, -660], "above": 0}, "eta": 4.2}],
-     "cover": {"n29b": {"subject": "framed", "weapon": "drone", "need": "HIT", "spare": ["tripod"]}}},
-    {"plans": ["n24"], "seconds": 6, "strikes": [{"weapon": "bunker", "from": [-440, -1700], "to": "desert_bunker", "eta": 2}],
-     "cover": {"n24": {"subject": "impact", "weapon": "bunker", "near": "desert_bunker", "need": "HIT", "spare": ["chase", "tripod"]}}}
+     "cover": {"n29b": {"subject": "framed", "weapon": "drone", "need": "HIT", "spare": ["tripod"]}}}
    ]
+  },
+  {
+   "id": "T14b", "title": "B-2 бьёт командный бункер ПВО Севера у Города 1", "from": "branch:T13", "clock": "day", "siren": true, "minutes": 8,
+   "stage": [
+    {"do": "fill", "from": [24, 71, -555], "to": [56, 91, -525], "block": "minecraft:air"},
+    {"do": "fill", "from": [28, 71, -548], "to": [52, 73, -532], "block": "minecraft:dirt"},
+    {"do": "fill", "from": [28, 73, -548], "to": [52, 73, -532], "block": "minecraft:grass_block"},
+    {"do": "fill", "from": [30, 74, -546], "to": [50, 75, -534], "block": "minecraft:dirt"},
+    {"do": "fill", "from": [30, 75, -546], "to": [50, 75, -534], "block": "minecraft:grass_block"},
+    {"do": "fill", "from": [32, 76, -544], "to": [48, 77, -536], "block": "minecraft:dirt"},
+    {"do": "fill", "from": [32, 77, -544], "to": [48, 77, -536], "block": "minecraft:grass_block"},
+    {"do": "fill", "from": [36, 71, -549], "to": [44, 76, -549], "block": "minecraft:gray_concrete"},
+    {"do": "fill", "from": [36, 76, -549], "to": [44, 76, -549], "block": "minecraft:yellow_concrete"},
+    {"do": "fill", "from": [38, 70, -549], "to": [42, 70, -542], "block": "minecraft:gray_concrete"},
+    {"do": "fill", "from": [38, 71, -549], "to": [42, 74, -542], "block": "minecraft:air"},
+    {"do": "fill", "from": [37, 74, -549], "to": [37, 74, -549], "block": "minecraft:sea_lantern"},
+    {"do": "fill", "from": [43, 74, -549], "to": [43, 74, -549], "block": "minecraft:sea_lantern"},
+    {"do": "fill", "from": [34, 78, -542], "to": [34, 90, -542], "block": "minecraft:iron_bars"},
+    {"do": "fill", "from": [34, 91, -542], "to": [34, 91, -542], "block": "minecraft:lightning_rod"},
+    {"do": "fill", "from": [45, 78, -538], "to": [45, 87, -538], "block": "minecraft:iron_bars"},
+    {"do": "fill", "from": [45, 88, -538], "to": [45, 88, -538], "block": "minecraft:sea_lantern"},
+    {"do": "fill", "from": [40, 78, -536], "to": [40, 93, -536], "block": "minecraft:iron_bars"},
+    {"do": "fill", "from": [40, 94, -536], "to": [40, 94, -536], "block": "minecraft:lightning_rod"},
+    {"do": "sam", "at": {"at": [22, -553], "above": 0}, "load": 0},
+    {"do": "sam", "at": {"at": [58, -553], "above": 0}, "load": 0},
+    {"do": "sam", "at": {"at": [40, -524], "above": 0}, "load": 0},
+    {"do": "launchers", "rack": "bunker_grad", "at": {"line": [46, -557], "step": [8, 0], "n": 2}, "weapon": "rocket", "count": 1, "spread": 0, "to": "south_launchers", "load": 0},
+    {"do": "settle"}
+   ],
+   "shots": [
+    {"plans": ["n24"], "seconds": 5, "strikes": [{"weapon": "bunker", "from": [-300, 1300], "to": {"at": [40, -540], "above": 0}, "eta": 2}, {"weapon": "drone", "route": "n24_drones", "eta": 5.6}, {"weapon": "drone", "route": "n24_drones", "eta": 6.1}, {"weapon": "drone", "route": "n24_drones", "eta": 6.6}], "ready": [{"do": "sam.config", "kill": 0.4, "engage": 150, "reload": 0}, {"do": "sam", "at": {"at": [22, -553], "above": 0}, "load": 2}, {"do": "sam", "at": {"at": [58, -553], "above": 0}, "load": 2}, {"do": "sam", "at": {"at": [40, -524], "above": 0}, "load": 2}], "expect": {"kills": [0, 3], "interceptors": 2}, "end": [{"do": "sam.config"}], "cover": {"n24": {"subject": "impact", "weapon": "bunker", "near": {"at": [40, -540], "above": 0}, "need": "HIT", "spare": ["chase", "tripod"]}}}
+   ],
+   "after": [{"do": "sam.clear", "at": {"at": [40, -540], "above": 0}, "r": 60}]
   },
   {
    "id": "T15", "title": "«Ланцет» на ЗРК", "from": "chain", "clock": "day", "siren": true, "minutes": 9,
@@ -270,7 +351,22 @@
     {"do": "wait", "s": 3}
    ],
    "shots": [
-    {"plans": ["n20"], "seconds": 6, "camera": "fpv", "cover": {"n20": {"subject": "framed", "weapon": "rocket", "need": "FPV"}}}
+    {"plans": ["n20"], "seconds": 6, "camera": "fpv",
+     "strikes": [
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-440, -42], "above": 0}, "eta": 0.6},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-450, 44], "above": 0}, "eta": 0.9},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-405, 0], "above": 0}, "eta": 1.2},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-410, -44], "above": 0}, "eta": 1.4},
+      {"weapon": "missile", "route": "far_west", "eta": 1.6},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-415, 46], "above": 0}, "eta": 1.7},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-385, 10], "above": 0}, "eta": 2.0},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-370, -40], "above": 0}, "eta": 2.2},
+      {"weapon": "missile", "route": "city_west", "eta": 2.4},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-380, 44], "above": 0}, "eta": 2.5},
+      {"weapon": "rocket", "from": [-460, -720], "to": {"at": [-360, 2], "above": 0}, "eta": 2.8},
+      {"weapon": "rocket", "from": [-320, -720], "to": {"at": [-335, 8], "above": 0}, "eta": 3.3}
+     ],
+     "cover": {"n20": {"subject": "framed", "weapon": "rocket", "need": "FPV"}}}
    ],
    "after": [{"do": "fight.stop"}, {"do": "fight.remove"}]
   },
@@ -324,8 +420,58 @@
    "shots": [{"plans": ["n26a"], "seconds": 6, "camera": "fpv", "strikes": [{"weapon": "missile", "route": "south_a", "eta": 3.0}, {"weapon": "missile", "route": "south_b", "eta": 3.5}], "cover": {"n26a": {"subject": "flight", "weapon": "missile", "need": "OVERHEAD"}}}]
   },
   {
-   "id": "T21", "title": "Ковёр «Града» ночью", "from": "chain", "clock": "night", "siren": true, "minutes": 10,
-   "shots": [{"plans": ["n41"], "seconds": 10, "cover": {"n41": {"subject": "framed", "weapon": "rocket", "need": "HIT", "smoky": 1.0}}}]
+   "id": "T21", "title": "Ночь: ковёр «Града» по Городу 1, город отвечает", "from": "chain", "clock": "night", "siren": true, "minutes": 12,
+   "stage": [
+    {"do": "launchers", "rack": "n41_north", "at": {"line": [-161, -257], "step": [45, 71], "n": 2}, "weapon": "rocket", "count": 1, "spread": 0, "to": "south_launchers", "load": 2},
+    {"do": "settle"}
+   ],
+   "shots": [
+    {"plans": ["n41"], "seconds": 10,
+     "cues": [{"at": 0.4, "do": "launchers.fire", "rack": "n41_north"}, {"at": 2.4, "do": "launchers.fire", "rack": "n41_north"}],
+     "cover": {"n41": {"subject": "first", "weapon": "rocket", "need": "HIT", "smoky": 1.0, "density": {"min": 4.0, "span": 4.8}}}}
+   ]
+  },
+  {
+   "id": "T21b", "title": "Ночь: проспект после ковра — люди бегут, разрывы за ними, прилёт в камеру", "from": "branch:T21", "clock": "night", "siren": true, "minutes": 8,
+   "stage": [
+    {"do": "crowd", "group": "street", "at": {"at": [-135, -35], "above": 0}, "n": 10, "spread": 5, "roam": 1, "prefix": "Str", "creative": true},
+    {"do": "settle"}
+   ],
+   "shots": [
+    {"plans": ["n41b"], "seconds": 6,
+     "cues": [{"at": 0, "do": "crowd.flee", "group": "street", "to": {"at": [-70, -35], "above": 0}, "stagger": [0, 0.6]}],
+     "cover": {"n41b": {"subject": "impact", "weapon": "missile", "near": {"at": [-100, -37], "above": 0}, "need": "HIT", "smoky": 1.0}}}
+   ],
+   "after": [{"do": "crowd.remove", "group": "street"}]
+  },
+  {
+   "id": "T21c", "title": "Штаб Волкова на берегу: ПВО Севера сбивает шахеды над горящим городом", "from": "branch:T21", "clock": "night", "siren": true, "minutes": 8,
+   "stage": [
+    {"do": "sam", "at": "c1_sam_w", "load": 0},
+    {"do": "sam", "at": "c1_sam", "load": 0},
+    {"do": "sam", "at": "c1_sam_e", "load": 0},
+    {"do": "crowd", "group": "hq", "at": {"at": [-205, 408], "above": 0}, "n": 3, "spots": [[-204.5, 408.5], [-205.5, 407.5], [-206.5, 406.5]], "roam": 0, "prefix": "Off", "names": ["Volkov"], "creative": true},
+    {"do": "settle"},
+    {"do": "crowd.watch", "group": "hq", "at": {"at": [-200, 110], "above": 20}, "jitter": 4}
+   ],
+   "shots": [
+    {"plans": ["n30a"], "seconds": 3.6,
+     "strikes": [
+      {"weapon": "drone", "from": [148, 1195], "via": [[-40, 710]], "to": [-330, 72, -38], "eta": 8.29},
+      {"weapon": "drone", "from": [-305, 1242], "via": [[-229, 728]], "to": [-197, 86, -70], "eta": 8.75},
+      {"weapon": "drone", "from": [-334, 1219], "via": [[-219, 711]], "to": [-94, 83, 13], "eta": 6.77},
+      {"weapon": "drone", "from": [-215, 1250], "via": [[-172, 732]], "to": [-132, 62, -35], "eta": 8.47},
+      {"weapon": "drone", "from": [-55, 1193], "via": [[-101, 675]], "to": [-210, 70, -58], "eta": 8.61},
+      {"weapon": "drone", "from": [-82, 1191], "via": [[-190, 683]], "to": [-206, 63, -98], "eta": 10.2},
+      {"weapon": "drone", "from": [-248, 1176], "via": [[-157, 665]], "to": [-173, 83, -18], "eta": 8.06},
+      {"weapon": "drone", "from": [90, 1147], "via": [[-121, 672]], "to": [-252, 83, -31], "eta": 9.4}
+     ],
+     "ready": [{"do": "sam.config", "kill": 0.6, "engage": 170, "reload": 0}, {"do": "sam", "at": "c1_sam_w", "load": 3}, {"do": "sam", "at": "c1_sam", "load": 3}, {"do": "sam", "at": "c1_sam_e", "load": 3}],
+     "expect": {"kills": [2, 6], "interceptors": 5},
+     "end": [{"do": "sam.config"}],
+     "cover": {"n30a": {"subject": "scene"}}}
+   ],
+   "after": [{"do": "crowd.remove", "group": "hq"}, {"do": "sam.clear", "at": "c1_sam", "r": 100}]
   },
   {
    "id": "T22", "title": "Городок смотрит, как горит Север", "from": "chain", "clock": "night", "siren": true, "minutes": 10,
@@ -358,7 +504,7 @@
    "shots": [
     {"plans": ["n30"], "seconds": 6, "camera": "player", "chat": true, "when": {"kind": "none"},
      "cues": [
-      {"at": 0.7, "do": "nuke.order", "by": "Volkov", "at_place": "gz", "kt": 15},
+      {"at": 0.7, "do": "nuke.order", "by": "Volkov", "at_place": "gz", "kt": 2},
       {"at": 4.5, "do": "silo.open"},
       {"at": 4.65, "do": "nuke.key"},
       {"at": 4.8, "do": "silo.close"}
@@ -377,36 +523,49 @@
     {"do": "hidden", "at": "camera:n32", "look": "silo"}
    ],
    "shots": [
-    {"plans": ["n32"], "seconds": 5, "ready": [{"do": "nuke.order", "by": "player", "pad": {"at": [-885, -17]}, "at_place": "gz", "kt": 15}],
+    {"plans": ["n32"], "seconds": 5, "ready": [{"do": "nuke.order", "by": "player", "pad": {"at": [-885, -17]}, "at_place": "gz", "kt": 2}],
      "when": {"kind": "icbm", "above": 0},
      "cover": {"n32": {"subject": "flight", "weapon": "nuke", "need": "FLIGHT70", "spare": ["tracker"]}}}
    ],
    "after": [{"do": "nuke.clear"}]
   },
   {
-   "id": "T24", "title": "Конец света", "from": "chain", "clock": "night", "siren": true, "minutes": 16,
+   "id": "T24", "title": "Конец света: бой в Городе 2 встаёт у вспышки, мирные бегут, одеяло пыли", "from": "chain", "clock": "night", "siren": true, "minutes": 16,
    "stage": [
     {"do": "silo.build", "at": "silo", "depth": 30, "size": 5},
     {"do": "silo.open"},
-    {"do": "campfire", "at": "desert_crowd"},
-    {"do": "crowd", "group": "desert", "at": "desert_crowd", "n": 12, "spread": 9, "roam": 1, "prefix": "Des", "creative": true},
+    {"do": "fight", "west": "c2_fight_s", "east": "c2_fight_n", "creative": true},
+    {"do": "crowd", "group": "civil", "at": "c2_civil", "n": 14, "spread": 6, "roam": 1.5, "prefix": "Civ", "creative": true},
+    {"do": "grid.node", "at": "c2_grid", "r": 70},
+    {"do": "gunners", "group": "roof", "at": {"at": [-745, 658], "above": 0}, "n": 5, "spread": 3, "prefix": "Roof", "gun": "pointblank:ak47", "creative": true},
+    {"do": "grid.node", "at": {"at": [-745, 640], "above": 0}, "r": 90},
     {"do": "settle"},
-    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 15},
+    {"do": "fight.arm"},
+    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 2},
     {"do": "wait", "s": 2}
    ],
    "shots": [
-    {"plans": ["n33"], "seconds": 4, "camera": "player", "hud": true, "stage_player": {"at": "camera:n33", "look": "c1_core"},
-     "when": {"kind": "warning", "below": 30}},
-    {"plans": ["n47"], "seconds": 5, "when": {"kind": "warning", "below": 1.2},
-     "ready": [{"do": "crowd.watch", "group": "desert", "at": {"at": [-167, -4], "above": 300}, "jitter": 20}],
-     "cues": [{"at": 1.3, "do": "crowd.cower", "group": "desert", "from": "gz"}],
-     "cover": {"n47": {"subject": "scene", "need": "NUKE"}}},
-    {"plans": ["n36"], "seconds": 12, "when": {"kind": "front", "at": "c1_core", "lead": 2.5},
-     "cover": {"n36": {"subject": "nuke", "need": "NUKE"}}},
-    {"plans": ["n35"], "seconds": 12, "when": {"kind": "front", "at": {"at": [-500, 330], "above": 0}, "lead": 3.0},
-     "cover": {"n35": {"subject": "nuke", "need": "NUKE"}}}
+    {"plans": ["n33"], "seconds": 4, "camera": "player", "hud": true, "stage_player": {"at": "camera:n33", "look": "c1_core"}, "when": {"kind": "warning", "below": 30}},
+    {"plans": ["n60", "n61", "n62", "n63", "n64", "n65"], "offsets": {"n61": 2.0, "n62": 3.2, "n63": 4.6, "n64": 2.6, "n65": 3.6}, "seconds": 12, "when": {"kind": "warning", "below": 2.0}, "ready": [{"do": "fight.start"}], "cues": [{"at": 2.0, "do": "fight.adopt", "side": "west", "group": "south"}, {"at": 2.0, "do": "fight.adopt", "side": "east", "group": "north"}, {"at": 2.05, "do": "crowd.cower", "group": "south", "from": "gz"}, {"at": 2.05, "do": "crowd.cower", "group": "north", "from": "gz"}, {"at": 2.05, "do": "crowd.cower", "group": "civil", "from": "gz"}, {"at": 2.6, "do": "crowd.flee", "group": "civil", "to": "c2_flee", "stagger": [0, 0.8]}, {"at": 2.7, "do": "crowd.watch", "group": "south", "look": {"at": [-167, -4], "above": 300}, "jitter": 20}, {"at": 2.7, "do": "crowd.watch", "group": "north", "look": {"at": [-167, -4], "above": 300}, "jitter": 20}, {"at": 4.3, "do": "crowd.watch", "group": "south", "look": {"at": [-780, 704], "above": 2}, "jitter": 2}, {"at": 4.3, "do": "crowd.watch", "group": "north", "look": {"at": [-780, 742], "above": 2}, "jitter": 2}, {"at": 5.6, "do": "crowd.flee", "group": "north", "to": "c2_flee", "stagger": [0, 1.6]}, {"at": 6.0, "do": "crowd.flee", "group": "south", "to": "c2_flee", "stagger": [0.4, 2.0]}, {"at": 2.05, "do": "crowd.cower", "group": "roof", "from": "gz"}, {"at": 2.7, "do": "crowd.watch", "group": "roof", "look": {"at": [-167, -4], "above": 300}, "jitter": 15}], "cover": {"n60": {"subject": "scene"}, "n61": {"subject": "scene"}, "n62": {"subject": "nuke", "need": "NUKE"}, "n63": {"subject": "scene"}, "n64": {"subject": "scene"}, "n65": {"subject": "nuke", "need": "NUKE"}}}
    ],
-   "after": [{"do": "crowd.remove", "group": "desert"}]
+   "after": [{"do": "fight.remove"}, {"do": "crowd.remove", "group": "civil"}, {"do": "crowd.remove", "group": "south"}, {"do": "crowd.remove", "group": "north"}, {"do": "crowd.remove", "group": "roof"}]
+  },
+  {
+   "id": "T25", "title": "Финал: толпа на холме у Города 2, ты среди неё — одеяло пыли идёт на вас", "from": "branch:T22", "clock": "night", "siren": true, "minutes": 12,
+   "artem": {"mark": "camera:n66", "stand": [-557.5, 910.5], "look": "c1_core", "hints": ["Ночь, открытый склон у залива юго-восточнее Города 2. Встань в толпе лицом к Городу 1 (через залив, на северо-восток).", "Нажми Enter — начнём.", "Смотри на Город 1. Будет вспышка — можешь пригнуться и отвернуться, потом смотри на гриб. Волна пойдёт через город на вас: стой и смотри, пока экран не станет чёрным. Двигайся, как живой человек, — на тебе держится кадр."]},
+   "stage": [
+    {"do": "silo.build", "at": "silo", "depth": 30, "size": 5},
+    {"do": "silo.open"},
+    {"do": "crowd", "group": "hill", "at": "c2_hill", "n": 14, "spread": 5, "roam": 0.5, "prefix": "Hill", "creative": true},
+    {"do": "settle"},
+    {"do": "crowd.watch", "group": "hill", "at": {"at": [-167, -4], "above": 120}, "jitter": 12},
+    {"do": "nuke.order", "by": "player", "pad": "silo", "at_place": "gz", "kt": 2},
+    {"do": "wait", "s": 2}
+   ],
+   "shots": [
+    {"plans": ["n66"], "seconds": 8, "when": {"kind": "front", "at": "c2_hill", "lead": 5.0}, "cues": [{"at": 1.0, "do": "crowd.watch", "group": "hill", "look": {"at": [-167, -4], "above": 250}, "jitter": 12}], "cover": {"n66": {"subject": "nuke", "need": "NUKE"}}}
+   ],
+   "after": [{"do": "crowd.remove", "group": "hill"}]
   }
  ],
  "searches": {
@@ -416,7 +575,7 @@
    {"place": "c1_cafe", "near": [-144, 20], "r": 14, "kind": "ground", "see": "c1_metro_in"},
    {"place": "c1_cafe_opposite", "near": [-160, 32], "r": 16, "kind": "facade", "see_from": "c1_cafe"},
    {"place": "desert_crowd", "near": [-575, -1030], "r": 20, "kind": "ground"},
-   {"place": "desert_bunker", "near": [-440, -1150], "r": 30, "kind": "ground", "away_from": "desert_crowd", "dist": 180},
+   {"place": "desert_bunker", "near": [-412, -1192], "r": 30, "kind": "ground", "away_from": "desert_crowd", "dist": 180},
    {"place": "fisher", "near": [-505, 225], "r": 20, "kind": "water"},
    {"place": "c1_metro_in", "near": [-144, 12], "r": 12, "kind": "stairs"}
   ]},

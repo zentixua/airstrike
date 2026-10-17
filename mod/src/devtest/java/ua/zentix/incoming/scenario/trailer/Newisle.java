@@ -29,6 +29,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.Tags;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -39,9 +40,12 @@ import ua.zentix.incoming.client.Keys;
 import ua.zentix.incoming.client.cam.ProjectileCamera;
 import ua.zentix.incoming.client.hud.ClientFlights;
 import ua.zentix.incoming.client.map.MapTarget;
+import ua.zentix.incoming.client.map.TerrainTiles;
 import ua.zentix.incoming.client.screen.MapScreen;
 import ua.zentix.incoming.client.screen.RemoteScreen;
 import ua.zentix.incoming.compat.SubLevels;
+import ua.zentix.incoming.defense.DefenseWorld;
+import ua.zentix.incoming.defense.Interceptor;
 import ua.zentix.incoming.defense.SamBlockEntity;
 import ua.zentix.incoming.entity.BunkerBusterEntity;
 import ua.zentix.incoming.entity.CruiseMissileEntity;
@@ -61,6 +65,7 @@ import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Frame;
 import ua.zentix.incoming.scenario.trailer.NewisleData.Strike;
 import ua.zentix.incoming.strike.ChunkTickets;
+import ua.zentix.incoming.strike.FlightLog;
 import ua.zentix.incoming.strike.StrikeWorld;
 import ua.zentix.incoming.strike.WeaponType;
 import ua.zentix.incoming.util.Local;
@@ -204,10 +209,19 @@ final class Newisle {
         double ms = (System.nanoTime() - tickStartNanos) / 1e6;
         serverTickMs.put(e.getServer().overworld().getGameTime(), Math.round(ms * 10) / 10.0);
         watchStrikes(e.getServer());
+        Run r = recording;
+        if (r != null && r.startServer >= 0) {
+            // зенитные ракеты в полёте за запись плана — каждая один раз (итог: sam_launched)
+            for (Interceptor f : DefenseWorld.get(e.getServer().overworld()).flights()) {
+                if (r.samSeen.add(f)) r.samLaunched++;
+            }
+        }
     }
 
     /** Первый тик сервера, когда каждый его снаряд появился: по нему удары записи привязываются к снарядам. */
     private final Map<UUID, Long> serverSeen = new HashMap<>();
+    /** Сколько перехватов ЗРК сервер отметил к прошлому тику ({@link FlightLog.Event#INTERCEPTED}); −1 — ещё не смотрели. */
+    private int killsSeen = -1;
 
     /**
      * Удары записи у сервера, в его тиках: привязка — новый снаряд того же оружия у цели (в пределах 5 СКО рассеивания),
@@ -215,6 +229,10 @@ final class Newisle {
      * бомба после сброса, у сервера это другой снаряд (остаётся клиентская привязка из {@code ClientFlights}).
      */
     private void watchStrikes(MinecraftServer server) {
+        // перехваты ЗРК за этот тик: снаряд, пропавший в тот же тик не у своей цели, сбит, а не опоздал к ней
+        int kills = StrikeWorld.get(server.overworld()).flightLog().total(FlightLog.Event.INTERCEPTED);
+        int newKills = killsSeen < 0 ? 0 : kills - killsSeen;
+        killsSeen = kills;
         if (launched.isEmpty()) return;
         long now = server.overworld().getGameTime();
         Map<UUID, StrikeProjectile> live = new HashMap<>();
@@ -247,7 +265,16 @@ final class Newisle {
             }
             if (l.goneServer < 0) {
                 StrikeProjectile p = live.get(l.serverId);
-                if (p == null || p.isRemoved()) l.goneServer = now;
+                if (p == null || p.isRemoved()) {
+                    l.goneServer = now;
+                    Vec3 last = l.lastServer;
+                    if (newKills > 0 && last != null && Math.hypot(last.x - l.target.x, last.z - l.target.z) >= l.reach()) {
+                        l.intercepted = true;
+                        newKills--;
+                    }
+                } else {
+                    l.lastServer = p.position();
+                }
             }
         }
         serverSeen.keySet().retainAll(live.keySet());
@@ -317,16 +344,19 @@ final class Newisle {
 
     /**
      * Дубль с Артёмом: вживую он сам в кадре (творческий режим — урона нет), подсказки на экране, начало — по Enter; без
-     * него на слепом прогоне — бот на его месте; в цепочке (удары без записи) — никого.
+     * него на слепом прогоне — бот на его месте; в цепочке (удары без записи) — никого. {@code wear} — одежда роли (слот →
+     * предмет): прохожего в финале играет Артём со своим скином, и без другой одежды его путали бы с человеком на террасе.
      */
     private void artem(JsonObject a) {
         JsonElement stand = a.get("stand"), look = a.get("look");
         String item = a.has("item") ? a.get("item").getAsString() : null;
         boolean boat = a.has("boat") && a.get("boat").getAsBoolean();
+        JsonObject wear = a.has("wear") ? a.getAsJsonObject("wear") : null;
         List<String> lines = new ArrayList<>();
         for (JsonElement h : a.getAsJsonArray("hints")) lines.add(h.getAsString());
         if (live) {
             war.actor(() -> feet(stand), () -> at(look, 0), item);
+            if (wear != null) dress(wear, () -> mc.player.getGameProfile().getName());
             if (boat) boatFor(stand, () -> mc.player.getGameProfile().getName());
             film.run(() -> {
                 hints = lines;
@@ -351,8 +381,17 @@ final class Newisle {
                 if (item != null) film.cast().command("item replace entity Artem weapon.mainhand with " + item);
                 film.cast().act("Artem", War.one(Cast.lookAt(at(look, 0))), true);
             }));
+            if (wear != null) dress(wear, () -> "Artem");
             if (boat) boatFor(stand, () -> "Artem");
         }
+    }
+
+    /** Одежда роли: {@code wear} — слот брони ({@code head}, {@code chest}, …) → предмет, как в {@code /item}. */
+    private void dress(JsonObject wear, java.util.function.Supplier<String> who) {
+        film.run(() -> film.withServer(s -> {
+            for (var e : wear.entrySet())
+                film.cast().command("item replace entity " + who.get() + " armor." + e.getKey() + " with " + e.getValue().getAsString());
+        }));
     }
 
     /** Лодка у места и {@code rider} в ней. */
@@ -381,6 +420,20 @@ final class Newisle {
         final List<Launched> mine = new ArrayList<>();
         final Vec3[] aims;
         boolean moment = true, whenSeen;
+        /** Запись плана кончилась ({@code cueEnd}): приказы «до конца плана» (слежение толпы) снимаются. */
+        volatile boolean over;
+        /** Тиков записи плана с открытой картой пульта и из них — со строкой «Distant Horizons ещё грузит» (n07 16.10). */
+        int mapTicks, mapPending;
+        /**
+         * Карта в кадре: сколько раз на ней вставала новая конечная точка и сколько самое большее было точек маршрута
+         * (Артём 17.10 о n07: курсор щёлкал каждые полсекунды, маршрут прыгал — нужна одна точка, поставленная плавно).
+         */
+        int mapMarks, mapRoute;
+        @Nullable
+        MapTarget.Place mapAt;
+        /** Зенитные ракеты, которые были в полёте за запись (поток сервера), и сколько их. */
+        final Set<Interceptor> samSeen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        volatile int samLaunched;
         long startTick = -1;
         // тот же старт по часам сервера: клиентские штампы под нагрузкой ударов отстают от него (T21, ночь 15.10)
         volatile long startServer = -1;
@@ -445,6 +498,7 @@ final class Newisle {
             }, 20 * 240);
         }
         shot.cue(0, () -> {
+            recording = run;
             run.startTick = mc.level.getGameTime();
             film.withServer(sv -> run.startServer = sv.overworld().getGameTime());
             run.moment = moment == null || run.whenSeen;
@@ -472,6 +526,8 @@ final class Newisle {
         List<Runnable> ends = new ArrayList<>();
         for (JsonElement e : list(s, "end")) ends.add(now(e.getAsJsonObject(), run));
         shot.cueEnd(() -> {
+            run.over = true;
+            if (recording == run) recording = null;
             if (cam.equals("onboard")) ProjectileCamera.exit();
             ends.forEach(Runnable::run);
             closeShot(run);
@@ -566,6 +622,12 @@ final class Newisle {
                 var place = once(when.get("at"));
                 yield () -> War.frontIn(place.get()) < lead;
             }
+            // карта пульта открыта (ready: map.open) и построена: все видимые плитки готовы и Distant Horizons уже отдал
+            // рельеф — без этого n07 16.10 начался с пустой сетки и строки «Distant Horizons is still loading…»
+            case "map" -> () -> {
+                TerrainTiles.Progress p = TerrainTiles.progress();
+                return mc.screen instanceof MapScreen && !TerrainTiles.farPending() && p.visible() > 0 && p.done();
+            };
             case "icbm" -> {
                 double above = when.get("above").getAsDouble();
                 yield () -> {
@@ -606,6 +668,16 @@ final class Newisle {
             }
             o.add("mspt", mspt);
         }
+        if (run.mapTicks > 0) {
+            // карта пульта в кадре: сколько тиков на ней строка ожидания DH (take_checks.map_loading — провал записи),
+            // сколько конечных точек на ней встало и точек маршрута (take_checks.map_aim — одна точка, без маршрута)
+            o.addProperty("map_ticks", run.mapTicks);
+            o.addProperty("map_pending", run.mapPending);
+            o.addProperty("map_marks", run.mapMarks);
+            o.addProperty("map_route", run.mapRoute);
+        }
+        // ЗРК стрелял за запись: сколько ракет (take_checks.sam_outcome сверяет с expect дубля)
+        if (run.samLaunched > 0) o.addProperty("sam_launched", run.samLaunched);
         if (run.shot.has("cover")) o.add("cover", run.shot.get("cover"));
         shotsOut.add(o);
     }
@@ -672,6 +744,12 @@ final class Newisle {
         @Nullable
         volatile UUID serverId;
         volatile long watchFrom = -2, firstSeenServer = -1, goneServer = -1;
+        /** Последнее место снаряда у сервера и сбит ли он ЗРК (тогда удара нет и срок не проверяется). */
+        @Nullable
+        volatile Vec3 lastServer;
+        volatile boolean intercepted;
+        /** Сбитие отмечено в журнале повтора ({@code mark:intercept} — якорь куска в монтажном листе). */
+        boolean downMarked;
 
         Launched(int index, Strike strike, double flight, double after, double delay) {
             this.index = index;
@@ -689,11 +767,16 @@ final class Newisle {
             return id == null ? null : ClientFlights.find(id);
         }
 
-        /** До момента: время до удара из пакета сервера без хода от точки пролёта до цели; пакета ещё нет — по расписанию. */
+        /**
+         * До момента: время до удара из пакета сервера без хода от точки пролёта до цели; пакета ещё нет — по расписанию;
+         * после удара — сколько прошло с него, со знаком минус (не меньше секунды, как раньше): пуски плана позже удара
+         * опорного ждут своего порога по нему (n41 17.10: залпы вдали в 2,4–4 с при опорном в 0,85 с не пускались —
+         * порог ниже −1 не наступал).
+         */
         double remaining() {
             ClientFlights.Tracked f = flight();
             if (f != null) return f.etaSeconds(0) - after;
-            if (gone >= 0) return -1;
+            if (gone >= 0) return -Math.max(1, (mc.level.getGameTime() - gone) / 20.0);
             return flight - (mc.level.getGameTime() - at) / 20.0;
         }
 
@@ -709,6 +792,10 @@ final class Newisle {
         }
 
         void tick() {
+            if (intercepted && !downMarked) {
+                downMarked = true;
+                if (film.marking()) film.mark("intercept");
+            }
             if (id == null) {
                 // свой — первый появившийся (номер ClientFlights): пуски идут по порядку, а цель у клиента — с рассеиванием
                 // (у «Града» СКО — 1 % дальности, ~10 блоков; соседние цели n21 — через 15 блоков)
@@ -754,6 +841,12 @@ final class Newisle {
             o.addProperty("pass", strike.pass() != null);
             o.addProperty("bound", id != null || serverId != null);
             o.addProperty("flight", flight);
+            if (intercepted) {
+                // сбит ЗРК: удара нет — срок не проверяется (take_checks считает сбитые по этому полю)
+                o.addProperty("intercepted", true);
+                if (startServer >= 0 && goneServer >= 0) o.addProperty("down", (goneServer - startServer) / 20.0);
+                return o;
+            }
             if (startServer >= 0 && serverId != null) {
                 // часы сервера: пущен — когда снаряд появился у него, удар — когда полёт кончился
                 if (firstSeenServer >= 0) o.addProperty("launched", (firstSeenServer - startServer) / 20.0);
@@ -777,17 +870,12 @@ final class Newisle {
     }
 
     /**
-     * Пуск удара {@code i} записи — через разносчик: пуски постановщика не встают в один тик (Артём, 14.10: установки не
-     * стреляют в одну миллисекунду). Пуск ближе зазора к прошлому ждёт остаток ({@link War#later}); зазор — с разбросом
-     * по зерну дубля и варианта: то же место пуска (ближе {@link #SAME_PLACE} блоков) и то же оружие — как очередь одной
-     * трубы «Града» (9–13 тиков), разные места — как разные расчёты (20–60 тиков).
+     * Пуск удара {@code i} записи — через разносчик ({@link Launches}): пуски постановщика не встают в один тик. Пуск
+     * ближе зазора ждёт остаток ({@link War#later}).
      */
     private void launch(Run run, int i) {
         Strike s = run.strikes.get(i);
-        long at = launchAt(mc.level.getGameTime(), lastLaunchTick, lastLaunchAt, lastLaunchWeapon, s.weapon(), s.from(), random);
-        lastLaunchTick = at;
-        lastLaunchAt = s.from();
-        lastLaunchWeapon = s.weapon();
+        long at = launches.next(mc.level.getGameTime(), s.weapon(), s.from(), random);
         // ждать по времени игры: тики клиента под нагрузкой отстают от сервера, и пуск уходил позже записанного delay
         // (T18 ночью 15.10: 34 тика клиента — 46 тиков игры, 74 — 114)
         long now = mc.level.getGameTime();
@@ -796,13 +884,45 @@ final class Newisle {
                 () -> fire(run, i, (mc.level.getGameTime() - now) / 20.0));
     }
 
-    /** Тик пуска разносчика: сейчас или остаток зазора после прошлого пуска. Чистая — для юнит-теста. */
-    static long launchAt(long now, long lastTick, @Nullable Vec3 lastAt, @Nullable WeaponType lastWeapon, WeaponType weapon,
-                         Vec3 from, RandomSource random) {
-        if (lastAt == null || lastWeapon == null) return now;
-        boolean same = weapon == lastWeapon && Math.hypot(from.x - lastAt.x, from.z - lastAt.z) < SAME_PLACE;
-        int gap = same ? SAME_GAP + random.nextInt(SAME_SPREAD) : OTHER_GAP + random.nextInt(OTHER_SPREAD);
-        return Math.max(now, lastTick + gap);
+    /**
+     * Разносчик пусков постановщика (Артём, 15.10: установки не стреляют в одну миллисекунду). У каждого места пуска
+     * своя очередь: то же место (ближе {@link #SAME_PLACE} блоков) и то же оружие стреляют как одна труба «Града»
+     * (9–13 тиков), а между любыми двумя пусками, из каких угодно мест, — не меньше 3–6 тиков. Разные расчёты стреляют
+     * независимо: три батареи n41 кладут ряды разом (до 16.10 между разными местами было 20–60 тиков, и 21 удар n41
+     * растянулся на 22 с). Зазоры — с разбросом по зерну дубля и варианта. Чистый — для юнит-теста.
+     */
+    static final class Launches {
+        private final List<Place> places = new ArrayList<>();
+        private long last = Long.MIN_VALUE;
+
+        /** Тик пуска: сейчас или после зазора своей очереди и общего; пуск записывается в обе. */
+        long next(long now, WeaponType weapon, Vec3 from, RandomSource random) {
+            Place own = null;
+            for (Place p : places) {
+                if (p.weapon == weapon && Math.hypot(from.x - p.at.x, from.z - p.at.z) < SAME_PLACE) {
+                    own = p;
+                    break;
+                }
+            }
+            long at = now;
+            if (own != null) at = Math.max(at, own.last + SAME_GAP + random.nextInt(SAME_SPREAD));
+            if (last != Long.MIN_VALUE) at = Math.max(at, last + ANY_GAP + random.nextInt(ANY_SPREAD));
+            if (own == null) places.add(own = new Place(from, weapon));
+            own.last = at;
+            last = at;
+            return at;
+        }
+
+        private static final class Place {
+            final Vec3 at;
+            final WeaponType weapon;
+            long last;
+
+            Place(Vec3 at, WeaponType weapon) {
+                this.at = at;
+                this.weapon = weapon;
+            }
+        }
     }
 
     /** Сам пуск командой оператора (игрок съёмки): с места пуска через точки пути. */
@@ -820,18 +940,23 @@ final class Newisle {
         launched.add(l);
     }
 
-    /** Прошлый пуск разносчика: тик, место и оружие — по ним зазор следующему. */
-    private long lastLaunchTick = Long.MIN_VALUE;
-    @Nullable
-    private Vec3 lastLaunchAt;
-    @Nullable
-    private WeaponType lastLaunchWeapon;
+    /** Очереди пусков дубля по местам. */
+    private final Launches launches = new Launches();
     /** Одно место пуска — ближе столько блоков; зазоры очереди одного места и разных мест, тиков (разброс — сверху). */
-    private static final int SAME_PLACE = 40, SAME_GAP = 9, SAME_SPREAD = 5, OTHER_GAP = 20, OTHER_SPREAD = 41;
+    private static final int SAME_PLACE = 40, SAME_GAP = 9, SAME_SPREAD = 5, ANY_GAP = 3, ANY_SPREAD = 4;
 
     private void tick(ClientTickEvent.Post e) {
         if (++ticks % 1200 == 0) heap();
         if (mc.level == null) return;
+        Run r = recording;
+        if (r != null && mc.screen instanceof MapScreen) {
+            r.mapTicks++;
+            if (TerrainTiles.farPending()) r.mapPending++;
+            MapTarget.Place at = MapTarget.get(mc.level).orElse(null);
+            if (at != null && !at.equals(r.mapAt)) r.mapMarks++;
+            r.mapAt = at;
+            r.mapRoute = Math.max(r.mapRoute, MapTarget.route(mc.level).size());
+        }
         for (Launched l : launched) l.tick();
         if (!enterSeen && !hints.isEmpty() && mc.screen == null
                 && InputConstants.isKeyDown(mc.getWindow().getWindow(), InputConstants.KEY_RETURN)) {
@@ -840,6 +965,9 @@ final class Newisle {
     }
 
     private long ticks;
+    /** План, который сейчас пишется (от первого кадра до {@code cueEnd}). */
+    @Nullable
+    private volatile Run recording;
 
     /**
      * Живой объём старшего поколения после последней видимой сборки — тот же, по которому бюджет руин
@@ -958,6 +1086,14 @@ final class Newisle {
                 Vec3 p = feet(a.get("at"));
                 film.withServer(s -> film.cast().command("setblock " + block(p) + " minecraft:campfire[lit=true]"));
             };
+            // постройка сцены на копии мира: блоки в рамке {from, to} (места — блоками мира, как у команды fill), до 32768
+            // блоков за шаг (n24 17.10: насыпь командного бункера ПВО, портал, мачты)
+            case "fill" -> () -> {
+                JsonArray f = a.getAsJsonArray("from"), t = a.getAsJsonArray("to");
+                film.withServer(s -> film.cast().command(String.format(Locale.ROOT, "fill %d %d %d %d %d %d %s", f.get(0).getAsInt(),
+                        f.get(1).getAsInt(), f.get(2).getAsInt(), t.get(0).getAsInt(), t.get(1).getAsInt(), t.get(2).getAsInt(),
+                        a.get("block").getAsString())));
+            };
             case "lamps" -> () -> {
                 Vec3 c = feet(a.get("around"));
                 double r = a.get("r").getAsDouble();
@@ -971,7 +1107,8 @@ final class Newisle {
                 film.withServer(s -> spots.forEach(p -> film.cast().command("setblock " + block(p) + " minecraft:lantern")));
             };
             case "crowd.watch" -> () -> {
-                Vec3 p = at(a.get("at"), 0);
+                // в метке «at» — время, место тогда в «look»
+                Vec3 p = at(a.has("look") ? a.get("look") : a.get("at"), 0);
                 double j = a.has("jitter") ? a.get("jitter").getAsDouble() : 10;
                 film.withServer(s -> group(a).watch(p, j));
             };
@@ -988,10 +1125,32 @@ final class Newisle {
             case "crowd.follow" -> () -> {
                 Class<? extends Entity> type = entity(WeaponType.parse(a.get("weapon").getAsString()));
                 JsonArray d = a.getAsJsonArray("delay");
-                int len = run == null ? 400 : (int) Math.round(run.shot.get("seconds").getAsDouble() * 20) + 100;
-                for (Crowd.Person p : group(a).people()) {
-                    int delay = (int) Math.round((d.get(0).getAsDouble() + random.nextDouble() * (d.get(1).getAsDouble() - d.get(0).getAsDouble())) * 20);
-                    war.later(delay, () -> film.withServer(s -> war.trackLook(p.name, type, len)));
+                // до конца записи плана, а не seconds от ready: после ready запись ещё ждёт момент (T02 — 364 тика), и
+                // слежение на seconds×20 + 100 тиков кончалось до окна n52 (журнал взглядов 17.10: в окне n43 люди
+                // смотрели мимо ракет на 90–175°)
+                // реакция — от мига, когда человек заметил ракету, а не от реплики: ракеты появляются позже, и раньше все
+                // поворачивались в один тик (Артём 17.10). Каждый по-своему: кто на другую ракету, кто сперва на соседа,
+                // один отступает на шаг, один машет рукой к ракете
+                Crowd crowd = group(a);
+                List<Crowd.Person> people = crowd.people();
+                for (int i = 0; i < people.size(); i++) {
+                    Crowd.Person p = people.get(i);
+                    int react = (int) Math.round((d.get(0).getAsDouble() + random.nextDouble() * (d.get(1).getAsDouble() - d.get(0).getAsDouble())) * 20);
+                    String glance = null;
+                    if (i % 5 == 1) {
+                        glance = people.stream().filter(o -> o != p).min(java.util.Comparator.comparingDouble(o -> o.home.distanceToSqr(p.home)))
+                                .map(o -> o.name).orElse(null);
+                    }
+                    War.Follow f = new War.Follow(react, random.nextInt(5), i % 7 == 3 ? 1 : 0, glance, 12 + random.nextInt(14),
+                            i == 2 || i == 8, i == 5);
+                    film.withServer(s -> war.follow(p.name, type, run == null ? new java.util.function.BooleanSupplier() {
+                        int left = 200;
+
+                        @Override
+                        public boolean getAsBoolean() {
+                            return --left < 0;
+                        }
+                    } : () -> run.over, f, () -> crowd.follow(p)));
                 }
             };
             case "crowd.remove" -> () -> film.withServer(s -> {
@@ -1029,6 +1188,9 @@ final class Newisle {
                     if (level.getBlockEntity(b) instanceof SamBlockEntity sam) sam.load(new ItemStack(ModItems.INTERCEPTOR.get(), load));
                 });
             };
+            // настройки ПВО на время дубля (как у GameTest ЗРК): вероятность сбить, дальность огня, перезарядка;
+            // без полей — прежние значения. Только в памяти: файл настроек мира не пишется
+            case "sam.config" -> () -> film.withServer(s -> samConfig(a));
             case "sam.clear" -> () -> {
                 Vec3 c = at(a.get("at"), 0);
                 film.withServer(s -> War.removeSams(s.overworld(), c, a.get("r").getAsInt()));
@@ -1060,6 +1222,21 @@ final class Newisle {
                 Fight f = squads.get("street");
                 if (f != null) f.stop();
             });
+            // бойцы одной стороны уличного боя (side: west|east) — в группу толпы: бой встаёт, дальше crowd.cower, crowd.watch,
+            // crowd.flee (ядерка 17.10: вспышка посреди боя Севера и Юга, обе стороны опускают оружие и бегут)
+            case "fight.adopt" -> () -> film.withServer(s -> {
+                Fight f = squads.get("street");
+                if (f == null) return;
+                f.stop();
+                int side = a.get("side").getAsString().equals("west") ? 0 : 1;
+                Crowd crowd = crowds.computeIfAbsent(a.get("group").getAsString(), k -> new Crowd(film.cast(), film.mc.getSingleplayerServer()));
+                for (Fight.Soldier sol : f.soldiers()) {
+                    if (sol.side != side) continue;
+                    var sp = film.cast().player(sol.name);
+                    if (sp == null) continue;
+                    crowd.adopt(sol.name, sp.position(), sp.getEyePosition().add(sp.getLookAngle().scale(20)));
+                }
+            });
             case "fight.remove" -> () -> film.withServer(s -> {
                 Fight f = squads.remove("street");
                 if (f != null) for (Fight.Soldier x : f.soldiers()) {
@@ -1078,19 +1255,38 @@ final class Newisle {
                 war.salvo(a.get("weapon").getAsString(), count, spread, to, from);
             };
             case "scope" -> () -> mc.options.keyUse.setDown(a.get("on").getAsBoolean());
+            // карта пульта открывается на цели без метки (карта открывается на выбранном месте — его и убираю после
+            // открытия): конечную точку ставит щелчок курсора (map.aim) у всех на глазах
             case "map.open" -> () -> {
                 Vec3 t = at(a.get("target"), 0);
                 MapTarget.set(mc.level, new MapTarget.Place(t.x, t.z));
-                MapTarget.clearRoute();
                 MapScreen.reset();
                 mc.setScreen(new MapScreen(new RemoteScreen()));
+                MapTarget.reset();
                 Cursor.show(new double[]{mc.getWindow().getGuiScaledWidth() * 0.7, mc.getWindow().getGuiScaledHeight() * 0.75});
             };
-            case "map.route" -> () -> mapRoute(a.get("route").getAsString());
+            // курсор плавно идёт к цели на карте за {@code ticks} тиков, задерживается на ней и один раз щёлкает:
+            // конечная точка — щелчком экрана карты, как у игрока
+            case "map.aim" -> () -> {
+                int ticks = a.get("ticks").getAsInt();
+                Cursor.moveTo(war.mapPoint(at(a.get("target"), 0)), ticks);
+                war.later(ticks + 4, () -> Cursor.click(mc));
+            };
+            // знак Артёму в живом дубле — новая строка подсказки поверх игры (в повтор не пишется); на слепом прогоне бот
+            // на его месте сам делает то, что строка просит: бежит к {@code to}
+            case "artem.cue" -> () -> {
+                if (live) {
+                    hints = List.of(a.get("hint").getAsString());
+                    hintFrom = 0;
+                    hintTo = 1;
+                } else if (standin && a.has("to")) {
+                    Vec3 to = feet(a.get("to"));
+                    film.withServer(s -> film.cast().act("Artem", War.one(Cast.walkTo(to.x, to.z, true)), true));
+                }
+            };
             case "map.close" -> () -> {
                 Cursor.hide();
                 mc.setScreen(null);
-                MapTarget.clearRoute();
             };
             case "retarget" -> () -> {
                 WeaponType w = WeaponType.parse(a.get("weapon").getAsString());
@@ -1106,20 +1302,25 @@ final class Newisle {
         };
     }
 
-    /** Путь залпа на открытой карте пульта: курсор идёт по точкам, каждая встаёт в маршрут. */
-    private void mapRoute(String name) {
-        JsonObject r = data.scenario.getAsJsonObject("routes").getAsJsonObject(name);
-        MapTarget.clearRoute();
-        JsonArray via = r.getAsJsonArray("via");
-        int gap = 6;
-        for (int i = 0; i < via.size(); i++) {
-            JsonArray v = via.get(i).getAsJsonArray();
-            Vec3 p = new Vec3(v.get(0).getAsDouble(), 0, v.get(1).getAsDouble());
-            war.later(i * gap, () -> Cursor.moveTo(war.mapPoint(p), gap - 1));
-            war.later(i * gap + gap - 1, () -> {
-                if (mc.level != null) MapTarget.add(mc.level, new MapTarget.Place(p.x, p.z));
-            });
+    /** Как вернуть настройки ПВО, которые дубль поменял ({@code sam.config}), — по одной на настройку. */
+    private final Map<ModConfigSpec.ConfigValue<?>, Runnable> samRestore = new java.util.LinkedHashMap<>();
+
+    private void samConfig(JsonObject a) {
+        IncomingConfig.Server c = IncomingConfig.SERVER;
+        if (!a.has("kill") && !a.has("engage") && !a.has("reload")) {
+            samRestore.values().forEach(Runnable::run);
+            samRestore.clear();
+            return;
         }
+        if (a.has("kill")) samSet(c.samKillProbability, a.get("kill").getAsDouble());
+        if (a.has("engage")) samSet(c.samEngageRange, a.get("engage").getAsInt());
+        if (a.has("reload")) samSet(c.samReloadSeconds, a.get("reload").getAsInt());
+    }
+
+    private <T> void samSet(ModConfigSpec.ConfigValue<T> v, T value) {
+        T old = v.get();
+        samRestore.putIfAbsent(v, () -> v.set(old));
+        v.set(value);
     }
 
     private Crowd group(JsonObject a) {
@@ -1144,11 +1345,21 @@ final class Newisle {
             Vec3 c = feet(a.get("at"));
             Crowd crowd = crowds.computeIfAbsent(group, k -> new Crowd(film.cast(), film.mc.getSingleplayerServer()));
             Fight squad = armed ? squads.computeIfAbsent(group, k -> new Fight(film.cast(), film.mc.getSingleplayerServer())) : null;
+            // места по порядку имён ({@code spots}: [x, z]) — где камера плана снята под этих людей (n30a через плечо
+            // Волкова); остальные — вразброс вокруг {@code at}
+            JsonArray spots = a.has("spots") ? a.getAsJsonArray("spots") : new JsonArray();
             for (int i = 0, tries = 0; i < n && tries < 40 * n; tries++) {
-                double ang = random.nextDouble() * Math.PI * 2, d = Math.sqrt(random.nextDouble()) * spread;
-                double x = Math.floor(c.x + Math.cos(ang) * d) + 0.5, z = Math.floor(c.z + Math.sin(ang) * d) + 0.5;
+                double x, z;
+                if (i < spots.size()) {
+                    x = spots.get(i).getAsJsonArray().get(0).getAsDouble();
+                    z = spots.get(i).getAsJsonArray().get(1).getAsDouble();
+                } else {
+                    double ang = random.nextDouble() * Math.PI * 2, d = Math.sqrt(random.nextDouble()) * spread;
+                    x = Math.floor(c.x + Math.cos(ang) * d) + 0.5;
+                    z = Math.floor(c.z + Math.sin(ang) * d) + 0.5;
+                }
                 int y = War.groundY(level, x, z);
-                if (Math.abs(y - c.y) > 3 || !level.getFluidState(BlockPos.containing(x, y - 1, z)).isEmpty()) continue;
+                if (i >= spots.size() && (Math.abs(y - c.y) > 3 || !level.getFluidState(BlockPos.containing(x, y - 1, z)).isEmpty())) continue;
                 String name = i < names.size() ? names.get(i) : prefix + i;
                 i++;
                 Vec3 p = new Vec3(x, y, z);
@@ -1184,6 +1395,8 @@ final class Newisle {
                     Vec3 p = new Vec3(Math.floor(line.get(i).x) + 0.5, line.get(i).y, Math.floor(line.get(i).z) + 0.5);
                     spawn(name, p, Film.yawTo(Vec3.ZERO, facing));
                     f.add(name, side, p, facing);
+                    // бойцы у ядерного подрыва — в творческом режиме, как толпа (War.roofCrowd): в километре свет 15 кт убивает
+                    if (bool(a, "creative")) creative.add(name);
                 }
             }
         });

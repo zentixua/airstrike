@@ -741,8 +741,9 @@ public final class LifecycleGameTests {
      * отпуска пуста не позже чем через {@link #SALVO_DRAIN} тиков и в мире не остаётся ни одного тикета мода.
      * Очередь, ждущая места на выгрузке, отпускала бы район раз в 100 тиков: здесь через 100 тиков в ней ждали бы
      * 17 районов залпа, а на выгрузке стояли бы 2000 держателей, которых ваниль без свободного времени не разбирает.
+     * Не дождался — перед сроком падает с тем, чего ждал (районы, снаряды), а не молча по сроку.
      */
-    @GameTest(template = "range", timeoutTicks = 2400, batch = "salvo_busy_tickets", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = SALVO_TIMEOUT, batch = "salvo_busy_tickets", skyAccess = true)
     public static void salvoLeavesNoTicketsOnBusyServer(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         AreaLoader areas = StrikeWorld.get(level).areas();
@@ -753,6 +754,15 @@ public final class LifecycleGameTests {
         int[] tick = {0}, firedAt = {-1}, goneAt = {-1}, releasedAt = {-1}, queued = {0};
         h.onEachTick(() -> {
             tick[0]++;
+            if (tick[0] >= SALVO_TIMEOUT - 10) {
+                List<String> rockets = salvo.stream().map(id -> level.getEntity(id) instanceof StrikeProjectile p && !p.isRemoved()
+                        ? "in the world at " + p.blockPosition().toShortString()
+                        : VirtualFlights.get(level).flights().stream().filter(v -> v.getUUID().equals(id)).findFirst()
+                        .map(v -> "out of the world at " + v.blockPosition().toShortString()).orElse("gone")).toList();
+                throw new GameTestAssertException("залп не дождался: пуск на тике " + firedAt[0] + ", снаряды отгремели " + goneAt[0]
+                        + ", районы отпущены " + releasedAt[0] + "; ракеты " + rockets + "; районы " + areas.describe()
+                        + "; ударов в очереди " + StrikeWorld.get(level).impacts().size());
+            }
             if (firedAt[0] >= 0) queued[0] = Math.max(queued[0], areas.releasing());
             if (firedAt[0] < 0) {
                 // очередь прежних партий пуста: дальше всё в ней — от этого залпа
@@ -804,6 +814,8 @@ public final class LifecycleGameTests {
 
     /** Срок очереди отпуска после залпа на занятом сервере, тиков (ждущая места на выгрузке — район в 100 тиков). */
     private static final int SALVO_DRAIN = 100;
+    /** Срок проверки залпа на занятом сервере, тиков. */
+    private static final int SALVO_TIMEOUT = 2400;
 
     /** Поток сервера стоит в тике дольше 2 с ({@code StallWatch}): когда он пошёл дальше, строка остановки уходит в лог. */
     @GameTest(template = "range", timeoutTicks = 2000, batch = "stall_watch", skyAccess = true)

@@ -2,6 +2,7 @@ package ua.zentix.incoming.client.flight;
 
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.client.ClientWeaponSpec;
 import ua.zentix.incoming.client.sound.Acoustics;
 import ua.zentix.incoming.entity.BunkerBusterEntity;
@@ -45,6 +46,9 @@ public final class FlightTrack implements Acoustics.Path {
     /** Точка пути перед последней (от неё строится прямая до последней). */
     private long previous = -1;
     private long death = Long.MAX_VALUE;
+    /** Место взрыва из его пакета ({@link #impact(long, Vec3)}); null — неизвестно. */
+    @Nullable
+    private Vec3 blast;
     /**
      * На сколько тиков после последней записи звук ещё можно тянуть с неё: по сущности запись каждый тик, так что 1;
      * по пакетам — до следующего пакета (и тик на неровную доставку). Дальше данных нет (взорвался или ушёл из слуха) —
@@ -142,7 +146,19 @@ public final class FlightTrack implements Acoustics.Path {
      * тишины перед ним.
      */
     public void impact(long tick) {
-        if (last >= 0 && !isDead()) death = Math.max(last, tick);
+        impact(tick, null);
+    }
+
+    /**
+     * То же, и путь кончается в месте взрыва {@code at} (null — неизвестно): у медленного клиента последняя запись и
+     * пакет взрыва приходят в один тик, и путь кончался там, где снаряд был за 2–4 тика сервера до взрыва (запись
+     * трейлера 16.10, 9 тиков в секунду: ракета в грани близнеца, а конец пути — в воздухе в 14 блоках перед ней).
+     */
+    public void impact(long tick, @Nullable Vec3 at) {
+        if (last >= 0 && !isDead()) {
+            death = Math.max(last, tick);
+            blast = at;
+        }
     }
 
     /** Путь сейчас идёт по пакетам сервера (сущности у клиента нет). */
@@ -176,9 +192,26 @@ public final class FlightTrack implements Acoustics.Path {
         return Math.max(first, last - CAPACITY + 1);
     }
 
-    /** Где снаряд в момент t: между записями — по прямой, после последней — по её скорости, не мимо цели. */
+    /**
+     * Где снаряд в момент t: между записями — по прямой, после последней — по её скорости, не мимо цели; с местом
+     * взрыва — от последней записи по прямой к нему, с момента взрыва — в нём.
+     */
     @Override
     public void at(double t, double[] out) {
+        if (blast != null && t >= death) {
+            out[0] = blast.x;
+            out[1] = blast.y;
+            out[2] = blast.z;
+            return;
+        }
+        if (blast != null && t > last) {
+            int i = (int) (last % CAPACITY);
+            double f = (t - last) / (death - last);
+            out[0] = xs[i] + (blast.x - xs[i]) * f;
+            out[1] = ys[i] + (blast.y - ys[i]) * f;
+            out[2] = zs[i] + (blast.z - zs[i]) * f;
+            return;
+        }
         if (last >= 0 && t > last) {
             ahead(t - last, out);
             return;

@@ -56,12 +56,16 @@ final class NewisleCoverage {
                     out.put(plan, spec(data, plan, replay, offset, first, c.getValue().getAsJsonObject(), flat));
                 }
             }
-            // план дубля целиком: запись ставит сцена дубля (n18 — сцена дирижабля пишет повтор под именем плана)
+            // план дубля целиком: запись ставит сцена дубля (n18 — сцена дирижабля пишет повтор под именем плана); второй
+            // план той же записи — {@code replay} (чей повтор) и {@code offset} (секунд от начала её окна): n18b — падение
+            // дирижабля другим ракурсом, встык за n18
             if (take.has("cover")) {
                 for (var c : take.getAsJsonObject("cover").entrySet()) {
                     String plan = c.getKey();
-                    String replay = recorded.isEmpty() ? plan : recorded.get(0);
-                    out.put(plan, spec(data, plan, replay, 0, replay.equals(plan), c.getValue().getAsJsonObject(), flat));
+                    JsonObject o = c.getValue().getAsJsonObject();
+                    String replay = o.has("replay") ? o.get("replay").getAsString() : recorded.isEmpty() ? plan : recorded.get(0);
+                    int offset = o.has("offset") ? (int) Math.round(o.get("offset").getAsDouble() * 20) : 0;
+                    out.put(plan, spec(data, plan, replay, offset, replay.equals(plan), o, flat));
                 }
             }
         }

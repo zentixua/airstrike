@@ -47,6 +47,7 @@ import ua.zentix.incoming.client.hud.StrikesHud;
 import ua.zentix.incoming.client.map.MapPlayers;
 import ua.zentix.incoming.client.map.MapTarget;
 import ua.zentix.incoming.client.map.TerrainTiles;
+import ua.zentix.incoming.client.nuclear.AnimalSilence;
 import ua.zentix.incoming.client.nuclear.ClientNuclear;
 import ua.zentix.incoming.client.nuclear.Geiger;
 import ua.zentix.incoming.client.nuclear.NukeArming;
@@ -71,6 +72,7 @@ import ua.zentix.incoming.client.screen.RemoteScreen;
 import ua.zentix.incoming.client.sound.BlastSounds;
 import ua.zentix.incoming.client.sound.ClientSounds;
 import ua.zentix.incoming.client.sound.InterceptorSound;
+import ua.zentix.incoming.client.sound.OwnSources;
 import ua.zentix.incoming.client.sound.SoundFilters;
 import ua.zentix.incoming.entity.DebrisEntity;
 import ua.zentix.incoming.entity.InterceptorEntity;
@@ -99,6 +101,7 @@ public final class IncomingClient {
         modBus.addListener(Fx::registerProviders);
         modBus.addListener(FxLayer::registerShaders);
         modBus.addListener(FarModels::registerShaders);
+        modBus.addListener(NukeRenderer::registerShaders);
         modBus.addListener(IncomingClient::reloadListeners);
         modBus.addListener(IncomingClient::blockColors);
         TerrainTiles.init();
@@ -120,12 +123,18 @@ public final class IncomingClient {
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(ScreenProjection::capture);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.client.nuclear.FlashMarksMesh::onSection);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.client.nuclear.FlashMarksClient::onChunkUnload);
+        NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.client.nuclear.FlashMarksClient::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(FxLayer::render);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::renderRain);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
         NeoForge.EVENT_BUS.addListener(SoundFilters::onSound);
         NeoForge.EVENT_BUS.addListener(SoundFilters::onStream);
+        NeoForge.EVENT_BUS.addListener(OwnSources::frame);
+        NeoForge.EVENT_BUS.addListener(OwnSources::onSource);
+        NeoForge.EVENT_BUS.addListener(AnimalSilence::onPlay);
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::angles);
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::fov);
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::movement);
@@ -206,6 +215,8 @@ public final class IncomingClient {
         while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
         while (Keys.SECOND_KEY.consumeClick()) PacketDistributor.sendToServer(new C2S.NuclearKey());
         Replay.tick();
+        // следы вспышки — и на паузе: повтор перематывают и на паузе
+        ua.zentix.incoming.client.nuclear.FlashMarksClient.tick();
         if (mc.isPaused()) return;
         Designator.tick();
         ClientFlights.tick();
@@ -277,6 +288,7 @@ public final class IncomingClient {
         Designator.reset();
         RadarScope.reset();
         ClientNuclear.reset();
+        ua.zentix.incoming.client.nuclear.FlashMarksClient.reset();
         MapTarget.reset();
         MapPlayers.reset();
         MapScreen.reset();
@@ -293,7 +305,7 @@ public final class IncomingClient {
         public void blast(S2C.Blast p) {
             Replay.event("blast", live -> {
                 if (!live) return;
-                p.projectile().ifPresent(FlightTracks::impact);
+                p.projectile().ifPresent(id -> FlightTracks.impact(id, p.pos()));
                 BlastEffects.blast(p);
             });
         }
@@ -383,6 +395,12 @@ public final class IncomingClient {
         }
 
         @Override
+        public void nukeFlashMarks(S2C.NukeFlashMarks p) {
+            // состояние чанка: принимается всегда, и из перемотки (слой виден, когда часы дошли до вспышки)
+            ua.zentix.incoming.client.nuclear.FlashMarksClient.receive(p);
+        }
+
+        @Override
         public void nukeSync(S2C.NukeSync p) {
             ClientNuclear.sync(p);
         }
@@ -428,7 +446,7 @@ public final class IncomingClient {
         public void intercept(S2C.Intercept p) {
             Replay.event("intercept", live -> {
                 if (!live) return;
-                p.target().ifPresent(FlightTracks::impact);
+                p.target().ifPresent(id -> FlightTracks.impact(id, p.pos()));
                 BlastEffects.intercept(p);
             });
         }

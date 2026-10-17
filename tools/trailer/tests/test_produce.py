@@ -311,6 +311,84 @@ class ProduceTest(unittest.TestCase):
         self.assertIn("a1", tries[0]["reason"])
         self.assertTrue(tries[1]["ok"])
 
+    def test_reset_take_keeps_its_recorded_attempt_world_and_releases_the_old_spare(self):
+        # 17.10: запись T24 сброшена в state.json с прежним kept; попытка 1 записана, но не прошла вывод — её мир
+        # удалили на старте попытки 2, и перевыводы из её повтора шли без LOD DH. Прежний kept — не из попыток этого
+        # прогона: в очередь удаления, запасной — мир записанной попытки 1
+        os.makedirs(os.path.join(self.cfg["saves"], "nw-A-old"))
+        c, m = self.conveyor({("A", "render"): lambda env: {"seconds": 60, "render": {"a1": "FAIL"}}
+                              if len([s for s in m.starts if s[0][1] == "render"]) == 1 else {"seconds": 60, "render": {}}})
+        c.state["takes"]["A"] = {"attempts": [], "kept": "nw-A-old"}
+        c.save()
+        seen = []
+        orig = c.attempt
+
+        def attempt(take, n, variant, src, **kw):
+            seen.append((c.state["takes"][take].get("kept"), sorted(os.listdir(self.cfg["saves"]))))
+            return orig(take, n, variant, src, **kw)
+        c.attempt = attempt
+        self.assertEqual(0, c.run(["A"]))
+        kept_before_second, saves_before_second = seen[1]
+        self.assertEqual("nw-A-a0", kept_before_second, "мир записанной попытки 1 — запасной снимок")
+        self.assertIn("nw-A-a0", saves_before_second, "мир попытки 1 на месте, когда идёт попытка 2")
+        self.assertIn("nw-A-old", c.state["released"], "прежний запасной — в очередь удаления")
+        self.assertIn("nw-A-old", os.listdir(self.cfg["saves"]), "и лежит, пока место есть")
+        self.assertEqual("passed", c.state["takes"]["A"]["status"])
+
+    def test_failed_attempt_with_passed_plans_keeps_its_world_in_the_release_queue(self):
+        # попытка 2 записана, план a1 выведен с PASS, но дубль не прошёл (второй план); запасной уже есть (попытка 1):
+        # мир попытки 2 — в очередь удаления, а не прочь, — черновик берёт её a1
+        with open(self.takes, encoding="utf-8") as f:
+            data = json.load(f)
+        data["takes"][0]["shots"] = [{"plans": ["a1", "a2"], "seconds": 4,
+                                      "cover": {"a1": {"subject": "scene"}, "a2": {"subject": "scene"}}}]
+        with open(self.takes, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        script = {("A", "record"): {"seconds": 300, "result": ok_result("A", ["a1", "a2"])}}
+        renders = []
+
+        def render(env):
+            renders.append(1)
+            return {"seconds": 60, "render": {"a2": "FAIL"} if len(renders) < 3 else {}}
+        script[("A", "render")] = render
+        c, m = self.conveyor(script)
+        self.assertEqual(0, c.run(["A"]))
+        tries = c.state["takes"]["A"]["attempts"]
+        self.assertFalse(tries[1]["ok"])
+        self.assertEqual("PASS", tries[1]["plans"]["a1"][0])
+        self.assertIn(tries[1]["world"], c.state["released"])
+        self.assertIn(tries[1]["world"], os.listdir(self.cfg["saves"]))
+
+    def test_hand_reset_with_kept_equal_to_snapshot_still_keeps_the_new_recording(self):
+        # сброс руками, где snapshot и kept из прошлого прогона совпадают: прежний — в очередь, мир попытки 1 цел
+        os.makedirs(os.path.join(self.cfg["saves"], "nw-A-old"))
+        c, m = self.conveyor({("A", "render"): lambda env: {"seconds": 60, "render": {"a1": "FAIL"}}
+                              if len([s for s in m.starts if s[0][1] == "render"]) == 1 else {"seconds": 60, "render": {}}})
+        c.state["takes"]["A"] = {"attempts": [], "kept": "nw-A-old", "snapshot": "nw-A-old"}
+        c.save()
+        seen = []
+        orig = c.attempt
+
+        def attempt(take, n, variant, src, **kw):
+            seen.append(c.state["takes"][take].get("kept"))
+            return orig(take, n, variant, src, **kw)
+        c.attempt = attempt
+        self.assertEqual(0, c.run(["A"]))
+        self.assertEqual("nw-A-a0", seen[1])
+        self.assertIn("nw-A-old", c.state["released"])
+
+    def test_retake_releases_the_old_spare_snapshot(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        os.makedirs(os.path.join(self.cfg["saves"], "nw-C-spare"))
+        c.state["takes"]["C"]["kept"] = "nw-C-spare"
+        c.save()
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c.run(["C"]))
+        self.assertIn("nw-C-spare", c.state["released"])
+        self.assertNotEqual("nw-C-spare", c.state["takes"]["C"].get("kept"))
+
     def test_stopped_take_stops_and_waits(self):
         c, m = self.conveyor({("A", "record"): {"seconds": 10, "result": {"status": "stopped", "reason": "нет поз камер a1"}}})
         self.assertEqual(P.STOPPED_EXIT, c.run())
@@ -522,6 +600,45 @@ class ProduceTest(unittest.TestCase):
         self.assertIn("nw-C-a0r1", c.state["released"], "новый снимок — лист")
         self.assertIn("nw-C-a0", c.state["released"], "прежний снимок — в очередь удаления")
         self.assertTrue(os.path.exists(os.path.join(self.cfg["work"], "retake.txt.done")))
+
+    def test_retake_keeps_the_old_recording_aside(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        rec = c.state["takes"]["C"]["attempts"][-1]["rec"]
+        with open(os.path.join(rec, "mark"), "w") as f:
+            f.write("вывод в монтаже")
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c.run(["C"]))
+        new = c.state["takes"]["C"]["attempts"][-1]["rec"]
+        self.assertFalse(os.path.exists(os.path.join(new, "mark")), "новая запись — в чистой папке")
+        aside = [d for d in os.listdir(os.path.dirname(rec)) if d.startswith(os.path.basename(rec) + "-")]
+        self.assertEqual(1, len(aside), "прежняя запись — рядом под своим именем")
+        self.assertTrue(os.path.exists(os.path.join(os.path.dirname(rec), aside[0], "mark")))
+
+    def test_retake_copy_never_takes_the_name_of_a_protected_world(self):
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A", "B", "C", "D"]))
+        # прогон вслепую: снимок C из другой работы под защитой, а состояние о нём не знает
+        self.cfg["protected"].append(os.path.join(self.cfg["saves"], "nw-C-a0r1"))
+        c2, m2 = self.conveyor()
+        with open(os.path.join(self.cfg["work"], "retake.txt"), "w") as f:
+            f.write("C\n")
+        self.assertEqual(0, c2.run(["C"]))
+        self.assertEqual("nw-C-a0r2", os.path.basename(m2.copies[-1][1]), "имя защищённого мира — занято")
+        self.assertEqual("passed", c2.state["takes"]["C"]["status"])
+
+    def test_copy_never_lands_on_a_world_it_does_not_know(self):
+        # мир прерванной записи другой работы лежит под именем первой попытки: копия — под другим именем, мир цел
+        stray = os.path.join(self.cfg["saves"], "nw-A-a0")
+        os.makedirs(stray)
+        with open(os.path.join(stray, "level.dat"), "w") as f:
+            f.write("чужой")
+        c, m = self.conveyor()
+        self.assertEqual(0, c.run(["A"]))
+        self.assertEqual("nw-A-a0r1", c.state["takes"]["A"]["snapshot"])
+        with open(os.path.join(stray, "level.dat")) as f:
+            self.assertEqual("чужой", f.read())
 
     def test_retake_of_a_chain_take_uses_the_previous_chain_snapshot(self):
         c, m = self.conveyor()
@@ -824,6 +941,25 @@ class ProduceTest(unittest.TestCase):
         self.assertTrue(any("tick loop" in p for p in problems))
         self.assertTrue(any("4.6" in p for p in problems))
         self.assertTrue(any("не найден" in p for p in problems))
+
+    def test_check_take_does_not_time_a_strike_the_sam_shot_down(self):
+        # шахед сбит ЗРК над озером (n17): удара нет, его «срок» не к чему мерить
+        r = ok_result("A", ["a1"])
+        r["shots"][0]["strikes"] = [{"weapon": "drone", "eta": 9.0, "bound": True, "intercepted": True, "down": 1.4},
+                                    {"weapon": "drone", "eta": 3.0, "bound": True, "actual": 4.6}]
+        problems = [p for p in P.check_take(r, "", {}) if "вместо" in p]
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("4.6", problems[0])
+
+    def test_check_take_skips_strikes_that_land_after_the_recording(self):
+        # n17: окно — пуски ЗРК над озером, удары прорвавшейся стаи по городу — после конца записи
+        r = ok_result("A", ["a1"])
+        r["shots"][0]["strikes"] = [{"weapon": "drone", "eta": 8.9, "bound": True, "actual": 10.4, "actual_client": 10.6},
+                                    {"weapon": "drone", "eta": 9.0, "bound": True, "actual": 5.0}]
+        take = {"shots": [{"plans": ["a1"], "seconds": 8}]}
+        problems = [p for p in P.check_take(r, "", take) if "вместо" in p]
+        self.assertEqual(["a1: drone в 5.0 с вместо 9.0"], problems, "удар внутри окна не в срок — отказ, после окна — нет")
+        self.assertEqual(2, len([p for p in P.check_take(r, "", {}) if "вместо" in p]), "без длины записи — как раньше")
 
     def test_check_take_accepts_client_clock_when_server_reads_early(self):
         # серверное actual отстаёт от клиентского на период синхронизации часов (T13, 15.10):

@@ -4,12 +4,14 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.client.flight.FlightTrack;
 import ua.zentix.incoming.client.flight.FlightTracks;
 import ua.zentix.incoming.client.nuclear.ClientNuclear;
+import ua.zentix.incoming.entity.FlightPhase;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -33,8 +35,9 @@ import java.util.UUID;
  * вывода. Тик журнала — тик повтора ({@link FlashbackApi#writtenTicks}): запись Flashback кончает тик клиента после
  * {@code ClientTickEvent.Post}, в котором журнал пишет тот же номер.
  * <p>
- * Строки JSON: {@code {"t":N,"me":[x,y,z],"cam":[x,y,z,yaw,pitch,roll,fov],"p":[[имя,x,y,z],…]}} каждый тик (записывающий,
- * кинокамера плана, если она есть, и люди);
+ * Строки JSON: {@code {"t":N,"me":[x,y,z],"cam":[x,y,z,yaw,pitch,roll,fov],"p":[[имя,x,y,z,курс,тангаж],…]}} каждый тик
+ * (записывающий, кинокамера плана, если она есть, и люди: место ног и взгляд — курс головы и тангаж, куда человек смотрит в
+ * кадре; журналы до 17.10 — без взгляда);
  * {@code {"t":N,"f":[[i,x,y,z,фаза,сущность],…]}} — где снаряды в тик N (пишется с отставанием {@link #LAG}); {@code {"t":N,"new":i,
  * "id":UUID,"weapon":…,"bomber":…}} — новый путь; {@code {"t":N,"impact":i,"pos":[…]}} — взрыв (путь кончился пакетом
  * взрыва) или {@code "lost"} — путь кончился без взрыва (ушёл из данных); {@code {"t":N,"nuke":[x,y,z],"kt":…}};
@@ -102,7 +105,8 @@ final class EventLog {
             for (Player pl : mc.level.players()) {
                 if (pl == mc.player) continue;
                 if (!people.isEmpty()) people.append(',');
-                people.append(String.format(Locale.ROOT, "[\"%s\",%.2f,%.2f,%.2f]", pl.getGameProfile().getName(), pl.getX(), pl.getY(), pl.getZ()));
+                people.append(String.format(Locale.ROOT, "[\"%s\",%.2f,%.2f,%.2f,%.1f,%.1f]", pl.getGameProfile().getName(), pl.getX(), pl.getY(), pl.getZ(),
+                        Mth.wrapDegrees(pl.getYHeadRot()), pl.getXRot()));
             }
         }
         Vec3 me = mc.player == null ? Vec3.ZERO : mc.player.position();
@@ -179,6 +183,8 @@ final class EventLog {
         int impact = -1;
         int lost = -1;
         Vec3 impactPos;
+        /** Где удар видно в кадре ({@link #seen}): место взрыва, а у бомбы, что бурит грунт, — устье скважины. */
+        Vec3 seenPos;
 
         Flight(int index, UUID id, String weapon, boolean bomber, int born) {
             this.index = index;
@@ -231,6 +237,20 @@ final class EventLog {
 
         boolean present(double t) {
             return at.containsKey((int) Math.floor(t));
+        }
+
+        /**
+         * Где удар видно: у бомбы, что бурит грунт ({@link FlightPhase#DRILL}), — место первого тика бурения, устье
+         * скважины. Заряд рвётся в породе на два десятка блоков ниже (n24, 15.10: вход на 64, взрыв на 40), и луч к нему
+         * закрыт из любой камеры, а наружу выходят удар о грунт, выброс газов из устья и провал над зарядом
+         * ({@code Warheads.bunkerEntry}, {@code S2C.Vent}). У остальных снарядов — место взрыва.
+         */
+        @Nullable
+        Vec3 seen() {
+            if (impactPos == null) return null;
+            int drill = FlightPhase.DRILL.ordinal();
+            return phase.entrySet().stream().filter(e -> e.getValue() == drill).min(Map.Entry.comparingByKey())
+                    .map(e -> pos(e.getKey())).orElse(impactPos);
         }
     }
 
@@ -337,7 +357,10 @@ final class EventLog {
                 d.marks.add(new Mark(t, o.get("mark").getAsString()));
             }
         }
-        for (Flight f : d.flights) f.at.putAll(beforeQueue ? Shown.asShown(f.raw, f.server) : f.raw);
+        for (Flight f : d.flights) {
+            f.at.putAll(beforeQueue ? Shown.asShown(f.raw, f.server) : f.raw);
+            f.seenPos = f.seen();
+        }
         return d;
     }
 }

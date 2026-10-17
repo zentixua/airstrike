@@ -2,7 +2,7 @@
 # Съёмка трейлера по данным игры, в два прохода одной папки (INCOMING_TRAILER_DIR):
 #   tools/trailer/film.sh record [shaders]  — сценарий трейлера пишет каждый план повтором Flashback с журналом снарядов,
 #                                             людей и отметок (replays/<план>.zip, .events.jsonl); кадров нет
-#   tools/trailer/film.sh render [shaders]  — планы из повторов (ReplayFilm, таблица Coverage): камеры по журналу,
+#   tools/trailer/film.sh render [shaders|sodium] — планы из повторов (ReplayFilm, таблица Coverage): камеры по журналу,
 #                                             вывод Flashback кадр на тик, проверка каждого кадра и пересъёмка;
 #                                             render/report.jsonl, render/best.txt — папки планов для edit.py --rec
 # Нужны Flashback 0.39 (Fabric), Flashback NeoForge Fixed, Sinytra Connector и Forgified Fabric API в каталоге модов
@@ -18,6 +18,8 @@
 # прежние повторы остались в памяти, уходит на границе повторов, и film.sh запускает новый (строка SCENARIO film restart).
 # Кандидат камеры сперва идёт пробой в малом кадре (INCOMING_FILM_PROBE, по умолчанию четверть кадра по стороне; 0 — без
 # пробы): проверка кадров по данным игры та же, а в полном размере выводится только прошедший её (строки SCENARIO film probe).
+# INCOMING_FILM_SNAP=mid|<тик> — вместо вывода живой кадр с паузы повтора в позе кандидата (<вывод>/<план>/<кандидат>/live.png,
+# строка SCENARIO film snap): сверка картинки вживую и выведенной. INCOMING_FILM_TICKS=<от>..<до> — вывод только этих тиков окна.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 mode="${1:-}"
@@ -35,7 +37,7 @@ case "$mode" in
     size="${INCOMING_SIZE:-1920x1080}"
     export INCOMING_WINDOW="${INCOMING_WINDOW:-$(( ${size%x*} / 2 ))x$(( ${size#*x} / 2 ))}"
     ;;
-  *) echo "film.sh record|render [shaders]" >&2; exit 2 ;;
+  *) echo "film.sh record|render [shaders|sodium]" >&2; exit 2 ;;
 esac
 if [ "$mode" = render ]; then
   # клиент, у которого память не вернулась после закрытия повтора, уходит на границе повторов и оставляет файл restart

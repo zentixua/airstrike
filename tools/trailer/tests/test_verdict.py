@@ -277,6 +277,14 @@ class VerdictTest(unittest.TestCase):
             short = self.check([V.Cut(0, 1.2, "text", t.name, 0.0, text=(line,))], [t])[0]
             self.assertIn("text", [f.rule for f in short.findings])
 
+    def test_title_card_outside_the_frame_margins_fails(self):
+        # черновик 16.10: «n49 — утром с Артёмом» кеглем логотипа выходил за кадр с обеих сторон
+        line = "n49 — утром с Артёмом"
+        wide = self.check([V.Cut(0, 3.0, "text", None, text=(line,), box=(-0.06, 0.44, 1.06, 0.56))], [])[0]
+        self.assertIn("text", [f.rule for f in wide.findings])
+        fitted = self.check([V.Cut(0, 3.0, "text", None, text=(line,), box=(0.053, 0.44, 0.947, 0.56))], [])[0]
+        self.assertTrue(fitted.ok, fitted.findings)
+
     def test_repeat(self):
         with tempfile.TemporaryDirectory() as root:
             t = render_take(root)

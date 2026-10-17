@@ -174,14 +174,16 @@ public final class FarSprites {
         double cos = (dx * fx + dy * fy + dz * fz) / Math.max(d, 1e-9);
         // не ближе, чем у камеры гаснет любой квадрат слоя (fx.fsh: полностью виден с 1,5 блока по оси взгляда)
         double front = Math.max(d - deep, AIR_NEAR / Math.max(cos, 0.1));
+        out.glowShape(true);
         if (front >= d) {
             if (billboard(dx, dy, dz, radius * GLOW, 0, FxAtlas.glow(), r * a, g * a, b * a, 0, 0)) counts[2]++;
-            return;
+        } else {
+            double unfold = FarDraw.fold(front, far), k = front / d * unfold;
+            out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (radius * GLOW * k), 0, FxAtlas.glow(), Math.min(1, r * a),
+                    Math.min(1, g * a), Math.min(1, b * a), 0, (float) (d - front), (float) unfold, LightTexture.FULL_BRIGHT, 0);
+            counts[2]++;
         }
-        double unfold = FarDraw.fold(front, far), k = front / d * unfold;
-        out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (radius * GLOW * k), 0, FxAtlas.glow(), Math.min(1, r * a),
-                Math.min(1, g * a), Math.min(1, b * a), 0, (float) (d - front), (float) unfold, LightTexture.FULL_BRIGHT, 0);
-        counts[2]++;
+        out.glowShape(false);
     }
 
     /**
@@ -258,8 +260,10 @@ public final class FarSprites {
             return;
         }
         out.seenBy(probe);
+        out.glowShape(true);
         out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (radius * GLOW * k), 0, FxAtlas.glow(), Math.min(1, r * a),
                 Math.min(1, g * a), Math.min(1, b * a), 0, 0, (float) k, LightTexture.FULL_BRIGHT, 0);
+        out.glowShape(false);
         out.seenBy(0);
         counts[2]++;
     }
@@ -303,11 +307,13 @@ public final class FarSprites {
         float soft = (float) Math.max(halfA, halfB), ua = (float) ka, ub = (float) kb;
         FxAtlas.Sprite s = FxAtlas.glow();
         float v = s.vMid();
+        out.glowShape(true);
         out.quad((float) Math.max(da, db));
         out.vertex(x0 - px * ha, y0 - py * ha, z0 - pz * ha, s.u0(), v, cr * aa, cg * aa, cb * aa, aa, soft, ua, lightA, 0);
         out.vertex(x0 + px * ha, y0 + py * ha, z0 + pz * ha, s.u1(), v, cr * aa, cg * aa, cb * aa, aa, soft, ua, lightA, 0);
         out.vertex(x1 + nx * hb, y1 + ny * hb, z1 + nz * hb, s.u1(), v, cr * ab, cg * ab, cb * ab, ab, soft, ub, lightB, 0);
         out.vertex(x1 - nx * hb, y1 - ny * hb, z1 - nz * hb, s.u0(), v, cr * ab, cg * ab, cb * ab, ab, soft, ub, lightB, 0);
+        out.glowShape(false);
         counts[3]++;
         joint[0] = nx;
         joint[1] = ny;

@@ -1,0 +1,18 @@
+{
+  "values": [
+    "#incoming:nuke_masonry",
+    "#minecraft:terracotta",
+    "minecraft:sandstone",
+    "minecraft:cut_sandstone",
+    "minecraft:smooth_sandstone",
+    "minecraft:chiseled_sandstone",
+    "minecraft:red_sandstone",
+    "minecraft:cut_red_sandstone",
+    "minecraft:smooth_red_sandstone",
+    "minecraft:chiseled_red_sandstone",
+    "minecraft:smooth_quartz",
+    "minecraft:quartz_bricks",
+    "minecraft:white_glazed_terracotta",
+    "minecraft:light_gray_glazed_terracotta"
+  ]
+}

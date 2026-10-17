@@ -3,6 +3,7 @@ package ua.zentix.incoming.client.flight;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 import ua.zentix.incoming.entity.BomberEntity;
 import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.net.S2C;
@@ -91,10 +92,10 @@ public final class FlightTracks {
         return Collections.unmodifiableCollection(TRACKS.values());
     }
 
-    /** Снаряд взорвался (пакет взрыва): его полёт кончился в этот тик ({@link FlightTrack#impact}). */
-    public static void impact(UUID id) {
+    /** Снаряд взорвался в {@code at} (пакет взрыва): его полёт кончился в этот тик и там ({@link FlightTrack#impact}). */
+    public static void impact(UUID id, Vec3 at) {
         FlightTrack t = TRACKS.get(id);
-        if (t != null) t.impact(tick);
+        if (t != null) t.impact(tick, at);
     }
 
     /** Обычный отбой: эти полёты кончились сразу (без взрыва — и без шлейфа, который тает). */

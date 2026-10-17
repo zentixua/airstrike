@@ -35,6 +35,15 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<Integer>> CHUNK_SCAR = REGISTER.register("chunk_scar",
             () -> AttachmentType.builder(() -> 0).serialize(Codec.INT).build());
 
+    /** Чанк: следы вспышки на гранях — гарь и силуэты ({@link ua.zentix.incoming.nuclear.flash.FlashMarks}); сохраняются с чанком. */
+    public static final Supplier<AttachmentType<ua.zentix.incoming.nuclear.flash.FlashMarks>> FLASH_MARKS = REGISTER.register("flash_marks",
+            () -> AttachmentType.builder(() -> ua.zentix.incoming.nuclear.flash.FlashMarks.EMPTY)
+                    .serialize(ua.zentix.incoming.nuclear.flash.FlashMarks.CODEC, m -> !m.isEmpty()).build());
+
+    /** Чанки, чьи следы вспышки ушли со сменившимися блоками, — игрокам в конце тика мира ({@code FlashSync}); не сохраняется. */
+    public static final Supplier<AttachmentType<ua.zentix.incoming.nuclear.flash.FlashSync.Pending>> FLASH_PENDING = REGISTER.register("flash_pending",
+            () -> AttachmentType.builder(ua.zentix.incoming.nuclear.flash.FlashSync.Pending::new).build());
+
     /**
      * Чанк: в нём стоят погашенные блэкаутом лампы (отметка, по которой загрузка чанка возвращает в него свет, когда
      * отключение кончилось); нет отметки — нет и погашенных ламп.

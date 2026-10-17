@@ -20,7 +20,7 @@ import java.util.Arrays;
  * у рельефа или проба источника ({@link #seenBy}) и множитель переноса ближе ({@code UV1}), свет мира ({@code UV2}),
  * туман Minecraft ({@code Normal.x}),
  * чем брать текстуру ({@code Normal.y}: 1 — частица ближайшим пикселем, {@link #nearestTexels}; −1 — плитка атласа
- * дальних моделей, {@link #modelTiles}; 0 — лист слоя гладко) и непрозрачность частицы без текстуры ({@code Normal.z},
+ * дальних моделей, {@link #modelTiles}; ½ — ореол по формуле, {@link #glowShape}; 0 — лист слоя гладко) и непрозрачность частицы без текстуры ({@code Normal.z},
  * {@link #opacity}).
  */
 public final class FxQuads {
@@ -72,6 +72,17 @@ public final class FxQuads {
      */
     public void modelTiles(boolean on) {
         nearest = (byte) (on ? -127 : 0);
+        opacity = 0;
+    }
+
+    /**
+     * Следующие квадраты — ореол {@code far/glow} ({@link FxAtlas#glow}; блик, вуаль, зарево, ленты шлейфов): крупнее
+     * четверти картинки на экране — по той же формуле в шейдере, а не из картинки 64×64. Ореол у глаза бывает в экран
+     * поперёк, и билинейно из картинки он выходил бы ступенями квадратами по пикселю картинки (по 25 пикселей экрана:
+     * излом выборки на каждом и 8 бит в бледном хвосте). Мельче — из картинки и её уменьшенных копий (гладко).
+     */
+    public void glowShape(boolean on) {
+        nearest = (byte) (on ? 64 : 0);
         opacity = 0;
     }
 
@@ -139,10 +150,19 @@ public final class FxQuads {
      */
     public void billboard(float x, float y, float z, float key, float half, float rot, FxAtlas.Sprite s, float r, float g, float b, float a,
                           float soft, float unfold, int light, float fog) {
-        float c = Mth.cos(rot) * half, sn = Mth.sin(rot) * half;
+        billboard(x, y, z, key, half, half, rot, s, r, g, b, a, soft, unfold, light, fog);
+    }
+
+    /**
+     * То же с разными полуразмерами по осям квадрата (до поворота): {@code halfA} — вдоль «влево» экрана, {@code halfB} —
+     * вдоль «вверх». Хлопья пепла кувыркаются — сжатая ось.
+     */
+    public void billboard(float x, float y, float z, float key, float halfA, float halfB, float rot, FxAtlas.Sprite s, float r, float g, float b,
+                          float a, float soft, float unfold, int light, float fog) {
+        float c = Mth.cos(rot), sn = Mth.sin(rot);
         // оси квадрата в плоскости экрана, повёрнутые на rot
-        float ax = left.x * c + up.x * sn, ay = left.y * c + up.y * sn, az = left.z * c + up.z * sn;
-        float bx = -left.x * sn + up.x * c, by = -left.y * sn + up.y * c, bz = -left.z * sn + up.z * c;
+        float ax = (left.x * c + up.x * sn) * halfA, ay = (left.y * c + up.y * sn) * halfA, az = (left.z * c + up.z * sn) * halfA;
+        float bx = (-left.x * sn + up.x * c) * halfB, by = (-left.y * sn + up.y * c) * halfB, bz = (-left.z * sn + up.z * c) * halfB;
         quad(key);
         vertex(x - ax - bx, y - ay - by, z - az - bz, s.u1(), s.v1(), r, g, b, a, soft, unfold, light, fog);
         vertex(x - ax + bx, y - ay + by, z - az + bz, s.u1(), s.v0(), r, g, b, a, soft, unfold, light, fog);

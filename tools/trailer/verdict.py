@@ -57,6 +57,7 @@ RULES = {
     "gun_earshot": 80.0,    # …слышен: дальность звука выстрела АК Point Blank (журнал клиента: range 80, линейно)
     "fight_frames": 0.5,    # …в такой доле кадров
     "gun_rate": 1.0,        # fight: выстрелов в ролике не меньше стольких в секунду склейки
+    "text_margin": 0.05,      # поля титра по ширине кадра (edit.TEXT_MARGIN): карточка целиком в кадре
     "hit_sound_gain": 0.003,  # звук удара считается легшим в ролик, если громкость у камеры выше
 }
 
@@ -74,6 +75,7 @@ class Cut:
     need: dict = field(default_factory=dict)
     fight: bool = False
     text: tuple = ()        # строки на экране (text)
+    box: tuple = None       # где титр в кадре, доли (x0, y0, x1, y1): edit.Titles.span; None — не мерен
 
     @property
     def end(self):
@@ -182,6 +184,9 @@ class Checker:
     # ------------------------------------------------------------ общие
     def check(self, i, c):
         v = CutVerdict(c)
+        if c.kind == "text" and c.take is None:
+            self.k_text(v, c, None, [])     # титр заливки: дубля нет, но строка и её место в кадре меряются
+            return v
         if c.kind == "fill" or c.take is None:
             return v
         t = self.takes.get(c.take)
@@ -438,6 +443,12 @@ class Checker:
     def k_text(self, v, c, t, frames):
         if not c.text:
             return
+        if c.box:
+            x0, y0, x1, y1 = c.box
+            m = c.rule("text_margin")
+            if x0 < m - 1e-3 or x1 > 1 - m + 1e-3 or y0 < 0 or y1 > 1:
+                v.fail("text", f"титр «{c.text[0][:40]}» не целиком в кадре с полями {m:.0%}: по ширине {x0:.2f}–{x1:.2f}, "
+                               f"по высоте {y0:.2f}–{y1:.2f}")
         # строки текста склейки — вся цепочка склеек этой сцены с тем же дубль-планом (вперемешку с другими — нет)
         for line in c.text:
             need = max(c.rule("read_min"), c.rule("read_base") + len(line) / c.rule("read_cps"))

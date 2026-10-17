@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Съёмка трейлера: клиент без окна проигрывает сценарий (mod/src/devtest/.../scenario/trailer/Trailer) и пишет
 # кадры 60 fps по времени игры и журнал звуков в mod/run/scenario/trailer/; монтаж — tools/trailer/edit.py.
-#   tools/trailer/record.sh [shaders]
+#   tools/trailer/record.sh [shaders|sodium]
 #   shaders — Sodium, Iris и шейдерпак хоста из инстанса (только на ПК с инстансом и KWin)
+#   sodium  — Sodium и Iris без шейдерпака (enableShaders=false): черновой вывод тем же движком, что чистовой; без них
+#             ванильная сборка секций при прорисовке 32 не успевает, и «мир достраивается в кадре» (16.10: n41 — 71 %)
 # Размер кадра — INCOMING_SIZE (по умолчанию 1920x1080). Без инстанса (облако) Create/Sable/Aeronautics
 # скачиваются tools/fetch_runtime_mods.py, клиент идёт под xvfb-run с программной отрисовкой.
 set -euo pipefail
@@ -69,17 +71,28 @@ if [ -n "${INCOMING_FILM:-}" ]; then
   mv "$ALM.tmp" "$ALM"
 fi
 # LOD Distant Horizons у съёмки — только из базы мира и загруженных чанков: генератор DH строил бы их, где их нет в базе,
-# рельефом генератора мира (лес и море поверх города карты) и писал в базу мира (.claude/rules/trailer.md)
+# рельефом генератора мира (лес и море поверх города карты) и писал в базу мира (.claude/rules/trailer.md). Лучей маяков
+# в LOD нет: DH рисует луч и у маяка без пирамиды и за прорисовкой, где игра его не рисует (n11 16.10: светлая черта до
+# неба от маяков Города 1 в 917 блоках)
 if [ -n "${INCOMING_FILM:-}" ] && [ -n "${INCOMING_DH:-}" ]; then
   DHC="$RUN/config/DistantHorizons.toml"
   mkdir -p "$RUN/config"
   touch "$DHC"
   awk '
-    function keys() { print "\tgeneratorPlan = \"DISABLED\""; print "\tchunkGeneratorMode = \"PRE_EXISTING_ONLY\""; done = 1 }
-    /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); gen = (h == "[common.worldGenerator]"); print; if (gen) keys(); next }
+    function gen_keys() { print "\tgeneratorPlan = \"DISABLED\""; print "\tchunkGeneratorMode = \"PRE_EXISTING_ONLY\""; gen_done = 1 }
+    function beam_keys() { print "\tenableBeaconRendering = false"; beam_done = 1 }
+    /^[[:space:]]*\[/ {
+      h = $0; gsub(/[[:space:]]/, "", h)
+      gen = (h == "[common.worldGenerator]"); beam = (h == "[client.advanced.graphics.genericRendering]")
+      print; if (gen) gen_keys(); if (beam) beam_keys(); next
+    }
     gen && /^[[:space:]]*(generatorPlan|chunkGeneratorMode)[[:space:]]*=/ { next }
+    beam && /^[[:space:]]*enableBeaconRendering[[:space:]]*=/ { next }
     { print }
-    END { if (!done) { print ""; print "[common.worldGenerator]"; keys() } }
+    END {
+      if (!gen_done) { print ""; print "[common.worldGenerator]"; gen_keys() }
+      if (!beam_done) { print ""; print "[client.advanced.graphics.genericRendering]"; beam_keys() }
+    }
   ' "$DHC" > "$DHC.tmp"
   mv "$DHC.tmp" "$DHC"
 fi
@@ -104,7 +117,11 @@ elif [ ! -d "$MC/mods" ]; then
   python3 "$ROOT/tools/fetch_runtime_mods.py"
   GRADLE_ARGS+=(-PmcModsDir=run/ci-mods)
 fi
-if [ "${1:-}" = shaders ]; then
+if [ "${1:-}" = sodium ]; then
+  export INCOMING_SHADERS=1
+  mkdir -p "$RUN/config"
+  printf 'enableShaders=false\ndisableUpdateMessage=true\n' > "$RUN/config/iris.properties"
+elif [ "${1:-}" = shaders ]; then
   export INCOMING_SHADERS=1
   PACK="$(sed -n 's/^shaderPack=//p' "$MC/config/iris.properties")"
   mkdir -p "$RUN/shaderpacks" "$RUN/config"

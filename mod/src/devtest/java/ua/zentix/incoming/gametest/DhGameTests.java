@@ -147,7 +147,7 @@ public final class DhGameTests {
                 RuinPlan plan = RuinPlanner.planFresh(level, d, chunk, false);
                 ProtoChunk copy = FarLods.testCopy(level, chunk, plan, false);
                 h.assertTrue(copy != null, "план не подошёл к копии чанка " + c);
-                h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план чанка " + c + " устарел");
+                h.assertTrue(plan.apply(level, chunk, d, new ColumnScar.Budget(false)), "план чанка " + c + " устарел");
                 for (int y = level.getMinBuildHeight(); y < level.getMaxBuildHeight(); y++) {
                     for (int x = 0; x < 16; x++) {
                         for (int z = 0; z < 16; z++) {
@@ -167,6 +167,72 @@ public final class DhGameTests {
         h.assertTrue(cells > 0, "город не разрушен: сравнивать нечего");
         Incoming.LOG.info("LOD вдали: {} копий совпали с руинами, {} мест", compared, cells);
         h.succeed();
+    }
+
+    /**
+     * След подрыва вдали за тяжёлой зоной ({@link FarLods#scorch}): чанк не в мире, до которого дошла волна, уходит в DH
+     * копией с диска со следом на земле — трава сгорела, биом опалён, ниже земли всё как было, — и не раньше волны.
+     * Чанк — данные сохранения поля травы площадки, записанные на диск вдали, где мира нет; эпицентр — в 40 блоках
+     * (в масштабе ~2,2 км: ~9 кал/см²). Сервер идёт в темпе игры: чанки читает поток ввода-вывода.
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "dh_scorch", skyAccess = true)
+    public static void farScorchReachesDh(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        StrikeGameTests.gameSpeed(h);
+        ScorchGameTests.fillBiome(h, 0, 63, net.minecraft.world.level.biome.Biomes.PLAINS);
+        for (int x = 16; x < 48; x++) for (int z = 16; z < 48; z++) h.setBlock(new BlockPos(x, CENTER.getY() + 1, z), Blocks.SHORT_GRASS);
+        LevelChunk sample = level.getChunkAt(h.absolutePos(CENTER));
+        ChunkPos far = farTile(h, 9000, 9000);
+        h.assertTrue(level.getChunkSource().chunkMap.getVisibleChunkIfPresent(far.toLong()) == null, "чанк " + far + " уже в памяти");
+        net.minecraft.nbt.CompoundTag tag = net.minecraft.world.level.chunk.storage.ChunkSerializer.write(level, sample);
+        tag.putInt("xPos", far.x);
+        tag.putInt("zPos", far.z);
+        level.getChunkSource().chunkMap.write(far, tag);
+        long[] lods0 = FarLods.get(level).stats();
+        ProtoChunk[] copy = {null};
+        long[] at = {-1};
+        DhUpdates.testSink(level, (l, chunk) -> {
+            if (!chunk.getPos().equals(far) || !(chunk instanceof ProtoChunk p)) return;
+            copy[0] = p;
+            at[0] = l.getGameTime();
+        });
+        FarLods.testViewer(level, far);
+        StrikeGameTests.afterTest(h, () -> {
+            DhUpdates.testSink(level, null);
+            FarLods.testViewer(level, null);
+            FarLods.get(level).clear(level);
+        });
+        double scale = 0.0182;
+        int ground = h.absolutePos(CENTER).getY() + 1;
+        Vec3 burst = new Vec3(far.getMiddleBlockX() + 0.5 - 40, ground + ua.zentix.incoming.nuclear.model.Yield.optimalBurstHeight(15) * scale, far.getMiddleBlockZ() + 0.5);
+        Detonation d = new Detonation(NuclearGameTests.IDS.incrementAndGet(), burst, ground, 15, false, level.getGameTime(), 0, 0, 20_000, 7, (float) scale, false,
+                Detonation.OLD_WAVE);
+        Vec3 mid = new Vec3(far.getMiddleBlockX() + 0.5, ground, far.getMiddleBlockZ() + 0.5);
+        long due = d.gameTime() + (long) d.arrivalTicks(mid.distanceTo(burst));
+        FarLods.scorch(level, d, false);
+        h.succeedWhen(() -> {
+            h.assertTrue(copy[0] != null, "копия со следом не ушла в DH");
+            h.assertTrue(at[0] >= due, "копия ушла в " + at[0] + ", раньше волны (" + due + ")");
+            h.assertTrue(FarLods.get(level).stats()[9] - lods0[9] >= 1, "копия не засчитана как след");
+            int grass = 0, burnt = 0;
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    BlockPos top = far.getBlockAt(x, ground, z);
+                    if (copy[0].getBlockState(top).is(Blocks.SHORT_GRASS)) grass++;
+                    else burnt++;
+                    // ниже дёрна — как было
+                    for (int y = level.getMinBuildHeight(); y < ground - 1; y++) {
+                        BlockState was = sample.getBlockState(sample.getPos().getBlockAt(x, y, z)), now = copy[0].getBlockState(far.getBlockAt(x, y, z));
+                        h.assertTrue(was == now, "под землёй в " + far.getBlockAt(x, y, z) + " — " + now + ", было " + was);
+                    }
+                }
+            }
+            h.assertTrue(burnt > grass, "трава сгорела у " + burnt + " столбцов из 256");
+            BlockPos m = far.getMiddleBlockPosition(ground);
+            var biome = copy[0].getNoiseBiome(m.getX() >> 2, m.getY() >> 2, m.getZ() >> 2);
+            h.assertTrue(biome.unwrapKey().map(k -> k.location().getNamespace().equals(Incoming.MOD_ID)).orElse(false),
+                    "биом копии не опалён: " + biome.unwrapKey().map(k -> k.location().toString()).orElse("?"));
+        });
     }
 
     /**
@@ -203,10 +269,10 @@ public final class DhGameTests {
         int wave = 400;
         double ground = level.getMinBuildHeight() + 3, height = 40;
         Vec3 burst = new Vec3(c.getMiddleBlockX() + 0.5, ground + height, c.getMiddleBlockZ() + 0.5);
-        Detonation probe = new Detonation(0, burst, ground, 15, false, 0, 0, 0, 20_000, 7, 0.05f, false);
+        Detonation probe = new Detonation(0, burst, ground, 15, false, 0, 0, 0, 20_000, 7, 0.05f, false, Detonation.OLD_WAVE);
         long now = level.getGameTime();
         Detonation d = new Detonation(NuclearGameTests.IDS.incrementAndGet(), burst, ground, 15, false, now + wave - (long) probe.arrivalTicks(height), 0, 0,
-                20_000, 7, 0.05f, false);
+                20_000, 7, 0.05f, false, Detonation.OLD_WAVE);
         NuclearEvents.get(level).add(d);
         FarLods.request(level, c.toLong(), true);
         h.onEachTick(() -> {

@@ -13,8 +13,9 @@
 - Без повторов: план в листе не дважды; две склейки не берут перекрывающиеся окна кадров одной папки дубля (окно
   плана — отметка «plan:<план>» в timeline.jsonl плюс длина склейки листа).
 - Чат ключа МБР читается на телефоне: планы с chat стоят на экране ≥ max(3,5 с; 1,5 с + 0,35 с на слово) строки
-  «incoming.nuke.key.prompt» (слова — шаблон перевода, каждый %s за слово; время появления строки в данных записи
-  нет — считаем от начала плана). Высота строки чата в кадре ≥ 2,5 % высоты: guiScale × chatScale × 9 px (масштабы —
+  «incoming.nuke.key.prompt» до двоеточия — кто просит второй ключ (слова — шаблон перевода, каждый %s за слово;
+  место, время и команда после двоеточия трейлеру не нужны; время появления строки в данных записи нет — считаем от
+  начала плана). Высота строки чата в кадре ≥ 2,5 % высоты: guiScale × chatScale × 9 px (масштабы —
   из options клиента съёмки, record.sh; запись — 2560×1440).
 - Сирена растёт по сценам: у включённых сиреной дублей (`siren: true`) в порядке истории измеренная сирена у
   записывающего игрока (слышные секунды incoming:siren в timeline.jsonl) не падает там, где история её наращивает
@@ -102,13 +103,14 @@ def overlaps(sheet, dirs):
 
 
 def chat_words(lang_file):
-    """Слова строки второго ключа: шаблон перевода, каждый %s — слово (аргументы в воротах неизвестны)."""
+    """Слова строки второго ключа до двоеточия (кто просит ключ): шаблон перевода, каждый %s — слово (аргументы в
+    воротах неизвестны)."""
     try:
         with open(lang_file, encoding="utf-8") as f:
             line = json.load(f).get(CHAT_KEY, "")
     except (OSError, ValueError):
         return None
-    return len(re.sub(r"%s", "x", line).split())
+    return len(re.sub(r"%s", "x", line.split(":")[0]).split())
 
 
 def record_options(record_sh):
@@ -156,29 +158,35 @@ def strikes_count(take, scenario):
 
 
 def siren_gate(takes, scenario, state, dirs):
-    """Сирена не падает там, где история наращивает: следующий дубль пускает больше — слышно не меньше. Меряем то,
-    что звучит в монтаже: сирены клиента вывода (кандидат плана в dirs) плюс поставленные монтажом (takes.siren_sfx_for
-    — сработавшая до окна вывода сирена повтором не играется)."""
+    """Сирена не падает там, где история наращивает: следующий дубль пускает больше — у каждого его плана сирена
+    звучит не меньшую долю окна, чем в среднем у прошлого дубля. Меряем то, что звучит в монтаже: сирены клиента
+    вывода (кандидат плана в dirs) плюс поставленные монтажом (takes.siren_sfx_for — сработавшая до окна вывода сирена
+    повтором не играется). Доля окна, а не сумма секунд дубля: у дублей разное число и длина планов (16.10: n11 с
+    сиреной на всё окно «тише» трёх планов T06), и не пройти может только план, у которого сирена тише, а не весь
+    дубль (бортовой n25 без сирены закрывал n11)."""
     by_id = {t["id"]: t for t in takes["takes"]}
     measured = {}
     for t in takes["takes"]:
         if not t.get("siren", True) or "artem" in t:
             continue
-        plans = [p for s in t.get("shots", []) for p in s.get("plans", []) if p in dirs]
-        got = 0.0
-        for p in plans:
+        shares = {}
+        for p in (p for s in t.get("shots", []) for p in s.get("plans", []) if p in dirs):
             take = trailer_takes.load_take(p, dirs[p])
-            got += trailer_takes.siren_seconds(take, trailer_takes.siren_sfx_for(p, dirs[p]))
-        if plans:
-            measured[t["id"]] = got
+            if take.duration > 0:
+                got = trailer_takes.siren_seconds(take, trailer_takes.siren_sfx_for(p, dirs[p]))
+                shares[p] = (got, take.duration)
+        if shares:
+            measured[t["id"]] = (sum(g for g, _ in shares.values()) / sum(d for _, d in shares.values()), shares)
     order = [i for i in by_id if i in measured]
     out = []
     for prev, take in zip(order, order[1:]):
         if strikes_count(by_id[take], scenario) <= strikes_count(by_id[prev], scenario):
             continue      # история сирену не наращивает — сравнивать нечего
-        if measured[take] < measured[prev] - 0.05:
-            why = f"сирена тише истории: {measured[take]:.1f} с против {measured[prev]:.1f} с у {prev}"
-            out += [(p, why) for s in by_id[take].get("shots", []) for p in s.get("plans", []) if p in dirs]
+        level = measured[prev][0]
+        for p, (got, dur) in measured[take][1].items():
+            if got / dur < level - 0.01:
+                out.append((p, f"сирена тише истории: {got:.1f} с сирены на {dur:.1f} с окна ({got / dur:.2f}) "
+                               f"против {level:.2f} у {prev}"))
     return out
 
 

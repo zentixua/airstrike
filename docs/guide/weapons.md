@@ -4,7 +4,7 @@ English · [Русский](ru/weapons.md)
 
 Six weapons, in the order the designator lists them. Each launch uses [munitions](munitions.md) from your inventory.
 
-| | Shahed | Loiter (Lancet) | Missile | MLRS (Grad) | Bomb (B-2) | Nuclear (ICBM) |
+| | Shahed | Lancet | Missile | Grad | Bomb (B-2) | Nuclear (ICBM) |
 |---|---|---|---|---|---|---|
 | Time to impact | ≈50 s | approach plus ≈25 s circling | ≈30 s | 7–10 s | ≈40 s | 90 s |
 | Blast power (TNT = 4) | 12 | 8 | 20 | 7 per rocket | 20, underground | 1 or 15 kt |
@@ -22,7 +22,7 @@ A kamikaze drone: it takes off from a trailer next to you, flies with a loud eng
 on buildings and on moving targets. It can be heard long before it arrives and a SAM can shoot it down, so
 against air defense send a salvo or route it around.
 
-## Loiter (Lancet)
+## Lancet
 
 ![Lancet catapult](img/weapon-lancet-launcher.jpg)
 
@@ -37,7 +37,7 @@ Flies low over the terrain and dives just before the target. A heavy strike on a
 a nuclear warhead. It may not get past a steep hill in front of the target or down into a deep pit: use the bomb or a
 Shahed there.
 
-## MLRS (Grad)
+## Grad
 
 ![Grad launcher](img/weapon-grad.jpg)
 

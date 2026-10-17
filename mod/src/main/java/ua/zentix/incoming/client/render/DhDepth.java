@@ -2,7 +2,10 @@ package ua.zentix.incoming.client.render;
 
 import net.neoforged.fml.ModList;
 import org.joml.Matrix4f;
+import org.joml.Vector4f;
 import ua.zentix.incoming.Incoming;
+
+import java.util.Locale;
 
 /**
  * Глубина рельефа Distant Horizons в этом кадре — для того, что рисуется после мира: аппаратная проверка глубины его
@@ -20,6 +23,11 @@ import ua.zentix.incoming.Incoming;
  */
 public final class DhDepth {
     private static boolean enabled;
+    /** Как читалась глубина DH в прошлый раз, что попал в лог (направление, диапазон, кто рисует); −1 — ещё никак. */
+    private static int logged = -1;
+    /** Для лога: проекция DH кадра негодна. */
+    private static final int UNUSABLE = 8;
+    private static final Vector4f VIEW = new Vector4f();
 
     private DhDepth() {}
 
@@ -40,6 +48,13 @@ public final class DhDepth {
         /** Проекция DH ({@code dhProjectionMatrix}) и плоскости отсечения его параметров кадра, блоков. */
         final Matrix4f projection = new Matrix4f();
         float near, far;
+
+        /** Как читается глубина DH — для лога и строки сценария. */
+        public String describe() {
+            float nearest = along(inverseProjection, forward ? 0 : 1, negativeOneToOne);
+            return String.format(Locale.ROOT, "%s Z, NDC %s, empty %.1f, nearest LOD %.1f blocks (DH planes %.1f to %.0f), LOD drawn by %s",
+                    forward ? "forward" : "reverse", negativeOneToOne ? "-1..1" : "0..1", empty, nearest, near, far, foreign ? "the shader pack" : "DH");
+        }
     }
 
     /** При запуске клиента: есть ли DH с API, которое умеет отдать глубину, и подписка на его кадры. */
@@ -58,9 +73,37 @@ public final class DhDepth {
     /** Глубина DH этого кадра в out; false — DH в этом кадре не рисовал (или его нет). */
     public static boolean current(View out) {
         if (!enabled || !DhDepthApi.current(out)) return false;
-        if (out.foreign && out.forward && out.negativeOneToOne) irisPlanes(out.projection, out.near, out.far);
+        if (irisDrawn(out.foreign, out.forward, out.negativeOneToOne)) irisPlanes(out.projection, out.near, out.far);
         out.projection.invert(out.inverseProjection);
+        if (!out.inverseProjection.isFinite()) {
+            // проекция кадра негодна (плоскости DH совпали, матрица не задана): LOD этого кадра для слоя — как без DH
+            if (logged != UNUSABLE) {
+                logged = UNUSABLE;
+                Incoming.LOG.warn("Distant Horizons depth for the effects layer: DH projection is not invertible ({}), DH terrain ignored", out.describe());
+            }
+            return false;
+        }
+        int how = (out.forward ? 1 : 0) | (out.negativeOneToOne ? 2 : 0) | (out.foreign ? 4 : 0);
+        if (how != logged) {
+            logged = how;
+            Incoming.LOG.info("Distant Horizons depth for the effects layer: {}", out.describe());
+        }
         return true;
+    }
+
+    /**
+     * LOD рисует программа шейдерпака перспективой Iris (прямая глубина, NDC от −1 до 1): читать её
+     * {@link #irisPlanes}. Без шейдерпака — и когда Iris стоит без него — DH рисует сам своей матрицей, обратной
+     * глубиной ({@code REVERSE_Z}, очистка 0, NDC от 0 до 1 в матрице), и подмены кадра нет: матрица DH верна как есть.
+     */
+    static boolean irisDrawn(boolean foreign, boolean forward, boolean negativeOneToOne) {
+        return foreign && forward && negativeOneToOne;
+    }
+
+    /** Расстояние по оси взгляда (блоки) из значения текстуры глубины DH — как {@code along} в {@code fx_depth}. */
+    static float along(Matrix4f inverseProjection, float depth, boolean negativeOneToOne) {
+        inverseProjection.transform(VIEW.set(0, 0, negativeOneToOne ? depth * 2 - 1 : depth, 1));
+        return -VIEW.z / VIEW.w;
     }
 
     /**

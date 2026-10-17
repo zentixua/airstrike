@@ -38,9 +38,14 @@ public final class Deafness {
      * потом слух возвращается. Музыку, пластинки и сам звон в ушах не трогаем. Зовут из звукового потока.
      */
     public static float depth(SoundInstance sound) {
-        int l = left;
-        if (l <= 0 || sound.getSource() == SoundSource.MUSIC || sound.getSource() == SoundSource.RECORDS
+        if (sound.getSource() == SoundSource.MUSIC || sound.getSource() == SoundSource.RECORDS
                 || sound.getLocation().equals(ModSounds.NUKE_TINNITUS.get().getLocation())) return 0;
-        return depth * Math.min(1, l / (total * 0.4f));
+        return depth();
+    }
+
+    /** Насколько глух сейчас звук мира — и свои источники OpenAL ({@link ua.zentix.incoming.client.sound.OwnSources}). */
+    public static float depth() {
+        int l = left;
+        return l <= 0 ? 0 : depth * Math.min(1, l / (total * 0.4f));
     }
 }

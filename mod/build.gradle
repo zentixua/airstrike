@@ -88,6 +88,8 @@ neoForge {
             if (System.getenv('INCOMING_COMMANDS')) systemProperty 'incoming.commands', System.getenv('INCOMING_COMMANDS')
             // открыть готовый мир из run/scenario/saves вместо нового (трейлер на копии карты): INCOMING_WORLD=<каталог>
             if (System.getenv('INCOMING_WORLD')) systemProperty 'incoming.world', System.getenv('INCOMING_WORLD')
+            // замер огня клиента в подробном городе: INCOMING_CITY=N@тик (FireCity — N секций с глобальной палитрой в чанке)
+            if (System.getenv('INCOMING_CITY')) systemProperty 'incoming.scenario.city', System.getenv('INCOMING_CITY')
             // сценарий guide: только эти разделы (INCOMING_GUIDE=recipes,map — список в GuideShots)
             if (System.getenv('INCOMING_GUIDE')) systemProperty 'incoming.guide', System.getenv('INCOMING_GUIDE')
             // размер кадра: INCOMING_SIZE=1920x1080 (трейлер), по умолчанию 1280x720; окно — INCOMING_WINDOW, иначе он же

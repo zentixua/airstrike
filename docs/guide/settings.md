@@ -16,7 +16,9 @@ Each player has their own, stored in `config/incoming-client.toml`.
 | Projectile camera on launch | off | the camera shows every launch by itself |
 | Binocular zoom | 4 | from 1.5 to 10 |
 | Mushroom cloud detail | MEDIUM | lower is lighter on a weak computer |
+| Nuclear dust pall | MEDIUM | dust and smoke over the area after a nuclear blast, and the firestorm over a burning town; lower is lighter on a weak graphics card, and MEDIUM and HIGH lower their own detail when the card falls behind (not while Flashback exports a video); OFF: only the dust wall and falling ash |
 | Deafness and ringing ears | on | muffled hearing after a nearby blast wave |
+| Muffle distant and hidden strikes | on | distant strikes lose high tones, hidden ones sound muffled, and inside the dust pall all distant sounds are muffled |
 
 The mod's sounds follow the Ambient/Environment volume slider.
 
@@ -41,4 +43,5 @@ server its owner does. The most useful ones are below; the rest are in the same 
 | `world.block_damage`, `fire` | on | destruction and fires |
 | `nuclear.enabled`, `ops_only` | on, on | nuclear weapons exist; only operators launch them |
 | `nuclear.effects_scale` | 1.0 | scale of nuclear strike radii |
+| `nuclear.wave_speed` | 0.42 | speed of the blast wave away from the fireball, as a share of the speed of sound (1.0 is true to life) |
 | `grid.enabled` | on | [blackout](blackout.md) |

@@ -34,6 +34,7 @@ import ua.zentix.incoming.compat.DhUpdates;
 import ua.zentix.incoming.compat.SableTerrain;
 import ua.zentix.incoming.grid.GridLights;
 import ua.zentix.incoming.net.S2C;
+import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.util.Terrain;
 
 import java.util.List;
@@ -87,11 +88,14 @@ public final class RuinPlan {
     private static final BlockState[] NO_STATES = new BlockState[0];
 
     /** План без изменений: чанк, где волне нечего менять (поле, вода, чанк у края зоны). */
-    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, null, null, null, null, null, NO_LONGS);
+    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, null, null, null, null, null, NO_LONGS, null);
 
-    /** Нечего менять, но руины чанка «стоят»: соседи читают его исходным (он и есть исходный), счётчики — на подмене. */
-    static RuinPlan nothing(@Nullable RuinContext ctx) {
-        return ctx == null ? EMPTY : new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, null, null, null, null, ctx, NO_LONGS);
+    /**
+     * Блоков менять нечего, но руины чанка «стоят»: соседи читают его исходным (он и есть исходный), счётчики — на
+     * подмене; {@code biomes} — свет всё же опалил его биом.
+     */
+    static RuinPlan nothing(@Nullable RuinContext ctx, @Nullable ScorchedBiomes.Cells biomes) {
+        return ctx == null && biomes == null ? EMPTY : new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, null, null, null, null, ctx, NO_LONGS, biomes);
     }
 
     /**
@@ -137,9 +141,20 @@ public final class RuinPlan {
     /** Брёвна поваленных деревьев в соседних чанках: место (высота — по поверхности при подмене) и состояние. */
     private final LongArrayList outside;
     private final List<BlockState> outsideState;
+    /** Ступени опалённого биома по клеткам чанка ({@link ScorchedBiomes}); null — биом не меняется. */
+    @Nullable
+    private final ScorchedBiomes.Cells biomes;
+    /**
+     * Обугленные вспышкой грани уцелевших блоков чанка ({@link ua.zentix.incoming.nuclear.flash.FlashChar#mark}): ставятся
+     * в отметки чанка с руинами ({@link ua.zentix.incoming.nuclear.flash.FlashSync#chars}); null — не считались.
+     */
+    @Nullable
+    private int[] flash;
 
     RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, BlockState[] olds, int[] fires, int[] heights, long[] lightAt, @Nullable long[] prints,
-            @Nullable long[] normals, LongArrayList outside, List<BlockState> outsideState, @Nullable RuinContext ctx, long[] fluidTicks) {
+            @Nullable long[] normals, LongArrayList outside, List<BlockState> outsideState, @Nullable RuinContext ctx, long[] fluidTicks,
+            @Nullable ScorchedBiomes.Cells biomes) {
+        this.biomes = biomes;
         this.olds = olds;
         this.ctx = ctx;
         this.fluidTicks = fluidTicks;
@@ -153,6 +168,16 @@ public final class RuinPlan {
         this.fires = fires;
         this.outside = outside;
         this.outsideState = outsideState;
+    }
+
+    /** Гарь вспышки плана (тот поток, что строит план, до того как план отдан). */
+    void flash(int[] marks) {
+        this.flash = marks;
+    }
+
+    /** Гарь вспышки плана: метки граней; пусто — не считались или ничего не обуглено. */
+    public int[] flash() {
+        return flash == null ? NONE : flash;
     }
 
     /** Состояние для сравнения со старым: погашенная блэкаутом лампа — та же лампа. */
@@ -201,7 +226,9 @@ public final class RuinPlan {
         // карты высот и нижние источники неба изменённых столбцов (у снимка с диска источники неба посчитаны по блокам)
         boolean heightsDiffer = !java.util.Arrays.equals(heights, o.heights);
         if (heightsDiffer) out.append(" heightmaps differ (").append(heights.length).append(" | ").append(o.heights.length).append(')');
-        return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() && !heightsDiffer ? null : n + " cells" + out;
+        boolean biomesDiffer = biomes == null ? o.biomes != null : !biomes.same(o.biomes);
+        if (biomesDiffer) out.append(" biomes ").append(biomes).append(" | ").append(o.biomes);
+        return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() && !heightsDiffer && !biomesDiffer ? null : n + " cells" + out;
     }
 
     /**
@@ -282,6 +309,11 @@ public final class RuinPlan {
         return cells.length;
     }
 
+    /** Опаляет ли план биом чанка (проверки). */
+    public boolean recolours() {
+        return biomes != null;
+    }
+
     /**
      * До {@code max} мест, где волна снесла блок целиком (был блок с моделью, стал воздух), — с блоком, который там был:
      * их куски разлетаются у игроков, которые видят чанк ({@code S2C.NukeDebris}). Места выбраны по хешу места (самые
@@ -322,7 +354,8 @@ public final class RuinPlan {
     public long bytes() {
         if (this == EMPTY) return 0;
         return 64 + 12L * cells.length + 8L * fluidTicks.length + 8L * oldHashes.length + 8L * states.length + 4L * fires.length + 4L * heights.length
-                + 8L * lightAt.length + (prints == null ? 0 : 16L * prints.length) + (outside == null ? 0 : 16L * outside.size());
+                + 8L * lightAt.length + (prints == null ? 0 : 16L * prints.length) + (outside == null ? 0 : 16L * outside.size()) + (biomes == null ? 0 : 96)
+                + (flash == null ? 0 : 4L * flash.length);
     }
 
     private static int section(int cell) {
@@ -352,20 +385,24 @@ public final class RuinPlan {
      * «через мир» — копии нечего будить) и, если {@code fires}, пожары без счётчика пожаров подрыва — копия его не
      * тратит. Любой поток: зовёт
      * только секции копии. На диске двойников ламп не бывает ({@code ChunkSaves}), поэтому хеш старых состояний —
-     * по состояниям как есть. False — места плана в копии уже не те (чанк меняли после плана): копия не годится.
+     * по состояниям как есть.
+     *
+     * @return сколько клеток биома поменялось ({@link ScorchedBiomes#write}); −1 — места плана в копии уже не те (чанк
+     *         меняли после плана): копия не годится
      */
-    boolean applyToCopy(LevelChunkSection[] sections, boolean fires) {
+    int applyToCopy(LevelChunkSection[] sections, boolean fires, net.minecraft.core.Registry<net.minecraft.world.level.biome.Biome> biomeRegistry,
+                        int minSection) {
         int k = 0;
         while (k < cells.length) {
             int i = section(cells[k]);
-            if (i >= sections.length) return false;
+            if (i >= sections.length) return -1;
             LevelChunkSection s = sections[i];
             long h = 0;
             for (; k < cells.length && section(cells[k]) == i; k++) {
                 int c = cells[k];
                 h = mixNormal(h, s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15));
             }
-            if (h != oldHashes[i]) return false;
+            if (h != oldHashes[i]) return -1;
         }
         for (int c : cells) sections[section(c)].setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
         for (int c : fires ? this.fires : NONE) {
@@ -374,7 +411,7 @@ public final class RuinPlan {
                 s.setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
             }
         }
-        return true;
+        return biomes == null ? 0 : ScorchedBiomes.write(biomeRegistry, sections, minSection, biomes);
     }
 
     /**
@@ -444,19 +481,28 @@ public final class RuinPlan {
     /**
      * Поставить руины в чанк (он и соседи загружены целиком — проверяет вызывающий). Устаревший план не ставится.
      *
+     * @param d подрыв, чьи это руины: гарь вспышки встаёт его слоем. Не {@code ctx.d}: руины, подготовленные заранее,
+     *          строятся по месту подрыва без номера и времени ({@code NuclearWarhead.geometry}), а слой гари должен быть
+     *          тем же, что у силуэтов подрыва, и со временем вспышки
      * @return false — план устарел, ничего не изменено
      */
-    public boolean apply(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget) {
+    public boolean apply(ServerLevel level, LevelChunk chunk, Detonation d, ColumnScar.Budget budget) {
         if (this == EMPTY) return true;
         long t = System.nanoTime();
         if (!current(chunk)) return false;
         short[] motion = new short[256];
         for (int column = 0; column < 256; column++) motion[column] = (short) (chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, column & 15, column >> 4) + 1);
+        // биом — до блоков: LOD Distant Horizons после записи мест читает чанк уже с ним
+        boolean recoloured = biomes != null && ScorchedBiomes.write(level, chunk, biomes);
         if (cells.length > 0 || fires.length > 0 || outside != null || fluidTicks.length > 0) {
             // блоки вне мест плана — до записи мест: после неё чанк уже другой
             write(level, chunk, budget, t, cells.length > 0 && sameBlocks(chunk));
+        } else if (recoloured) {
+            DhUpdates.mark(level, chunk.getPos(), level.getGameTime());
         }
         if (ctx != null) ctx.applied(chunk, this, motion);
+        // гарь вспышки — с руинами; следы прежних вспышек на сменившихся блоках уходят
+        if (ctx != null) ua.zentix.incoming.nuclear.flash.FlashSync.chars(level, chunk, d, flash());
         return true;
     }
 

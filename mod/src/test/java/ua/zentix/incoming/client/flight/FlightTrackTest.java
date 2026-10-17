@@ -138,6 +138,30 @@ class FlightTrackTest {
     }
 
     @Test
+    void pathEndsWhereTheBlastWas() {
+        // медленный клиент (запись трейлера, 9 тиков/с): последний пакет о ракете и пакет взрыва — в одном тике, а сервер
+        // взорвал её на 3 тика дальше; конец пути — место взрыва, а не последняя запись (n41b 16.10: 14 блоков до грани)
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        t.impact(12, new Vec3(37, 64, 5));
+        double[] p = new double[3];
+        t.at(12, p);
+        assertEquals(37, p[0], 1e-9);
+        assertEquals(64, p[1], 1e-9);
+        assertEquals(5, p[2], 1e-9);
+        assertEquals(37, x(t, 15), 1e-9, "после взрыва — в месте взрыва");
+        assertEquals(11.5, x(t, 11), 1e-9, "между записями — как было");
+        // взрыв позже последней записи: от неё по прямой к месту взрыва
+        FlightTrack s = new FlightTrack(ID, WeaponType.MISSILE, false);
+        s.record(10, at(0, 100));
+        s.record(12, at(23, 102));
+        s.impact(16, new Vec3(63, 64, 0));
+        assertEquals(43, x(s, 14), 1e-9);
+        assertEquals(63, x(s, 16), 1e-9);
+    }
+
+    @Test
     void lateBlastDoesNotStretchAnOldPath() {
         // пакетов давно нет (ушёл из слуха, сервер встал): взрыв не тянет звук дальше разрыва, после которого путь — заново
         FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);

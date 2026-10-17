@@ -145,6 +145,38 @@ class WorkClockTest {
         assertEquals(0, counting.usedThisTickNanos());
     }
 
+    /**
+     * Видимая игроку работа ({@link WorkClock#canStartVisible}): на сервере без свободного времени её срок дальше малого
+     * на добавку, но не дальше полного срока; со свободным временем — тот же, что у остальной работы.
+     */
+    @Test
+    void visibleWorkGetsMoreTimeOnlyWithoutSpareTime() {
+        boolean[] spare = {false};
+        WorkClock clock = WorkClock.decaying(() -> now[0], 1);
+        clock.start(30 * MS, () -> spare[0], 2 * MS);
+        long began = clock.begin();
+        now[0] += 3 * MS;
+        clock.end(began);
+        assertFalse(clock.canStart(), "малый срок 2 мс вышел, а работа идёт");
+        assertTrue(clock.overdue());
+        assertTrue(clock.canStartVisible(6 * MS), "видимой работе нет добавки на занятом сервере");
+        assertFalse(clock.overdueVisible(6 * MS));
+        now[0] += 5 * MS;
+        assertFalse(clock.canStartVisible(6 * MS), "добавка больше 6 мс");
+        assertTrue(clock.overdueVisible(6 * MS));
+        now[0] = 31 * MS;
+        assertFalse(clock.canStartVisible(100 * MS), "добавка вывела за полный срок");
+
+        spare[0] = true;
+        now[0] = 0;
+        clock.start(30 * MS, () -> spare[0], 2 * MS);
+        began = clock.begin();
+        now[0] += 10 * MS;
+        clock.end(began);
+        assertEquals(clock.canStart(), clock.canStartVisible(6 * MS), "со свободным временем видимой работе другой срок");
+        assertEquals(clock.overdue(), clock.overdueVisible(6 * MS));
+    }
+
     @Test
     void tickDecayOutOfRangeIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(0));

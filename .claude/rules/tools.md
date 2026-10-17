@@ -116,9 +116,10 @@ paths:
                                            работы, «stopped, waiting» на неожиданном), статус в пять строк; `night` —
                                            проба трёх дублей с порчей, потом вся цепочка; задания — laptop-jobs/
                                            netcup-newisle-p1.md, newisle-p2.md; тесты — tools/trailer/tests
-    trailer/newisle_cut.py --work ПАПКА [--draft|--final] ← монтаж Newisle по листу scenes/newisle-animatic.json из
-                                           снятого конвейером (PASS из best.txt, живые записи); неснятое — заливкой
-                                           в черновике, чистовой ждёт все планы
+    trailer/newisle_cut.py --work ПАПКА [--draft|--final] [--sheet ЛИСТ] ← монтаж Newisle по монтажному листу
+                                           (scenes/newisle-90.json — раскадровка на 90 с) из снятого конвейером (PASS
+                                           из best.txt, живые записи); неснятое — заливкой в черновике, чистовой ждёт
+                                           все планы
     trailer/drift.py <запись>            ← у каких планов снаряд в журнале записи ушёл с пути (очередь мест до 22b2cfd)
     trailer/cut.sh [аргументы edit.py]   ← монтаж из всего снятого: у плана — PASS из самого сильного вывода (CUT_RENDERS),
                                            нет PASS — не прошедший, живые планы — из папок записи (CUT_RECS)

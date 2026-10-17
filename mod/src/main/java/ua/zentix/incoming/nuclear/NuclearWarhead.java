@@ -5,6 +5,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -41,6 +42,13 @@ import java.util.UUID;
  * радиация по сущностям (ближние первыми), ударная волна, разрушения и воронка.
  */
 public final class NuclearWarhead {
+    /**
+     * Сценарий клиента ({@code tools/client_scenario.sh}, сервер — в той же JVM): ветер и сид подрыва — по его номеру, а не
+     * из {@code level.random}, чтобы кадры пелены и гриба сравнивались от прогона к прогону. В игре — как было.
+     */
+    private static final boolean SCENARIO = System.getProperty("incoming.scenario") != null;
+    private static final long SCENARIO_SEED = 0x5CE7A510L;
+
     private NuclearWarhead() {}
 
     /**
@@ -57,12 +65,17 @@ public final class NuclearWarhead {
         // предел мощности — и для ударов из старых сохранений и команд других модов
         yieldKt = Math.min(yieldKt, ua.zentix.incoming.strike.Loadout.Nuke.MAX_YIELD);
         NuclearEvents events = NuclearEvents.get(level);
-        Detonation g = geometry(level, target, yieldKt, airBurst, scale);
-        Detonation d = new Detonation(events.nextId(), g.burst(), g.groundY(), yieldKt, g.surface(),
-                level.getGameTime(), (float) (level.random.nextDouble() * Math.PI * 2), 5 + level.random.nextFloat() * 10,
-                g.visibility(), level.random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get());
+        // готовились к этому подрыву — его место, земля и видимость те же, что у руин заранее
+        Detonation g = NuclearWorld.get(level).planned(geometry(level, target, yieldKt, airBurst, scale));
+        int id = events.nextId();
+        RandomSource random = SCENARIO ? RandomSource.create(SCENARIO_SEED + id) : level.random;
+        Detonation d = new Detonation(id, g.burst(), g.groundY(), yieldKt, g.surface(),
+                level.getGameTime(), (float) (random.nextDouble() * Math.PI * 2), 5 + random.nextFloat() * 10,
+                g.visibility(), random.nextLong(), scale, g.surface() && IncomingConfig.SERVER.nukeFallout.get(),
+                IncomingConfig.SERVER.nukeWaveSpeed.get().floatValue(), level.getDayTime(),
+                IncomingConfig.SERVER.nukeFires.get() && IncomingConfig.SERVER.nukeMaxFires.get() > 0);
         events.add(d);
-        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
+        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d, (float) Blackouts.nukeRadius(d)));
 
         NuclearWorld.get(level).onDetonation(level, d, owner);
         Blackouts.nuke(level, d);
@@ -82,7 +95,8 @@ public final class NuclearWarhead {
         double hob = airBurst ? Yield.optimalBurstHeight(yieldKt) * scale : 0;
         boolean surface = hob / scale < FireballModel.maxRadius(yieldKt, true);
         float visibility = (float) (level.isThundering() ? ThermalModel.VISIBILITY_THUNDER : level.isRaining() ? ThermalModel.VISIBILITY_RAIN : ThermalModel.VISIBILITY_CLEAR);
-        return new Detonation(-1, new Vec3(target.x, ground + hob, target.z), ground, yieldKt, surface, 0, 0, 0, visibility, 0, scale, false);
+        return new Detonation(-1, new Vec3(target.x, ground + hob, target.z), ground, yieldKt, surface, 0, 0, 0, visibility, 0, scale, false,
+                IncomingConfig.SERVER.nukeWaveSpeed.get().floatValue());
     }
 
     /** Точка на поверхности над целью (удар «по поверхности»: цель — место на карте). */
@@ -116,7 +130,11 @@ public final class NuclearWarhead {
         // творческий режим и наблюдатели: ни ожогов, ни дозы (как и у урона)
         if (living instanceof Player p && (p.isCreative() || p.isSpectator())) return false;
         Vec3 eye = living.getEyePosition();
-        if (sees(level, d, living)) burn(level, d, living, d.fluence(eye), owner);
+        if (sees(level, d, living)) {
+            burn(level, d, living, d.fluence(eye), owner);
+            // видел вспышку — бежит прочь
+            MobPanic.flash(d, living, level.getGameTime());
+        }
         double rem = PromptRadiationModel.doseRem(Math.max(1, d.metres(eye.distanceTo(d.burst()))), d.yieldKt()) * shielding(level, eye, d.burst());
         if (rem < 1) return true;
         float gy = (float) (rem / PromptRadiationModel.REM_PER_GY);

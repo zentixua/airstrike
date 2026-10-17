@@ -32,6 +32,7 @@ import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.NuclearEvents;
 import ua.zentix.incoming.nuclear.NuclearStrikes;
 import ua.zentix.incoming.nuclear.NuclearWarhead;
+import ua.zentix.incoming.nuclear.model.ThermalModel;
 import ua.zentix.incoming.nuclear.model.CraterModel;
 import ua.zentix.incoming.nuclear.model.PromptRadiationModel;
 import ua.zentix.incoming.nuclear.model.Yield;
@@ -106,7 +107,7 @@ public final class NuclearGameTests {
     private static Detonation raw(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale) {
         BlockPos g = h.absolutePos(at);
         return new Detonation(IDS.incrementAndGet(), new Vec3(g.getX() + 0.5, g.getY() + hob, g.getZ() + 0.5), g.getY(),
-                yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false);
+                yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false, Detonation.OLD_WAVE);
     }
 
     /**
@@ -138,7 +139,7 @@ public final class NuclearGameTests {
                 LevelChunk chunk = level.getChunk(cx, cz);
                 int[] before = heights(chunk, true);
                 RuinPlan plan = RuinPlanner.plan(level, d, chunk);
-                h.assertTrue(plan.apply(level, chunk, budget), "свежий план устарел");
+                h.assertTrue(plan.apply(level, chunk, d, budget), "свежий план устарел");
                 // карты высот и источники неба из плана — те же, что при пересчёте чанка целиком
                 int[] after = heights(chunk, false), full = heights(chunk, true);
                 for (int k = 0; k < full.length; k++) {
@@ -273,7 +274,7 @@ public final class NuclearGameTests {
         List<RuinPlan> ahead = new java.util.ArrayList<>();
         List<LevelChunk> chunks = chunks(h);
         for (LevelChunk chunk : chunks) ahead.add(RuinPlanner.plan(level, d, chunk));
-        for (int i = 0; i < chunks.size(); i++) h.assertTrue(ahead.get(i).apply(level, chunks.get(i), new ColumnScar.Budget(false)), "план заранее устарел");
+        for (int i = 0; i < chunks.size(); i++) h.assertTrue(ahead.get(i).apply(level, chunks.get(i), d, new ColumnScar.Budget(false)), "план заранее устарел");
         int standingAhead = towerFell(h, d, c, built, "заранее");
         // та же башня заново — руины на месте, по чанку в момент волны
         for (BlockPos p : BlockPos.betweenClosed(c.offset(-TOWER_HALF, 0, -TOWER_HALF), c.offset(TOWER_HALF, TOWER_HEIGHT, TOWER_HALF))) {
@@ -390,7 +391,7 @@ public final class NuclearGameTests {
             }
         }
         h.assertTrue(standing * 20 <= built, path + ": башня стоит — выше завала " + standing + " блоков из " + built
-                + " (давление у земли " + String.format(Locale.ROOT, "%.0f", d.psi(Vec3.atCenterOf(h.absolutePos(CENTER)))) + " psi)");
+                + " (давление у башни " + String.format(Locale.ROOT, "%.0f", d.psi(Vec3.atCenterOf(h.absolutePos(c)))) + " psi)");
         h.assertTrue(rubble * 2 >= (2 * TOWER_HALF + 1) * (2 * TOWER_HALF + 1), path + ": завала мало — " + rubble + " столбцов");
         return standing;
     }
@@ -446,22 +447,42 @@ public final class NuclearGameTests {
 
     /**
      * Та же башня с бассейном на 25-м этаже (вода на перекрытии между стенами): вода в столбце не делает постройку
-     * рельефом — башня рушится, вода уходит вместе с ней, ничего не висит.
+     * рельефом — башня рушится, вода уходит вместе с ней, ничего не висит. Подрыв — точно над ядром башни: ядро стоит
+     * (сверху его не опрокинуть), стены падают, а дно бассейна (терракота под водой — не тонкая, волна её не ломает) у
+     * ядра держится на том же расстоянии до опоры, что и до удара, — без правила висящей кладки
+     * ({@code Collapse.unspanned}) кольцо плиты висело вокруг ядра в воздухе (CI: центр площадки на углу чанков).
      */
     @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_pool", skyAccess = true)
     public static void towerWithPoolFalls(GameTestHelper h) {
         BlockPos c = chunkCorner(h);
+        Detonation d = detonation(h, c, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        int built = tower(h, c);
+        pool(h, c);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        towerFell(h, d, c, built, "с бассейном");
+        h.succeed();
+    }
+
+    /** Башня с бассейном, подрыв в центре площадки (не над ядром): место башни у углов чанков — какое выпало. */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_pool_off", skyAccess = true)
+    public static void towerWithPoolFallsOffCore(GameTestHelper h) {
+        BlockPos c = chunkCorner(h);
         Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
         int built = tower(h, c);
+        pool(h, c);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        towerFell(h, d, c, built, "с бассейном, подрыв не над ядром");
+        h.succeed();
+    }
+
+    /** Бассейн на 25-м этаже башни {@link #tower}: вода на перекрытии между стенами, вокруг ядра. */
+    private static void pool(GameTestHelper h, BlockPos c) {
         for (int dx = 1 - TOWER_HALF; dx < TOWER_HALF; dx++) {
             for (int dz = 1 - TOWER_HALF; dz < TOWER_HALF; dz++) {
                 if (dx >= -1 && dx <= 0 && dz >= -1 && dz <= 0) continue;
                 for (int y = 25; y <= 26; y++) h.getLevel().setBlock(h.absolutePos(c.offset(dx, y, dz)), Blocks.WATER.defaultBlockState(), 2);
             }
         }
-        scarAll(h, d, new ColumnScar.Budget(false));
-        towerFell(h, d, c, built, "с бассейном");
-        h.succeed();
     }
 
     /**
@@ -643,17 +664,20 @@ public final class NuclearGameTests {
         List<LevelChunk> chunks = chunks(h);
         List<RuinPlan> ahead = new java.util.ArrayList<>();
         for (LevelChunk chunk : chunks) ahead.add(RuinPlanner.plan(level, d, chunk));
-        int changed = 0, fires = 0;
+        int changed = 0, fires = 0, charred = 0;
         for (int i = 0; i < chunks.size(); i++) {
             // на месте: план заново по чанку, когда соседи с запада уже в руинах
             RuinPlan fresh = RuinPlanner.plan(level, d, chunks.get(i));
             String diff = fresh.differs(ahead.get(i));
+            if (diff == null) diff = RuinBackgroundGameTests.flashDiffers(fresh, ahead.get(i));
             if (diff != null) h.fail("чанк " + chunks.get(i).getPos() + ": руины на месте не те, что заранее (на месте | заранее; y — от низа мира): " + diff);
-            h.assertTrue(fresh.apply(level, chunks.get(i), new ColumnScar.Budget(true)), "план на месте устарел");
+            charred += fresh.flash().length;
+            h.assertTrue(fresh.apply(level, chunks.get(i), d, new ColumnScar.Budget(true)), "план на месте устарел");
             changed += fresh.changedBlocks();
             fires += fresh.fireCount();
         }
         h.assertTrue(changed > 0, "дом не тронут");
+        h.assertTrue(charred > 0, "гари вспышки на доме нет: сравнивать нечего");
         if (fires == 0) {
             // разбор: настройка пожаров, дёрн под небом на площадке и свет у него
             int grass = 0, open = 0;
@@ -913,7 +937,8 @@ public final class NuclearGameTests {
         h.setBlock(lamp, Blocks.GLOWSTONE);
         LevelChunk chunk = level.getChunkAt(h.absolutePos(house));
         int[] before = heights(chunk, true);
-        RuinPlan plan = RuinPlanner.plan(level, detonation(h, CENTER, 0, 15, 0.025f), chunk);
+        Detonation d = detonation(h, CENTER, 0, 15, 0.025f);
+        RuinPlan plan = RuinPlanner.plan(level, d, chunk);
         h.assertTrue(plan.changedBlocks() > 0 && plan.sameBlocks(chunk), "чанк сразу после плана не совпал со снимком плана");
         // блэкаут: двойник лампы прямо в секции, как ChunkLights.applyInPlace
         BlockPos lampAt = h.absolutePos(lamp);
@@ -925,7 +950,7 @@ public final class NuclearGameTests {
         BlockPos inside = house.above(3);
         h.setBlock(inside, Blocks.STONE);
         h.assertFalse(plan.sameBlocks(chunk), "блок внутри дома не сочтён изменением чанка");
-        h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план устарел: место внутри дома стало местом плана");
+        h.assertTrue(plan.apply(level, chunk, d, new ColumnScar.Budget(false)), "план устарел: место внутри дома стало местом плана");
         h.assertBlockPresent(Blocks.STONE, inside);
         h.assertBlockNotPresent(Blocks.OAK_PLANKS, house.above(4));
         int[] after = heights(chunk, false), full = heights(chunk, true);
@@ -1079,9 +1104,9 @@ public final class NuclearGameTests {
         // игрок заменил стекло уже после плана
         h.setBlock(glass, Blocks.WHITE_STAINED_GLASS);
         ColumnScar.Budget budget = new ColumnScar.Budget(false);
-        h.assertFalse(plan.apply(level, chunk, budget), "устаревший план поставлен");
+        h.assertFalse(plan.apply(level, chunk, d, budget), "устаревший план поставлен");
         h.assertBlockPresent(Blocks.WHITE_STAINED_GLASS, glass);
-        h.assertTrue(RuinPlanner.plan(level, d, chunk).apply(level, chunk, budget), "новый план не поставлен");
+        h.assertTrue(RuinPlanner.plan(level, d, chunk).apply(level, chunk, d, budget), "новый план не поставлен");
         h.assertBlockNotPresent(Blocks.WHITE_STAINED_GLASS, glass);
         h.succeed();
     }
@@ -1105,7 +1130,7 @@ public final class NuclearGameTests {
             h.assertTrue(dark != null, "не лампа сети: " + h.getBlockState(p));
             h.setBlock(p, dark);
         }
-        h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план устарел от блэкаута");
+        h.assertTrue(plan.apply(level, chunk, d, new ColumnScar.Budget(false)), "план устарел от блэкаута");
         h.assertBlockNotPresent(Blocks.GLASS, glass);
         h.assertBlockNotPresent(Blocks.REDSTONE_LAMP, lamp);
         h.assertBlockNotPresent(Blocks.LANTERN, lantern);
@@ -1115,7 +1140,8 @@ public final class NuclearGameTests {
     /**
      * Руины заранее: пока летит МБР, чанки тяжёлой зоны готовятся; в момент подрыва их руины встают по плану, каждый
      * чанк — не позже чем через 2 тика после прихода фронта к нему (стекло в 16 блоках, 15 кт в воздухе, масштаб 0.02),
-     * а тикеты подготовки отпускаются. Считающие часы: бюджет не зависит от машины CI.
+     * а тикеты подготовки отпускаются. Подрыв берёт место и видимость подготовки, и когда погода сменилась (руины чанков,
+     * загруженных позже, — по подрыву, и они те же). Считающие часы: бюджет не зависит от машины CI.
      */
     @GameTest(template = "range", timeoutTicks = 900, batch = "nuke_prep", skyAccess = true)
     public static void ruinsPreparedDuringFlightFallWithFront(GameTestHelper h) {
@@ -1144,7 +1170,17 @@ public final class NuclearGameTests {
         long[] glassGone = {-1}, tickAt = {0};
         h.onEachTick(() -> {
             String failure = null;
-            if (!events.scheduled().isEmpty()) plannedBefore[0] = w.plannedChunks();
+            if (!events.scheduled().isEmpty()) {
+                plannedBefore[0] = w.plannedChunks();
+                if (plannedBefore[0] > 0) {
+                    // за полёт пошёл дождь: подрыв всё равно с видимостью, по которой готовились руины
+                    Detonation f = NuclearWarhead.geometry(level, target, 15, true, IncomingConfig.SERVER.nukeEffectsScale.get().floatValue());
+                    float other = (float) (f.visibility() == ThermalModel.VISIBILITY_RAIN ? ThermalModel.VISIBILITY_CLEAR : ThermalModel.VISIBILITY_RAIN);
+                    Detonation rainy = new Detonation(f.id(), f.burst(), f.groundY(), f.yieldKt(), f.surface(), f.gameTime(), f.windDir(), f.windSpeed(),
+                            other, f.seed(), f.scale(), f.fallout(), f.wave());
+                    if (w.planned(rainy).visibility() != f.visibility()) failure = "подрыв не берёт видимость подготовки";
+                }
+            }
             // после подрыва — в темпе игры: квадраты подготовки отпускаются по чтениям с диска и фоновым планам, а они идут
             // по часам; без темпа 850 тиков сервера GameTest кончаются раньше, чем квадраты успевают отпуститься
             else if (tickAt[0] == 0) tickAt[0] = System.nanoTime();
@@ -1410,9 +1446,9 @@ public final class NuclearGameTests {
         // пул может вырасти (число потоков подстраивается по тику сервера): занимать каждый тик. Осмотренные за тик —
         // свои, с тиков после подрыва: очередь та же у всех тестов сервера, и до этого теста в ней мог быть чужой тик
         // на настоящих часах
-        RuinWorkers.fillForTest(release);
+        RuinWorkers.fillForTest(release, RuinWorkers.Priority.NEAR);
         h.onEachTick(() -> {
-            RuinWorkers.fillForTest(release);
+            RuinWorkers.fillForTest(release, RuinWorkers.Priority.NEAR);
             if (level.getGameTime() >= start + 2) maxInspected[0] = Math.max(maxInspected[0], w.scarInspectedLastTick());
         });
         NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
@@ -1469,7 +1505,7 @@ public final class NuclearGameTests {
         Cow ahead = h.spawn(EntityType.COW, CENTER.east(26));
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 0.1, true,
-                level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false);
+                level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false, Detonation.OLD_WAVE);
         h.assertTrue(d.frontRadius(1) > 10 && d.frontRadius(2) > 26 && d.frontRadius(1) < 26, "фронт не там, где ждёт проверка");
         NuclearEvents.get(level).add(d);
         // как после перезапуска: ядерные очереди мира — с чистого листа, подрыв — из сохранения
@@ -1754,7 +1790,7 @@ public final class NuclearGameTests {
         // наземный подрыв с осадками двумя игровыми часами раньше; корова у эпицентра — в самом следе
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
-                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
+                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true, Detonation.OLD_WAVE);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);
         long start = level.getGameTime();
@@ -1782,7 +1818,7 @@ public final class NuclearGameTests {
         for (int i = 0; i < 2 * MobFallout.PERIOD + 100; i++) h.spawn(EntityType.SHEEP, CENTER.offset(-20 + i % 41, 0, 5 + i / 41));
         BlockPos g = h.absolutePos(CENTER);
         Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
-                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
+                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true, Detonation.OLD_WAVE);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);
         // когда корова получала дозу (тик и прибавка): по двум соседним прибавкам виден обход целиком
@@ -1842,7 +1878,7 @@ public final class NuclearGameTests {
         // забытый подрыв (осадки спали) по-прежнему разрушает чанки, загруженные позже; «Отбой» забывает и его
         NuclearEvents events = NuclearEvents.get(level);
         Detonation old = new Detonation(d.id(), d.burst(), d.groundY(), d.yieldKt(), d.surface(), level.getGameTime() - NuclearEvents.FORGET_AFTER - 1,
-                d.windDir(), d.windSpeed(), d.visibility(), d.seed(), d.scale(), d.fallout());
+                d.windDir(), d.windSpeed(), d.visibility(), d.seed(), d.scale(), d.fallout(), d.wave());
         events.add(old);
         events.prune(level.getGameTime());
         h.assertFalse(events.detonations().contains(old), "старый подрыв не забыт");
