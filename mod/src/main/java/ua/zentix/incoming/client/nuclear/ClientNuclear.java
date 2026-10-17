@@ -298,7 +298,8 @@ public final class ClientNuclear {
             // эпицентром)
             // вода под эпицентром — до карты под пеленой: та заполняет неизвестное ею
             NukeWater.resolve(a, level);
-            if (a.pall.visible(a.ticks(0))) a.ground.survey(a.ticks(0), heights, water);
+            double wall = a.wall.reach(a.seconds(0));
+            if (a.pall.visible(a.ticks(0)) || wall > 0) a.ground.survey(a.ticks(0), wall, heights, water);
             // смерчи огненного шторма — по рельефу под ними
             if (heights != null) a.storm.track(a.ticks(1) / 20.0, heights);
             NukeWater.tick(a, level, eye);

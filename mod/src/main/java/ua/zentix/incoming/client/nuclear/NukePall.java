@@ -38,7 +38,6 @@ public final class NukePall {
     private static final float[] GLOW = new float[8];
     /** Числа стены пыли слота ({@link BlastWall#slot}) — в кадр и у камеры. */
     private static final float[] WALL = new float[BlastWall.SLOT], WALL_TICK = new float[BlastWall.SLOT];
-    private static final double[] DRIFT_TICK = new double[2];
     /** Цвет толстой пыли ({@code DUST} в {@code fx_pall.fsh}, цвет стены пыли). */
     static final double[] DUST = {0.60, 0.53, 0.45};
     /** Цвет толстого дыма над пожарами ({@code SMOKE} в {@code fx_pall.fsh}) и пламени пожаров на экране ({@code FIRE}). */
@@ -49,7 +48,6 @@ public final class NukePall {
     /** Свет кадра и стена у пыли камеры ({@link #dustColor}). */
     private static final Sky SKY = new Sky();
     private static final float[] DUST_WALL = new float[BlastWall.SLOT], DUST_GLOW = new float[8];
-    private static final double[] DUST_DRIFT = new double[2];
     /** Подрывы слотов кадра — для огненного шторма после света кадра. */
     private static final ClientNuclear.Active[] SLOTTED = new ClientNuclear.Active[2];
     /**
@@ -102,9 +100,8 @@ public final class NukePall {
             // голова стены пыли у камеры — средняя, как в кадре (рельеф и вода под камерой — по карте пелены)
             double head = 0, wetHere = 0;
             if (a.wall.slot(a.seconds(0), WALL_TICK) && WALL_TICK[3] > 0) {
-                a.pall.drift(ticks, DRIFT_TICK);
                 wetHere = a.ground.hasWater() ? a.ground.water(cam.x, cam.z) : 0;
-                head = BlastWall.sigma(WALL_TICK, dx - DRIFT_TICK[0], dz - DRIFT_TICK[1], cam.y - d.groundY() - a.ground.at(cam.x, cam.z), wetHere);
+                head = BlastWall.sigma(WALL_TICK, dx, dz, cam.y - d.groundY() - a.ground.at(cam.x, cam.z), wetHere);
                 if (head > headMax) {
                     headMax = head;
                     headWet = wetHere;
@@ -126,7 +123,7 @@ public final class NukePall {
         }
         sigma = (float) s;
         mist = (float) wet;
-        if (headAt != null && quality() == PallPass.Quality.OFF) NukeDust.veil(headAt, cam, headMax, headWet > 0.5);
+        if (headAt != null && (quality() == PallPass.Quality.OFF || !PallPass.available())) NukeDust.veil(headAt, cam, headMax, headWet > 0.5);
         if (muffles()) {
             // глухость меняется плавно: пелена накрывает за секунды
             float target = (float) (1 - Math.exp(-MUFFLE_PER_SIGMA * s));
@@ -208,7 +205,7 @@ public final class NukePall {
         f.max.set(-Float.MAX_VALUE);
         int k = 0;
         float bottom = (float) (level.getMinBuildHeight() - eye.y);
-        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, f)) SLOTTED[k++] = visible.get(i);
+        for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, air, f)) SLOTTED[k++] = visible.get(i);
         if (k == 0 && f.mushroomCount == 0) return null;
         // без пелены — рамка нулевая: луч в неё не входит (перевёрнутая рамка вышла бы всем лучом)
         if (k == 0) {
@@ -243,8 +240,10 @@ public final class NukePall {
      * или воды ({@link PallGround}), — того нет и в таблице: подрыв посреди моря, когда брызги выпали, а волна растаяла,
      * слота не занимает. {@code bottom} — низ мира от глаза: в кадре подрыв и тогда, когда видна только земля под пеленой,
      * — днём на ней тень пелены ({@code fx_pall_composite}), а долина или карьер под эпицентром бывают глубже низа пелены.
+     * {@code air} — ослабление воздуха по погоде, 1/м ({@code Sight}): пелена вдали тает в дымке, как гриб.
      */
-    private static boolean slot(ClientNuclear.Active a, int k, Vec3 eye, float partial, FrustumIntersection frustum, float bottom, PallPass.Frame f) {
+    private static boolean slot(ClientNuclear.Active a, int k, Vec3 eye, float partial, FrustumIntersection frustum, float bottom, double air,
+                                PallPass.Frame f) {
         Detonation d = a.d;
         PallField p = a.pall;
         double ticks = a.ticks(partial);
@@ -271,8 +270,7 @@ public final class NukePall {
         float cx = (float) (d.burst().x - eye.x), cz = (float) (d.burst().z - eye.z), ground = (float) (d.groundY() - eye.y);
         // рамка: снос пыли и шлейф мглы — в любую сторону от эпицентра, ниже земли под ним — долины на всю высоту; голова
         // стены — на рельефе карты (pallWallSpans), облако Вильсона — вокруг точки подрыва
-        float r = (float) Math.max(p.extent(ticks), Math.max(a.wall.reach(seconds) + Math.hypot(DRIFT[0], DRIFT[1]) + 1,
-                a.wall.wilsonReach(seconds)));
+        float r = (float) Math.max(p.extent(ticks), Math.max(a.wall.reach(seconds) + 1, a.wall.wilsonReach(seconds)));
         LO.set(cx - r, (float) (ground - top), cz - r);
         HI.set(cx + r, (float) (ground + top * 1.05), cz + r);
         if (WALL[3] > 0) {
@@ -288,7 +286,7 @@ public final class NukePall {
         m.m00(cx).m01(cz).m02(ground).m03((float) p.reach());
         m.m10((float) DRIFT[0]).m11((float) DRIFT[1]).m12((float) plume).m13(1);
         m.m20((float) Math.cos(d.windDir())).m21((float) Math.sin(d.windDir())).m22((2 * k + 0.5f) / PallPass.ROWS).m23((2 * k + 1.5f) / PallPass.ROWS);
-        m.m30((float) (PallField.SIGMA_DENSE / d.scale())).m31((float) Math.max(48, d.blocks(TILE_M * ys))).m32((float) (ticks / 20.0)).m33(0);
+        m.m30((float) (PallField.SIGMA_DENSE / d.scale())).m31((float) Math.max(48, d.blocks(TILE_M * ys))).m32((float) (ticks / 20.0)).m33((float) (air / d.scale()));
         // вода слота: базисная волна и есть ли под пеленой вода (иначе шейдер карту воды не читает)
         (k == 0 ? f.water0 : f.water1).set((float) SURGE[0], (float) SURGE[1], (float) SURGE[2], water ? 1 : 0);
         // свет шара и пожаров на пыли (CloudPuffs.pallLight)
@@ -379,10 +377,9 @@ public final class NukePall {
         double t = a.seconds(0);
         if (!a.wall.slot(t, DUST_WALL) || DUST_WALL[3] <= 0) return false;
         a.puffs.pallLight(t, DUST_GLOW);
-        a.pall.drift(a.ticks(0), DUST_DRIFT);
         Detonation d = a.d;
         double gy = y - d.groundY();
-        dustLight(DUST_WALL, DUST_GLOW, sky, x - d.burst().x, gy, z - d.burst().z, DUST_DRIFT[0], DUST_DRIFT[1], gy - a.ground.at(x, z), into);
+        dustLight(DUST_WALL, DUST_GLOW, sky, x - d.burst().x, gy, z - d.burst().z, gy - a.ground.at(x, z), into);
         return true;
     }
 
@@ -397,12 +394,10 @@ public final class NukePall {
      * @param wall  стена слота ({@link BlastWall#slot})
      * @param glow  свет стены ({@link CloudPuffs#pallLight})
      * @param gx    точка от эпицентра по x (блоки), gy — над землёй под эпицентром, gz — по z
-     * @param drift снос пелены ветром по x, driftZ — по z (блоки): голова сносится с ней
      * @param up    точка над рельефом под ней (блоки)
      */
-    static void dustLight(float[] wall, float[] glow, Sky sky, double gx, double gy, double gz, double drift, double driftZ, double up,
-                          float[] into) {
-        double rx = gx - drift, rz = gz - driftZ, len = Math.hypot(rx, rz);
+    static void dustLight(float[] wall, float[] glow, Sky sky, double gx, double gy, double gz, double up, float[] into) {
+        double rx = gx, rz = gz, len = Math.hypot(rx, rz);
         double top = wall[2], reach = 4.5 * wall[1] + top, s = wall[0] - len;
         double ox = len > 1e-3 ? rx / len : 1, oz = len > 1e-3 ? rz / len : 0;
         double above = chord(wall, rx, rz, up, 0, 1, 0, Math.max(top - up, 0), 4);
@@ -501,11 +496,12 @@ public final class NukePall {
             // вода там, откуда подняло пелену у камеры (точка минус снос), — из чего она у камеры
             ClientNuclear.Active a = all.getLast();
             Vec3 cam = mc.gameRenderer.getMainCamera().getPosition();
-            double[] w = new double[2];
+            double[] w = new double[2], from = new double[2];
             a.pall.drift(a.ticks(0), w);
+            a.pall.source(cam.x - a.d.burst().x, cam.z - a.d.burst().z, a.ticks(0), from);
             under = String.format(java.util.Locale.ROOT, "%.2f water (land %b, water %b), wind to %.0f° drift %.0f blocks, water where the pall at the camera rose %.2f",
                     a.ground.waterShare(), a.ground.hasLand(), a.ground.hasWater(), Math.toDegrees(a.d.windDir()), Math.hypot(w[0], w[1]),
-                    a.ground.water(cam.x - w[0], cam.z - w[1]));
+                    a.ground.water(a.d.burst().x + from[0], a.d.burst().z + from[1]));
         }
         return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks; mist %.4f), muffle %.2f, ash %d, quality %s, "
                         + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), under the pall: %s, surge r %.0f top %.0f sigma %.4f, "

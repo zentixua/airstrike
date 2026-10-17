@@ -283,7 +283,7 @@ class PallGlslTest {
                 // верх головы стены, будь она здесь (точка — посреди её толщи), — до неё пелена здесь и была ею
                 float[] here = slot.clone();
                 here[0] = (float) (r + 1.5 * here[1]);
-                NukePall.dustLight(here, wall, night, r, 0.9 * here[2], 0, 0, 0, 0.9 * here[2], high);
+                NukePall.dustLight(here, wall, night, r, 0.9 * here[2], 0, 0.9 * here[2], high);
                 double sum = 0;
                 double[] side = new double[3];
                 // отсвет пожаров на пыли — уже цвет огня: свет пелены — пламя (pallFlame)

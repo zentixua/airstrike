@@ -56,7 +56,8 @@ public final class NukeDust {
      */
     private static final float VEIL_RISE = 0.12f, VEIL_DECAY = 0.96f, VEIL_MAX = 0.85f;
     private static final double VEIL_DEPTH = 6;
-    private static float veil, veilTarget;
+    /** Пелена на экране, к чему она идёт (гаснет за тик на VEIL_DECAY) и какой её хочет голова у глаза в прошлом тике. */
+    private static float veil, veilTarget, veilWanted;
     /** Цвет пелены над водой — серо-белые брызги; над сушей — цвет стены у глаза. */
     private static final float[] VEIL_SPRAY = {0xAE / 255f, 0xB8 / 255f, 0xBE / 255f};
     private static final float[] veilRgb = new float[3];
@@ -85,7 +86,7 @@ public final class NukeDust {
     /**
      * Голова стены у глаза (тик, {@link NukePall#tick}): средняя голова там с ослаблением {@code sigma} (1/блок) — пелена на
      * весь экран цветом стены у глаза ({@link NukePall#dustColor}), над водой — брызги. Только пока пелена выключена
-     * (качество OFF): иначе голову у глаза рисует сама пелена, и экран темнел бы дважды. Где голова не дошла или ветер уже
+     * (качество OFF) или не рисуется (сломался её шум): иначе голову у глаза рисует сама пелена, и экран темнел бы дважды. Где голова не дошла или ветер уже
      * не поднимает пыль (дальше ~0,3 psi до глаза доходит только звук), — ничего.
      */
     static void veil(ClientNuclear.Active a, Vec3 eye, double sigma, boolean spray) {
@@ -98,7 +99,7 @@ public final class NukeDust {
             NukePall.sky(level, eye, 0, sky);
             if (!NukePall.dustColor(a, sky, eye.x, eye.y, eye.z, veilRgb)) return;
         }
-        veilTarget = Math.max(veilTarget, (float) Math.min(VEIL_MAX, 1 - Math.exp(-sigma * VEIL_DEPTH)));
+        veilWanted = Math.max(veilWanted, (float) Math.min(VEIL_MAX, 1 - Math.exp(-sigma * VEIL_DEPTH)));
     }
 
     /**
@@ -294,18 +295,16 @@ public final class NukeDust {
             if (level != null) breach(level, b);
             return true;
         });
-        if (veil < veilTarget) {
-            // стена накрывает за несколько тиков, а не вспышкой
-            veil = Math.min(veilTarget, veil + VEIL_RISE);
-        } else {
-            veilTarget *= VEIL_DECAY;
-            veil = veilTarget;
-        }
+        // голова у глаза держит пелену, ушла — пелена гаснет (гасить её и тогда, когда голова её держит, — мигание через тик)
+        veilTarget = Math.max(veilTarget * VEIL_DECAY, veilWanted);
+        veilWanted = 0;
+        // стена накрывает за несколько тиков, а не вспышкой
+        veil = veil < veilTarget ? Math.min(veilTarget, veil + VEIL_RISE) : veilTarget;
         if (veil < 0.01f) veil = veilTarget = 0;
     }
 
     static void reset() {
-        veil = veilTarget = 0;
+        veil = veilTarget = veilWanted = 0;
         BREACHES.clear();
     }
 

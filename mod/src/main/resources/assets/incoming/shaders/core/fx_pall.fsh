@@ -235,12 +235,17 @@ vec2 wallNoise(mat4 V, vec2 rolled, vec2 still, float theta, float roll, float f
             sum += b * (textureLod(PallNoise, qs, 0.0).r - 0.5);
             norm += b * b;
         }
-        if (fine > 0.0) {
-            dsum += wj * fineAt(roll >= 0.5 ? qr : qs);
-            dnorm += wj;
+        // мелкие клубы — так же смесью обеих плиток (выбор по roll давал шов посреди головы)
+        if (fine > 0.0 && a > 0.02) {
+            dsum += a * (fineAt(qr) - 1.0);
+            dnorm += a * a;
+        }
+        if (fine > 0.0 && b > 0.02) {
+            dsum += b * (fineAt(qs) - 1.0);
+            dnorm += b * b;
         }
     }
-    float detail = dnorm > 0.0 ? dsum / dnorm : 1.0;
+    float detail = dnorm > 0.0 ? max(1.0 + dsum / sqrt(dnorm), 0.0) : 1.0;
     return vec2(clamp(0.5 + sum / sqrt(max(norm, 1e-6)), 0.0, 1.0), mix(1.0, detail, fine));
 }
 
@@ -680,6 +685,8 @@ float gSootSun;
 vec3 gFlame;
 float gPixel;
 float gJitter;
+// ослабление воздуха по погоде, 1/блок (слот: [3].w) — дымка вдали, как у гриба (mushAir)
+float gAir;
 // смерчи: свет и пропускание каждого и где луч в него входит (main); так же — проходы облака Вильсона (по два на слот)
 mat4 gWhirlLight;
 vec4 gWhirlIn;
@@ -692,33 +699,41 @@ int gMushes;
 // толща грибов от глаза до шага: настоящая, с клубами, — сколько свет неба со стороны глаза теряет до точки
 float gTauEye;
 
-// смерчи и проходы облака Вильсона, в которые луч вошёл до t, — в свет луча (каждый раз). Пелену, смерчи и облако
-// Вильсона глаз видит и там, где гриб растаял в дымке (lost): их свет — с долей transmit + lost, и обе доли за ними меньше
+// Вещество с непрозрачностью 1 − tr и светом l (уже × непрозрачность) в t от глаза — в луч. Пелену, смерчи и облако
+// Вильсона глаз видит и там, где гриб растаял в дымке (lost): их свет — с долей transmit + lost. Дымка воздуха до t
+// (как у гриба, mushAir) берёт долю 1 − air их непрозрачности: там видно то, что за всем лучом, — в lost; пропускание
+// по лучу остаётся настоящим
+void passMatter(float t, vec3 l, float tr, inout vec3 light, inout float transmit, inout float lost) {
+    float air = exp(-gAir * t), seen = transmit + lost;
+    light += seen * air * l;
+    lost = lost * tr + seen * (1.0 - air) * (1.0 - tr);
+    transmit *= tr;
+}
+
+// смерчи и проходы облака Вильсона, в которые луч вошёл до t, — в свет луча (каждый раз)
 void passesBefore(float t, inout vec3 light, inout float transmit, inout float lost) {
     for (int k = 0; k < 4; k++) {
         if (gWhirlIn[k] <= t) {
-            light += (transmit + lost) * gWhirlLight[k].rgb;
-            transmit *= gWhirlLight[k].a;
-            lost *= gWhirlLight[k].a;
+            passMatter(gWhirlIn[k], gWhirlLight[k].rgb, gWhirlLight[k].a, light, transmit, lost);
             gWhirlIn[k] = 1e9;
         }
         if (gWilsonIn[k] <= t) {
-            light += (transmit + lost) * gWilsonLight[k].rgb;
-            transmit *= gWilsonLight[k].a;
-            lost *= gWilsonLight[k].a;
+            passMatter(gWilsonIn[k], gWilsonLight[k].rgb, gWilsonLight[k].a, light, transmit, lost);
             gWilsonIn[k] = 1e9;
         }
     }
 }
 
-// Шаг пелены на [ta, ta + ds]: её свет в луч
-void pallStep(float ta, float ds, inout vec3 light, inout float transmit, inout float lost) {
+// Шаг пелены на [ta, ta + ds]: её свет в луч. grid — шаг сетки луча здесь (обычной или головы стены, меньший): шаг,
+// урезанный входом в отрезок головы или его концом, случаен от кадра к кадру (сдвиг сетки), и то, что луч различает,
+// по нему мигало бы
+void pallStep(float ta, float ds, float grid, inout vec3 light, inout float transmit, inout float lost) {
     passesBefore(ta, light, transmit, lost);
     vec3 dir = gDir, sunDir = gSun;
     float muS = gMuS, c = gC, mv = gMv;
     vec3 p = dir * ta;
     // меньшее, что луч здесь различает: ширина пикселя или треть шага
-    float cone = max(ta * gPixel, 0.35 * ds);
+    float cone = max(ta * gPixel, 0.35 * grid);
     Sample s = emptySample();
     slot(PallSlot0, PallWall0, Sampler5, PallGround0, PallWater0, PallGlow0, PallHot0, p, sunDir, dir, cone, s);
     slot(PallSlot1, PallWall1, Sampler6, PallGround1, PallWater1, PallGlow1, PallHot1, p, sunDir, dir, cone, s);
@@ -778,9 +793,7 @@ void pallStep(float ta, float ds, inout vec3 light, inout float transmit, inout 
         emit += soot * PALL_SOOT_W * sootLit;
     }
     float tr = exp(-st * ds);
-    light += (transmit + lost) * emit * (1.0 - tr) / st;
-    transmit *= tr;
-    lost *= tr;
+    passMatter(ta, emit * (1.0 - tr) / st, tr, light, transmit, lost);
 }
 
 // Толща гриба m без шума от места p (от глаза) по направлению v на длину len — четыре выборки (MUSH_AT)
@@ -996,6 +1009,7 @@ void main() {
     vec2 span = pallBox(dir, PallMin, PallMax);
     float jitter = fract(texelFetch(Sampler2, ivec2(mod(low, 64.0)), 0).r + PallFrame.x * 0.618034);
     gJitter = jitter;
+    gAir = PallSlot0[1].w > 0.5 ? PallSlot0[3].w : PallSlot1[3].w;
     if (scene < 1e8) {
         scene /= axis;
     } else if (span.y > span.x) {
@@ -1108,9 +1122,10 @@ void main() {
     }
     // пелена: i — шагов сделано (с шагами головы стены — до 2·steps + 16), base — обычных границ позади, nextBase — следующая
     int i = 0, base = 0, pallSteps = 2 * steps + 16;
-    float ta = 1e9, nextBase = 1e9;
+    float ta = 1e9, nextBase = 1e9, lastBase = 1e9;
     if (t1 > t0) {
         ta = along(jitter / n, t0, fa, fb, t1, a, b);
+        lastBase = ta;
         nextBase = along((1.0 + jitter) / n, t0, fa, fb, t1, a, b);
     }
     // гриб: по пустому — шагом до вещества, в нём — на полтолщи, не мельче пикселя и четверти шага пелены по его отрезку
@@ -1129,14 +1144,16 @@ void main() {
         bool mushLeft = mk < mSteps && tm < m1 && transmit >= 0.005;
         if (!pallLeft && !mushLeft) break;
         if (pallLeft && (!mushLeft || ta <= tm)) {
-            // конец шага: обычная граница или вход в отрезок головы, а в нём — граница его сетки или выход
-            float next = nextBase;
+            // конец шага: обычная граница или вход в отрезок головы, а в нём — ближняя из границы его сетки (или выхода) и
+            // обычной: у глаза обычные гуще сетки головы, и стена, проходящая сквозь зрителя, не теряла бы ближнюю пыль
+            float next = nextBase, grid = nextBase - lastBase;
             bool dense = false;
             for (int k = 0; k < 4; k++) {
                 if (!dense && enter[k] <= ta && ta < leave[k]) {
                     dense = true;
+                    grid = min(grid, fineStep[k]);
                     float j = floor((ta - enter[k]) / fineStep[k] - jitter + 1e-3) + 1.0;
-                    next = min(enter[k] + (j + jitter) * fineStep[k], leave[k]);
+                    next = min(next, min(enter[k] + (j + jitter) * fineStep[k], leave[k]));
                 }
             }
             if (!dense) {
@@ -1147,9 +1164,10 @@ void main() {
             next = min(next, t1);
             for (int k = 0; k < steps && nextBase <= next + 1e-4; k++) {
                 base += 1;
+                lastBase = nextBase;
                 nextBase = along((float(base) + 1.0 + jitter) / n, t0, fa, fb, t1, a, b);
             }
-            if (next > ta) pallStep(ta, next - ta, light, transmit, lost);
+            if (next > ta) pallStep(ta, next - ta, grid, light, transmit, lost);
             i += 1;
             ta = next;
             if (i >= pallSteps || ta >= t1) ta = 1e9;

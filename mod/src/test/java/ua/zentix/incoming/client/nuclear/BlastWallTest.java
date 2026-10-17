@@ -208,18 +208,18 @@ class BlastWallTest {
         double head = s[0], a = s[1], h = s[2];
         assertTrue(head < glow[3], "голова в 1,5 км — не над пожарами");
         for (double up = 0.05; up <= 0.6; up += 0.1) {
-            NukePall.dustLight(s, glow, sky(false), head - 0.1 * a, up * h, 0, 0, 0, up * h, c);
+            NukePall.dustLight(s, glow, sky(false), head - 0.1 * a, up * h, 0, up * h, c);
             assertTrue(luminance(c) > 0.2, up + " высоты: ночью у пожаров пыль тёмная, " + luminance(c));
             assertTrue(c[0] > c[1] && c[1] > c[2], up + " высоты: ночью у пожаров не цвета огня, " + Arrays.toString(c));
         }
-        NukePall.dustLight(s, glow, sky(false), head - 1.5 * a, 0.9 * h, 0, 0, 0, 0.9 * h, top);
-        NukePall.dustLight(s, glow, sky(false), head - 1.5 * a, 0.3 * h, 0, 0, 0, 0.3 * h, c);
+        NukePall.dustLight(s, glow, sky(false), head - 1.5 * a, 0.9 * h, 0, 0.9 * h, top);
+        NukePall.dustLight(s, glow, sky(false), head - 1.5 * a, 0.3 * h, 0, 0.3 * h, c);
         assertTrue(luminance(top) > 3 * luminance(c), "в глубине головы не тень: " + luminance(c) + " при верхе " + luminance(top));
         for (double up = 0.05; up <= 0.6; up += 0.1) {
-            NukePall.dustLight(s, glow, sky(true), head - 0.1 * a, up * h, 0, 0, 0, up * h, c);
+            NukePall.dustLight(s, glow, sky(true), head - 0.1 * a, up * h, 0, up * h, c);
             assertTrue(c[0] - c[2] < 0.1, up + " высоты: днём сторона от шара в его отсвете, " + Arrays.toString(c));
         }
-        NukePall.dustLight(s, glow, sky(true), head - 1.5 * a, 0.9 * h, 0, 0, 0, 0.9 * h, top);
+        NukePall.dustLight(s, glow, sky(true), head - 1.5 * a, 0.9 * h, 0, 0.9 * h, top);
         assertTrue(top[0] > top[1] && top[1] > top[2], "днём верх головы не бурый: " + Arrays.toString(top));
         assertTrue(luminance(top) > 0.5 && luminance(top) < 0.85, "днём верх головы " + luminance(top));
     }

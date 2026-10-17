@@ -97,7 +97,8 @@ vec3 firelight(sampler2D map, mat4 S, mat4 F, vec3 p) {
 
 // Пелена перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем; квадрат
 // ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно);
-// грибы — так же, по своему полю без шума.
+// грибы — так же, по своему полю без шума. Пелена вдали тает в дымке воздуха, как гриб (mushAir; слот: [3].w): та доля
+// её непрозрачности, что съела дымка, квадрат не закрывает — как в проходе пелены (fx_pall: passMatter).
 float pall(vec3 p) {
     float len = length(p);
     if (PallAmbient.w < 0.5 || len < 1e-3) return 1.0;
@@ -106,9 +107,11 @@ float pall(vec3 p) {
     vec2 span = pallBox(dir, PallMin, PallMax);
     float t0 = span.x, t1 = min(span.y, len);
     if (t1 <= t0) return mush;
-    float tau = 0.0, ds = (t1 - t0) / 6.0;
+    float air = PallSlot0[1].w > 0.5 ? PallSlot0[3].w : PallSlot1[3].w;
+    float through = 1.0, ds = (t1 - t0) / 6.0;
     for (int i = 0; i < 6; i++) {
-        vec3 q = dir * (t0 + (float(i) + 0.5) * ds);
+        float t = t0 + (float(i) + 0.5) * ds, tau = 0.0;
+        vec3 q = dir * t;
         // по полной толще всего вещества — как луч объёма (водяная пыль тоже гасит то, что за ней)
         if (PallSlot0[1].w > 0.5) {
             PallAt f = pallField(Sampler5, Sampler9, PallSlot0, PallGround0, PallWater0, q, 0.0);
@@ -118,13 +121,15 @@ float pall(vec3 p) {
             PallAt f = pallField(Sampler5, Sampler10, PallSlot1, PallGround1, PallWater1, q, 0.0);
             tau += (f.sigma.x + f.sigma.y + f.sigma.z) * ds;
         }
+        through *= 1.0 - exp(-air * t) * (1.0 - exp(-tau));
     }
-    // голова стены пыли (средняя, по своим отрезкам луча) и облако Вильсона перед квадратом
-    tau += pallWallTau(Sampler9, PallSlot0, PallWall0, PallGround0, PallWater0, dir, t0, t1, 4)
+    // голова стены пыли (средняя, по своим отрезкам луча) и облако Вильсона перед квадратом — дымка по середине отрезка
+    float tau = pallWallTau(Sampler9, PallSlot0, PallWall0, PallGround0, PallWater0, dir, t0, t1, 4)
             + pallWallTau(Sampler10, PallSlot1, PallWall1, PallGround1, PallWater1, dir, t0, t1, 4);
     vec4 w0 = pallWilson(PallSlot0, PallWilson0, dir, t1), w1 = pallWilson(PallSlot1, PallWilson1, dir, t1);
     tau += w0.y + w0.w + w1.y + w1.w;
-    return exp(-tau) * mush;
+    through *= 1.0 - exp(-air * 0.5 * (t0 + t1)) * (1.0 - exp(-tau));
+    return through * mush;
 }
 
 void main() {
