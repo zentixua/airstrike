@@ -20,8 +20,10 @@ uniform mat4 InvViewProj;
 uniform vec3 PallForward;
 uniform mat4 PallSlot0;
 uniform mat4 PallSlot1;
-// направление на солнце (xyz) и сила солнца днём 0..1 (w)
+// направление на солнце (xyz) и сила солнца днём 0..1 (w); свет солнца и неба, линейный (rgb), как в fx_pall
 uniform vec4 PallSun;
+uniform vec3 PallSunLight;
+uniform vec3 PallSkyLight;
 // z: во сколько раз кадр пелены мельче полного
 uniform vec4 PallFrame;
 // огненный шторм: карты огня слотов, слоты огня (pall.glsl), шум для пятен и мерцания (свой блок текстуры — PallPass)
@@ -41,19 +43,33 @@ uniform vec4 PallWater1;
 
 out vec4 fragColor;
 
-// тень пелены на освещённом солнцем мире в точке p (от глаза): столбы пыли, мглы и водяной пыли над ней к солнцу
-// (водяная пыль пропускает свет вперёд — её толща переносная, pall.glsl)
+// Тень пелены на освещённом солнцем мире в точке p (от глаза): во сколько раз пелена над ней меняет свет на земле — прямое
+// солнце сквозь столб над точкой и рассеянный пеленой свет солнца и неба вниз (два потока, как в fx_pall: pallDiffuse,
+// с отражением от земли и обратно от пелены) против солнца и неба без неё. Точка — у низа слоя: толща над ней — весь
+// слой. Один канал (зелёный): тень — множитель альфы. Вещество — по толще пыли (с дымом), мглы и водяной пыли. Свет
+// линейный, мир кадра — значения экрана: на экране тень — её степень 1/γ (pallDisplay; мир в тени в k раз темнее —
+// на экране в k^(1/γ)).
 float shade(vec3 p) {
-    float tau = 0.0;
+    float tau = 0.0, w = 0.0, g = 0.0, water = 0.0;
     if (PallSlot0[1].w > 0.5) {
-        PallAt f = pallField(Sampler2, Sampler5, PallSlot0, PallGround0, PallWater0, p);
-        tau += f.column.x + f.column.y + PALL_MIST_TRANSPORT * f.column.z;
+        PallAt f = pallField(Sampler2, Sampler5, PallSlot0, PallGround0, PallWater0, p, 0.0);
+        tau += f.column.x + f.column.y + f.column.z;
+        w += f.column.x * mix(PALL_DUST_W.g, PALL_SMOKE_W.g, f.smoke) + f.column.y * PALL_HAZE_W.g + f.column.z * PALL_MIST_W.g;
+        g += (f.column.x + f.column.y) * PALL_DUST_G + f.column.z * PALL_MIST_G;
+        water += (f.column.x + f.column.y) * f.wet + f.column.z;
     }
     if (PallSlot1[1].w > 0.5) {
-        PallAt f = pallField(Sampler2, Sampler6, PallSlot1, PallGround1, PallWater1, p);
-        tau += f.column.x + f.column.y + PALL_MIST_TRANSPORT * f.column.z;
+        PallAt f = pallField(Sampler2, Sampler6, PallSlot1, PallGround1, PallWater1, p, 0.0);
+        tau += f.column.x + f.column.y + f.column.z;
+        w += f.column.x * mix(PALL_DUST_W.g, PALL_SMOKE_W.g, f.smoke) + f.column.y * PALL_HAZE_W.g + f.column.z * PALL_MIST_W.g;
+        g += (f.column.x + f.column.y) * PALL_DUST_G + f.column.z * PALL_MIST_G;
+        water += (f.column.x + f.column.y) * f.wet + f.column.z;
     }
-    return mix(1.0, 0.4 + 0.6 * exp(-tau / max(PallSun.y, 0.12)), PallSun.w);
+    if (tau <= 1e-5) return 1.0;
+    float mu = max(PallSun.y, 0.12), sun = PallSunLight.g, sky = PallSkyLight.g;
+    float ground = mix(PALL_LAND, PALL_SEA, clamp(water / tau, 0.0, 1.0));
+    float down = mu * sun * exp(-tau / mu) + pallDiffuse(w / tau, g / tau, tau, tau, ground, mu, sun, 1.0, 0.0, sky, 0.0, -0.6666667);
+    return mix(1.0, clamp(down / max(mu * sun + sky, 1e-4), 0.0, 1.0), PallSun.w);
 }
 
 // Пламя горящего города на поверхности в точке p (от глаза), dist — до неё, pixel — ширина пикселя там (блоки): где
@@ -126,7 +142,7 @@ void main() {
         vec2 ndc = (vec2(full) + 0.5) / vec2(fullSize) * 2.0 - 1.0;
         vec4 farPoint = InvViewProj * vec4(ndc, 1.0, 1.0);
         vec3 dir = normalize(farPoint.xyz / farPoint.w);
-        pall.a *= shade(dir * (depth / max(dot(dir, PallForward), 1e-3)));
+        pall.a *= pallDisplay(shade(dir * (depth / max(dot(dir, PallForward), 1e-3))));
     }
     // накопленная пелена годна всегда (fx_pall_resolve), но мир кадра после неё не должен пострадать ни при каком входе
     fragColor = pallValid(pall) ? pall : vec4(0.0, 0.0, 0.0, 1.0);
