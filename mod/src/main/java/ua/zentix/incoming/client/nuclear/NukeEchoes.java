@@ -128,7 +128,11 @@ final class NukeEchoes {
         if (nextRay < TerrainEcho.RAYS && level != null && !level.dimensionType().hasCeiling()) return;
         List<TerrainEcho.Reflection> list = List.copyOf(found);
         float p = pitch;
-        mix = grain.thenApplyAsync(g -> EchoMix.render(EchoMix.pitch(g, p), list), Util.backgroundExecutor());
+        mix = grain.thenApplyAsync(g -> EchoMix.render(EchoMix.pitch(g, p), list), Util.backgroundExecutor())
+                .exceptionally(e -> {
+                    Incoming.LOG.warn("Terrain echo: can't mix the echoes: {}", e.toString());
+                    return EchoMix.Mix.NONE;
+                });
     }
 
     /** Каждый тик после удара: лучи, которых не хватило, и готовые дорожки — в очередь своих источников. */

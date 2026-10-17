@@ -108,8 +108,8 @@ public final class OwnSources {
         final float gain;
         final short[] pcm;
         final int rate;
-        /** Громкость и верха за преградой в сторону голоса (1 — открыто). */
-        final float blockedGain, blockedHighs;
+        /** Громкость и верха за преградой в сторону голоса (1 — открыто); заново — когда голос зазвучит. */
+        float blockedGain, blockedHighs;
         int source, buffer;
         boolean started, done;
         /** Звучал, когда игра встала на паузу (после паузы — дальше; отзвучавший до неё — не заново). */
@@ -125,8 +125,12 @@ public final class OwnSources {
             this.gain = gain;
             this.pcm = pcm;
             this.rate = rate;
-            this.blockedGain = SoundFilters.blockedGain(open);
-            this.blockedHighs = SoundFilters.blockedHighs(open);
+            obstruct(open);
+        }
+
+        void obstruct(float open) {
+            blockedGain = SoundFilters.blockedGain(open);
+            blockedHighs = SoundFilters.blockedHighs(open);
         }
     }
 
@@ -160,18 +164,19 @@ public final class OwnSources {
 
     /**
      * Дорожка в очередь: зазвучит через {@code after} тиков после начала {@code anchor}, со стороны {@code azimuth}
-     * (преграда в эту сторону — сейчас, у уха). {@code owner} — чей голос (снять все его — {@link #stop}).
+     * (преграда в эту сторону — у уха, когда голос зазвучит). {@code owner} — чей голос (снять все его — {@link #stop}).
      *
      * @return false — мест нет или OpenAL не готов
      */
     public static boolean play(Object owner, Anchor anchor, double after, double azimuth, float gain, short[] pcm, int rate) {
         if (pcm.length == 0 || VOICES.size() >= MAX || !ready()) return false;
-        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        Voice v = new Voice(owner, anchor, after, azimuth, gain, pcm, rate, SoundFilters.openToward(ear, azimuth));
+        // преграда — при старте голоса (frame): до него он ждёт до ~24 с
+        Voice v = new Voice(owner, anchor, after, azimuth, gain, pcm, rate, 1);
         try {
             v.buffer = AL10.alGenBuffers();
             if (v.buffer == 0 || !AL10.alIsBuffer(v.buffer)) {
                 v.buffer = 0;
+                spent();
                 return false;
             }
             ShortBuffer data = BufferUtils.createShortBuffer(pcm.length).put(pcm).flip();
@@ -180,6 +185,7 @@ public final class OwnSources {
             if (v.source == 0 || !AL10.alIsSource(v.source) || AL10.alGetBufferi(v.buffer, AL10.AL_SIZE) <= 0) {
                 if (v.source != 0 && !AL10.alIsSource(v.source)) v.source = 0;
                 free(v);
+                spent();
                 return false;
             }
             AL10.alSourcei(v.source, AL10.AL_BUFFER, v.buffer);
@@ -266,10 +272,21 @@ public final class OwnSources {
                 continue;
             }
             if (late > LATE) AL10.alSourcef(v.source, AL11.AL_SEC_OFFSET, (float) late);
+            // голос ждал до ~24 с: игрок мог войти в дом или выйти — преграда по месту уха сейчас
+            v.obstruct(SoundFilters.openToward(ear, v.azimuth));
+            if (efx) filter(v, k);
             AL10.alSourcePlay(v.source);
             v.started = true;
             started++;
         }
+    }
+
+    /**
+     * Ошибка нашего отказа — забрать: ошибки AL общие с потоком звука, и его следующая проверка ({@code Channel.create})
+     * приняла бы её за свою — источник движка, уже выделенный, ушёл бы в никуда.
+     */
+    private static void spent() {
+        AL10.alGetError();
     }
 
     /**

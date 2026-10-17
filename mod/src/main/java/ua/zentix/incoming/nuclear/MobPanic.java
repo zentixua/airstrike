@@ -143,6 +143,8 @@ public final class MobPanic {
         public void start() {
             repath = 0;
             sincePath = MIN_REPATH;
+            // загон прошлой паники — не этой
+            stuck = 0;
         }
 
         @Override

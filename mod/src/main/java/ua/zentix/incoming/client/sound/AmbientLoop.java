@@ -53,9 +53,13 @@ public final class AmbientLoop extends AbstractTickableSoundInstance implements 
         target = 0;
     }
 
-    /** Звучит ли: движок мог её не взять (нет каналов) или снять (перезапуск звука). */
+    /**
+     * Звучит ли: движок мог её не взять (нет каналов) или снять (перезапуск звука, ползунок категории в 0). Не
+     * {@code SoundManager.isActive}: снятый ползунком канал ({@code SoundEngine.tickNonPaused}) он по записи о запуске
+     * и дальше считает звучащим (как у {@link SirenSound#playing}).
+     */
     public boolean playing() {
-        return !isStopped() && Minecraft.getInstance().getSoundManager().isActive(this);
+        return !isStopped() && Minecraft.getInstance().getSoundManager().soundEngine.instanceToChannel.containsKey(this);
     }
 
     @Override
