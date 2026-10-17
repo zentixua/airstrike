@@ -53,55 +53,78 @@ class CameraShakeTest {
     }
 
     /**
-     * Ядерная волна толкает, а не крутит: камера отклоняется от взрыва (взрыв впереди — запрокидывает, справа — наклоняет
-     * влево, позади — клонит вниз) на размах {@link CameraShake#nukeAmplitude} и не поворачивается быстрее 300°/с даже
-     * при 40 psi. 2 кт в 430 блоках (как в жизни, финал трейлера) — не быстрее 200°/с; прежде было ~700°/с и больше.
+     * Ядерная волна толкает, а не крутит: камера отклоняется по ветру от взрыва (взрыв впереди — запрокидывает, справа —
+     * наклоняет влево, позади — клонит вниз) на размах {@link CameraShake#nukeAmplitude} при любой фазе дрожи; воздушный
+     * взрыв впереди под 45° — тоже назад, слабее (напор у земли дует вдоль неё).
      */
     @Test
-    void nukeWaveShovesInsteadOfSpinning() {
-        Detonation d = new Detonation(1, new Vec3(0, 64, 0), 64, 2, true, 0, 0, 5, 20_000, 7, 1f, false, 0.42f);
-        Vec3 ear = new Vec3(430, 66, 0);
-        double psi = d.psi(ear);
-        // камера смотрит на взрыв (курс 90° — на −x)
-        assertTrue(fastest(psi, ear.subtract(d.burst()), 90) < 200, psi + " psi: " + fastest(psi, ear.subtract(d.burst()), 90));
-        for (double p : new double[]{0.5, 1, 3, 10, 40}) {
-            double amp = CameraShake.nukeAmplitude(p);
-            double[] ahead = extreme(p, new Vec3(0, 0, -1), 0), right = extreme(p, new Vec3(1, 0, 0), 0);
-            double[] behind = extreme(p, new Vec3(0, 0, 1), 0);
-            assertTrue(ahead[0] < -0.75 * amp, p + " psi, взрыв впереди: тангаж " + ahead[0]);
-            assertTrue(behind[1] > 0.75 * amp, p + " psi, взрыв позади: тангаж " + behind[1]);
-            assertTrue(right[2] < -0.75 * amp, p + " psi, взрыв справа: крен " + right[2]);
-            assertTrue(fastest(p, new Vec3(1, -0.3, 0.4), 30) < 300, p + " psi: " + fastest(p, new Vec3(1, -0.3, 0.4), 30));
+    void nukeWaveShovesAwayFromTheBurst() {
+        for (double psi : new double[]{0.5, 1, 3, 10, 40}) {
+            double amp = CameraShake.nukeAmplitude(psi);
+            for (int phase = 0; phase < 20; phase++) {
+                String at = psi + " psi, фаза " + phase;
+                assertTrue(extreme(psi, new Vec3(0, 0, -1), phase)[0] < -0.75 * amp, at + ": взрыв впереди — назад");
+                assertTrue(extreme(psi, new Vec3(0, 0, 1), phase)[1] > 0.75 * amp, at + ": взрыв позади — вниз");
+                assertTrue(extreme(psi, new Vec3(1, 0, 0), phase)[2] < -0.75 * amp, at + ": взрыв справа — влево");
+                assertTrue(extreme(psi, new Vec3(0, -1, -1), phase)[0] < -0.5 * amp, at + ": над головой впереди — назад");
+            }
         }
     }
 
-    /** Самая быстрая тряска от одного удара волны давлением psi, °/с (кадры по 1/10 тика). */
+    /**
+     * Дрожь перед волной, её приход и ветер за ней — без рывков: камера не поворачивается быстрее 300°/с даже при 40 psi
+     * (прежде — 670°/с уже при 1 psi), у 2 кт в 430 блоках (8 psi, финал трейлера) — не быстрее 200°/с. Толчки грунта от
+     * ударов волны ({@link CameraShake#quake}) — свои, мельче, здесь их нет.
+     */
+    @Test
+    void approachArrivalAndWindDoNotJerk() {
+        Detonation d = new Detonation(1, new Vec3(0, 64, 0), 64, 2, true, 0, 0, 5, 20_000, 7, 1f, false, 0.42f);
+        Vec3 ear = new Vec3(430, 66, 0);
+        double psi = d.psi(ear), trailer = fastest(psi, ear.subtract(d.burst()), 90);
+        assertTrue(trailer < 200, psi + " psi: " + trailer);
+        for (double p : new double[]{0.6, 1, 3, 10, 40}) {
+            for (int phase = 0; phase < 20; phase += 5) {
+                double most = fastest(p, new Vec3(1, -0.3, 0.4).scale(phase + 1), 30 + 17 * phase);
+                assertTrue(most < 300, p + " psi, фаза " + phase + ": " + most);
+            }
+        }
+    }
+
+    /**
+     * Самый быстрый поворот, °/с, от подхода ядерной волны давлением psi и её прихода: тики, как у клиента (тряска, потом
+     * подрыв), кадры по 1/10 тика (поворот за кадр × 200 — за секунду).
+     */
     private static double fastest(double psi, Vec3 away, double cameraYaw) {
         CameraShake.reset();
-        CameraShake.nuke(psi, away);
-        double[] prev = CameraShake.offsets(0, cameraYaw);
         double most = 0;
-        for (int tick = 0; tick < 200; tick++) {
-            for (int f = 1; f <= 10; f++) {
+        double[] prev = null;
+        int before = (int) CameraShake.approachTicks(psi);
+        for (int tick = -before; tick < 200; tick++) {
+            CameraShake.tick();
+            if (tick < 0) CameraShake.approach(psi, -tick);
+            else if (tick == 0) CameraShake.nuke(psi, away);
+            for (int f = 0; f < 10; f++) {
                 double[] o = CameraShake.offsets(f / 10.0, cameraYaw);
-                double turn = Math.sqrt(sq(o[0] - prev[0]) + sq(o[1] - prev[1]) + sq(o[2] - prev[2]));
-                most = Math.max(most, turn / (0.1 / 20));
+                if (prev != null) most = Math.max(most, Math.sqrt(sq(o[0] - prev[0]) + sq(o[1] - prev[1]) + sq(o[2] - prev[2])) * 200);
                 prev = o;
             }
-            CameraShake.tick();
         }
         CameraShake.reset();
         return most;
     }
 
-    /** Наименьшие и наибольшие тангаж и крен за первую секунду волны: {мин. тангаж, макс. тангаж, мин. крен}. */
-    private static double[] extreme(double psi, Vec3 away, double cameraYaw) {
+    /**
+     * Наименьший и наибольший тангаж и наименьший крен за первую секунду волны при курсе 0 (на +z), после {@code phase}
+     * тиков дрожи: {мин. тангаж, макс. тангаж, мин. крен}.
+     */
+    private static double[] extreme(double psi, Vec3 away, int phase) {
         CameraShake.reset();
+        for (int i = 0; i < phase; i++) CameraShake.tick();
         CameraShake.nuke(psi, away);
         double[] e = {0, 0, 0};
         for (int tick = 0; tick < 20; tick++) {
             for (int f = 0; f < 10; f++) {
-                double[] o = CameraShake.offsets(f / 10.0, cameraYaw);
+                double[] o = CameraShake.offsets(f / 10.0, 0);
                 e[0] = Math.min(e[0], o[1]);
                 e[1] = Math.max(e[1], o[1]);
                 e[2] = Math.min(e[2], o[2]);
