@@ -248,6 +248,8 @@ public final class ClientScenario {
         if (tick % 20 == 0) {
             String far = FarRenderer.describe();
             if (!far.isEmpty()) Incoming.LOG.info("SCENARIO far {}", far);
+            String nuke = ua.zentix.incoming.client.nuclear.NukeSounds.describe();
+            if (!nuke.isEmpty()) Incoming.LOG.info("SCENARIO nuke-sound {}", nuke);
         }
     }
 

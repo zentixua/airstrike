@@ -448,6 +448,52 @@
       }
     ]
   },
+  "nuke.crack_far": {
+    "subtitle": "subtitles.incoming.nuke.blast",
+    "sounds": [
+      {
+        "name": "incoming:nuke_crack_far_1",
+        "preload": true
+      },
+      {
+        "name": "incoming:nuke_crack_far_2",
+        "preload": true
+      }
+    ]
+  },
+  "nuke.fire": {
+    "subtitle": "subtitles.incoming.nuke.fire",
+    "sounds": [
+      {
+        "name": "incoming:nuke_fire_1"
+      },
+      {
+        "name": "incoming:nuke_fire_2"
+      }
+    ]
+  },
+  "nuke.fire_wind": {
+    "subtitle": "subtitles.incoming.nuke.fire_wind",
+    "sounds": [
+      {
+        "name": "incoming:nuke_wind"
+      }
+    ]
+  },
+  "nuke.collapse": {
+    "subtitle": "subtitles.incoming.nuke.collapse",
+    "sounds": [
+      {
+        "name": "incoming:nuke_collapse_1"
+      },
+      {
+        "name": "incoming:nuke_collapse_2"
+      },
+      {
+        "name": "incoming:nuke_collapse_3"
+      }
+    ]
+  },
   "geiger.click": {
     "subtitle": "subtitles.incoming.geiger",
     "sounds": [

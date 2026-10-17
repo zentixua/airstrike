@@ -49,6 +49,12 @@ light burns grass, flowers and crops in patches and leaves black char where it w
 water around turn yellow-brown and grey. The edge is ragged, not a ring. The scorched colours stay for good, also in
 Distant Horizons terrain.
 
+Far away the blast comes as a sharp double crack and a deep boom, and then echoes back from the hills, forests and
+towns around you: every slope that faces both the burst and you sends it back, later the farther it is. Animals around
+the burst go quiet for a few minutes. Mobs run away from the flash and the blast wave, then calm down. The town keeps
+burning for minutes: you hear the fires roar from where they burn, wind pulled into the fire near them, ruins
+collapsing nearby, and now and then an explosion in the burning blocks.
+
 ## How to survive
 
 - **Get underground.** The wave leaves natural ground alone: caves and bunkers stand, and earth stops both the light

@@ -192,6 +192,7 @@ final class BlastFront {
         away = away.lengthSqr() < 1e-4 ? Vec3.ZERO : away.normalize();
         e.push(away.x * v, 0.3 * v, away.z * v);
         e.hurtMarked = true;
+        ua.zentix.incoming.nuclear.MobPanic.wave(d, e, level.getGameTime());
     }
 
     /** Обратный ветер: воздух возвращается к эпицентру и тянет за собой. */

@@ -246,11 +246,12 @@ public final class ClientSounds {
         return sb.append(" live=").append(live).toString();
     }
 
-    /** Отбой или выход из мира: заглушить всё сразу. */
+    /** Отбой, перемотка повтора или выход из мира: заглушить всё сразу (и эхо на своих источниках). */
     public static void reset() {
         TRACKS.values().forEach(Tracked::kill);
         TRACKS.clear();
         DUCK.reset();
+        OwnSources.reset();
     }
 
     /** Обычный отбой: заглушить отменённые снаряды; оставшиеся (ядерные) звучат дальше. */
@@ -280,6 +281,14 @@ public final class ClientSounds {
         atEar(event, source, volume, pitch, SoundSource.MASTER);
     }
 
+    /**
+     * Как {@link #atEarLoud(SoundEvent, Vec3, float, float)}, но вариант записи выбирает зерно (эхо от рельефа повторяет ту
+     * же запись); звук — тот, что отдан движку (эхо ждёт его настоящего начала).
+     */
+    public static SoundInstance atEarLoud(SoundEvent event, Vec3 source, float volume, float pitch, long seed) {
+        return atEar(event, source, volume, pitch, SoundSource.MASTER, RandomSource.create(seed));
+    }
+
     private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category) {
         atEar(event, source, volume, pitch, category, RANDOM);
     }
@@ -292,12 +301,14 @@ public final class ClientSounds {
         atEar(event, source, volume, pitch, SoundSource.AMBIENT, RandomSource.create(seed));
     }
 
-    private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category, RandomSource random) {
+    private static SoundInstance atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category, RandomSource random) {
         Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         float open = SoundFilters.open(ear, source.add(0, 1.5, 0));
         float highs = farAir(ear.distanceTo(source)) * SoundFilters.blockedHighs(open);
-        play(new Shot(event.getLocation(), category, volume, pitch, random, SoundInstance.Attenuation.NONE, toward(ear, source), false,
-                SoundFilters.blockedGain(open), highs));
+        SoundInstance shot = new Shot(event.getLocation(), category, volume, pitch, random, SoundInstance.Attenuation.NONE, toward(ear, source), false,
+                SoundFilters.blockedGain(open), highs);
+        play(shot);
+        return shot;
     }
 
     /**

@@ -192,10 +192,12 @@ public final class ClientNuclear {
         radiation = p;
     }
 
-    /** Блоки, которые снесла волна в чанке рядом: куски разлетаются ({@link NukeDust#debris}). */
+    /** Блоки, которые снесла волна в чанке рядом: куски разлетаются ({@link NukeDust#debris}), руины потом осыпаются. */
     public static void debris(S2C.NukeDebris p) {
         Active a = DETONATIONS.get(p.detonation());
-        if (a != null) NukeDust.debris(a, p.pieces());
+        if (a == null) return;
+        NukeDust.debris(a, p.pieces());
+        a.sounds.debris(p.pieces());
     }
 
     public static void reset() {
