@@ -29,6 +29,15 @@ public final class FireballModel {
             0x96908A, // серое облако
     };
 
+    /** Видимая температура шара во втором максимуме, K (G&D 2.110: ~7 500–8 000 K почти без зависимости от мощности). */
+    public static final double PEAK_K = 7700;
+    /** Температура воздуха вокруг, K. */
+    public static final double AMBIENT_K = 288;
+    /** Показатель остывания после второго максимума: ΔT ∝ (t/t_max)^−0,35 (ключи хроники — {@link #temperature}). */
+    static final double COOLING = 0.35;
+    /** Горячее шар не показывается (первый импульс короче кадра): край строки света чёрного тела у клиента. */
+    static final double HOTTEST_K = 30_000;
+
     private FireballModel() {
     }
 
@@ -83,6 +92,23 @@ public final class FireballModel {
         double f = i == 1 ? tau / COLOR_T[1]
                 : Math.log(tau / COLOR_T[i - 1]) / Math.log(COLOR_T[i] / COLOR_T[i - 1]);
         return 0xFF000000 | lerpRgb(COLOR_RGB[i - 1], COLOR_RGB[i], Solve.clamp(f, 0, 1));
+    }
+
+    /**
+     * Видимая температура поверхности шара, K, пока он шар. До второго максимума — по Стефану–Больцману из его яркости
+     * и радиуса: свет шара P ∝ T⁴·R², и T = T₂·(P/P₂)^¼·(R₂/R)^½ — первый импульс (маленький горячий шар) голубовато-белый,
+     * в минимуме темнее, ко второму максимуму — T₂ ({@link #PEAK_K}). Дальше шар остывает к воздуху:
+     * T_окр + (T₂ − T_окр)·(t/t_max)^−0,35 — у 15 кт бело-жёлтый ~3 900 K через секунду, ~1 950 K через девять (ключи
+     * цвета по хронике). Это температура ядра: свернувшись в кольцо (у 15 кт — с ~3 с), шар остывает снаружи быстрее,
+     * край смешан с подхваченным воздухом — через девять секунд ~1 250 K ({@link MushroomModel#edgeTemperature}).
+     */
+    public static double temperature(double t, double yieldKt) {
+        if (t <= 0) return AMBIENT_K;
+        double tm = secondMaximumSeconds(yieldKt);
+        if (t >= tm) return AMBIENT_K + (PEAK_K - AMBIENT_K) * Math.pow(t / tm, -COOLING);
+        // радиус до максимума — max·(t/t_max)^0,4 ({@link #radius}): (R₂/R)^½ = (t_max/t)^0,2
+        double k = PEAK_K * Math.pow(brightness(t, yieldKt) / brightness(tm, yieldKt), 0.25) * Math.pow(tm / t, 0.2);
+        return Solve.clamp(k, AMBIENT_K, HOTTEST_K);
     }
 
     /** Скорость всплытия шара, м/с: ~95 для 15 кт, слабо растёт с мощностью. */

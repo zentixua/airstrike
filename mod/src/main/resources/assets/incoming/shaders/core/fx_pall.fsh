@@ -19,13 +19,15 @@
 // Цвета экрана (стена пыли и брызг, сажа, пламя) — в линейные (pallLinear), отсвет стены и зарево пожаров, что на экране
 // прибавлены к свету неба, — разностью переводов (pallLift); свет огня — не ярче самого пламени (pallFlame).
 // Грибы кадра (mushroom.glsl, MushroomField) — в том же луче: шаги пелены и шаги гриба идут вперемежку по расстоянию,
-// и свет каждого шага гасит всё, что за ним. Гриб — поле без таблицы: вещество шапки, ножки и юбки (у подрыва на воде —
-// и столба воды с короной), край — клубами по тому же шуму; свет — те же два потока Эддингтона в двух слоях через точку (вдоль солнца — его пучок; по вертикали — небо
-// сверху, земля и пожары снизу) по толще гриба без шума к свету, и свечение по температуре — чёрное тело
+// и свет каждого шага гасит всё, что за ним. Гриб — поле без таблицы: вещество шапки (с первого кадра — огненный шар,
+// который сворачивается в её кольцо одной формой), ножки и юбки (у подрыва на воде — и столба воды с короной), край —
+// клубами по тому же шуму; свет — те же два потока Эддингтона в двух слоях через точку (вдоль солнца — его пучок, у ножки,
+// юбки и столба — и пучок шара; по вертикали — небо сверху, земля и пожары снизу) по толще гриба без шума к свету, и свечение по температуре — чёрное тело
 // (функция источника в глубине — сам свет чёрного тела, у края — с долей ω', которую не досвечивает изнутри).
 // Выход: rgb — цвет пелены на экране, умноженный на её непрозрачность (свет пелены перед миром), a — сколько света мира
 // проходит (только ослабление: его же берут квадраты слоя, fx.fsh, — цвет пелены там rgb / (1 − a); тень пелены на мире
-// — в fx_pall_composite). Ярче белого свет уходит к белому (CROSS: раскалённое — бело-жёлтое, не насыщенно-оранжевое).
+// — в fx_pall_composite). Ярче белого свет уходит к белому (CROSS: раскалённое — бело-жёлтое, не насыщенно-оранжевое),
+// а пересвет — в долю пикселя поверх того, что за веществом (конец main).
 
 // расстояние до мира за пикселем по оси взгляда (полное разрешение)
 uniform sampler2D Sampler0;
@@ -122,8 +124,6 @@ const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 // толща гриба к свету — по четырём выборкам на долях пути (середины отрезков) с долями отрезков
 const vec4 MUSH_AT = vec4(0.025, 0.1, 0.275, 0.7);
 const vec4 MUSH_PART = vec4(0.05, 0.1, 0.25, 0.6);
-// излучательная доля края шапки, что светит вниз на ножку и юбку (половина: снизу шапка — край толстого облака)
-const float MUSH_GLOW_DOWN = 0.5;
 
 float hg(float g, float c) {
     float k = 1.0 + g * g - 2.0 * g * c;
@@ -796,13 +796,18 @@ void pallStep(float ta, float ds, float grid, inout vec3 light, inout float tran
     passMatter(ta, emit * (1.0 - tr) / st, tr, light, transmit, lost);
 }
 
-// Толща гриба m без шума от места p (от глаза) по направлению v на длину len — четыре выборки (MUSH_AT)
-float mushTau(Mush m, vec3 p, vec3 v, float len) {
+// Толща гриба m без шума от места p (от глаза) по направлению v на длину len — четыре выборки (MUSH_AT); parts — какие
+// части считать (шапка, ножка, юбка, столб воды)
+float mushTauOf(Mush m, vec3 p, vec3 v, float len, vec4 parts) {
     float tau = 0.0;
     for (int i = 0; i < 4; i++) {
-        tau += dot(mushMean(m, mushLocal(m, p + v * (len * MUSH_AT[i]))), vec4(1.0)) * MUSH_PART[i];
+        tau += dot(mushMean(m, mushLocal(m, p + v * (len * MUSH_AT[i]))), parts) * MUSH_PART[i];
     }
     return tau * len;
+}
+
+float mushTau(Mush m, vec3 p, vec3 v, float len) {
+    return mushTauOf(m, p, v, len, vec4(1.0));
 }
 
 // Сдвиг края клубами в месте c (от середины части гриба, блоки), в долях размаха, до ±0,68: канал шума ch (VolumeNoise:
@@ -864,8 +869,8 @@ vec4 mushDense(Mush m, vec3 q, float cone, float k, out float lobes, out float d
     float uc = mushCapUnit(m);
     if (m.capSigma > 0.0 && d.x < MUSH_CAP_REACH * uc) {
         // глубже самой глубокой ложбины клубов шапка густа целиком: клубы там не нужны (лучу к солнцу из тени — каждый шаг)
-        if (d.x + (MUSH_LOBES_DEEP * MUSH_CAP_LOBES + MUSH_CAP_EDGE) * uc > 0.0) lobes = mushCapLobes(m, q, cone, k);
-        float shifted = d.x - MUSH_CAP_LOBES * uc * lobes;
+        if (d.x + (MUSH_LOBES_DEEP * MUSH_CAP_LOBES * m.billows + MUSH_CAP_EDGE) * uc > 0.0) lobes = mushCapLobes(m, q, cone, k);
+        float shifted = d.x - MUSH_CAP_LOBES * m.billows * uc * lobes;
         sigma.x = m.capSigma * mushEdge(shifted, MUSH_CAP_EDGE * uc);
         near = shifted - MUSH_CAP_EDGE * uc;
         depth = clamp(-d.x / max(uc, 1.0), 0.0, 1.0);
@@ -958,6 +963,28 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
                 pallDiffuse(w.b, g, toSun, toSun + away, 0.0, 1.0, PallSunLight.b, 1.0, 0.0, 0.0, 0.0, cs));
         light += PallSunLight * (0.25 * hg(g, gC) * exp(-toSun));
     }
+    // Свет шара и шапки на ножке, юбке и столбе воды (MushroomModel.light): ламбертов шар радиуса шапки с яркостью чёрного
+    // тела её видимой температуры снаружи (перепад ядра × доля у края) светит как L·R²/d² — пучок от середины шапки, как
+    // солнце, с толщей ножки, юбки и столба на пути (до шара; дальше — его светящаяся поверхность). Сама шапка его не
+    // берёт: её свет — её свечение (ниже)
+    float lowShare = (sig.y + sig.z + sig.w) / st;
+    if (lowShare > 0.0 && m.capSigma > 0.0) {
+        // к середине шапки в осях мира: тело гриба снесено ветром по высоте (mushLocal), его оси — не мировые
+        vec3 c = vec3(0.0, m.capY, 0.0) - q;
+        c.xz += m.drift * (mushShare(m.capY, m.endTop) - mushShare(q.y, m.endTop));
+        float d2 = dot(c, c), r2 = m.capR * m.capR;
+        vec3 ball = mushBlackBody(Sampler7, m.tAmb + m.dT * m.edge) * (PallExposure * r2 / max(d2, r2));
+        if (dot(ball, LUMA) > 1e-4 * dot(PallSkyLight, LUMA)) {
+            float dc = sqrt(d2);
+            vec3 v = c / max(dc, 1e-3);
+            float toBall = mushTauOf(m, p, v, max(dc - m.capR, 0.0), vec4(0.0, 1.0, 1.0, 1.0)), away = mushTau(m, p, -v, across);
+            float cb = g * dot(-gDir, v);
+            vec3 lit = vec3(pallDiffuse(w.r, g, toBall, toBall + away, 0.0, 1.0, ball.r, 1.0, 0.0, 0.0, 0.0, cb),
+                    pallDiffuse(w.g, g, toBall, toBall + away, 0.0, 1.0, ball.g, 1.0, 0.0, 0.0, 0.0, cb),
+                    pallDiffuse(w.b, g, toBall, toBall + away, 0.0, 1.0, ball.b, 1.0, 0.0, 0.0, 0.0, cb));
+            light += lowShare * (max(lit, vec3(0.0)) + ball * (0.25 * hg(g, dot(gDir, v)) * exp(-toBall)));
+        }
+    }
     // Рассеянный свет неба и земли. Гриб — тело, а не слой: точку у его бока небо освещает сбоку, а не сквозь всю шапку
     // над ней. Два слоя через точку — по вертикали (сверху небо, под шапкой — и её свечение; снизу — солнце, отражённое
     // землёй в тени гриба, и пожары) и по лучу зрения (с обеих сторон — небо у горизонта: полнеба и свет земли); свет
@@ -966,16 +993,11 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
     // доля освещённости c/√(c² + h²)), остальное закрыто стенками соседних клубов, а они светят отражённым: ложбина —
     // полость с диффузными стенками, свет в ней — доля щели / (1 − R∞·(1 − доля)), R∞ — отражение толстого слоя этого
     // вещества (два потока). Без этого теневая сторона шапки — ровная заливка: вершины и ложбины видят одно небо
-    float hc = MUSH_CAP_LOBES * mushCapUnit(m) * max(0.68 - lobes, 0.0), cc = 0.125 * m.capTile;
+    float hc = MUSH_CAP_LOBES * m.billows * mushCapUnit(m) * max(0.68 - lobes, 0.0), cc = 0.125 * m.capTile;
     float slot = cc / sqrt(hc * hc + cc * cc);
     vec3 ru = 2.0 * kd / (3.0 * max(1.0 - w * g, 1e-4)), rinf = (1.0 - ru) / (1.0 + ru);
     vec3 open = mix(vec3(1.0), slot / (1.0 - rinf * (1.0 - slot)), sig.x / st);
     vec3 sky = PallSkyLight * open;
-    float edgeK = m.tAmb + m.dT * MUSH_EDGE_HEAT;
-    if (m.capSigma > 0.0 && q.y < m.capBot) {
-        float h = m.capY - q.y, r2 = m.capR * m.capR;
-        sky += (MUSH_GLOW_DOWN * PallExposure) * mushBlackBody(Sampler7, edgeK) * (r2 / (r2 + h * h));
-    }
     vec3 land = PallSunLight * (PALL_LAND * max(PallSun.y, 0.0));
     vec3 bottom = land * exp(-min((up + down) / gMuS, 30.0));
     // пожары снизу — как зарево шторма под пеленой (storm): свет у земли (m.fire, на экране), выше — доля диска пожаров,
@@ -995,11 +1017,12 @@ vec4 mushAt(int k, vec3 p, vec3 q, float cone, out float near) {
             pallDiffuse(w.g, g, toEye, toEye + beyond, 0.0, 1.0, 0.0, 1.0, 0.0, side.g, side.g, g),
             pallDiffuse(w.b, g, toEye, toEye + beyond, 0.0, 1.0, 0.0, 1.0, 0.0, side.b, side.b, g));
     light += max(max(vertical, sideways), vec3(0.0));
-    // свечение: доля перепада температуры — шапка горячее к ядру кольца (край смешан с подхваченным воздухом — треть
-    // перепада, языки клубов ±6%), ножка горяча только у шапки (снизу кольцо тянет в неё воздух с пылью), юбка и вода
-    // столба холодные
+    // свечение: доля перепада температуры ядра — у шара вся (почти изотермичен), свернувшись в кольцо, шапка горячее
+    // к ядру (край смешан с подхваченным воздухом — m.edge перепада, языки клубов ± MUSH_SKIN его), ножка горяча только
+    // у шапки (снизу кольцо тянет в неё воздух с пылью), юбка и вода столба холодные
     float hw = clamp(q.y / max(m.capBot, 1.0), 0.0, 1.0);
-    float heat = (sig.x * (MUSH_EDGE_HEAT + (1.0 - MUSH_EDGE_HEAT) * smoothstep(0.0, 1.0, depth) + 0.09 * lobes) + sig.y * 0.6 * hw * hw) / st;
+    float skin = m.edge * (1.0 + MUSH_SKIN * lobes) + (1.0 - m.edge) * smoothstep(0.0, 1.0, depth);
+    float heat = (sig.x * skin + sig.y * 0.6 * hw * hw) / st;
     vec3 bb = mushBlackBody(Sampler7, m.tAmb + m.dT * heat) * PallExposure;
     // функция источника свечения: в глубине — свет чёрного тела (рассеянное изнутри его и досвечивает), у края — доля ω'
     // уходит наружу без замены (двумя потоками: недосвет гаснет вглубь как e^(−kτ))
@@ -1249,10 +1272,20 @@ void main() {
     // на экран: цвет пелены как вещества — свет, делённый на непрозрачность (в однородной — её функция источника), в
     // значения экрана, умноженный на непрозрачность; с миром смешивается, как всё полупрозрачное в кадре. Ярче белого —
     // к белому (CROSS)
-    float cover = 1.0 - transmit - lost;
+    float cover = 1.0 - transmit - lost, shownCover = cover;
     vec3 medium = light / max(cover, 1e-4);
+    // Ярче белого (огненный шар, накал, зарево ночью): свет вещества прибавляется к тому, что за ним, — на экране
+    // вещество не ярче белого, и пересвет идёт в долю пикселя (cover·L, не больше всего пикселя), с цветом своего света.
+    // Пропускание остаётся настоящим: за веществом видно то же, а его свет поверх насыщается к белому (кадр — RGBA16F,
+    // квадраты слоя за ним берут этот свет из кадра, fx.fsh: before). Иначе шар вдали, где дымка оставила ему долю cover
+    // (10 км в ясную погоду — 0,14), был бы бледным пятном на небе, сколько бы ни светил
+    float lum = dot(medium, LUMA);
+    if (lum > 1.0 && cover > 1e-4) {
+        shownCover = min(cover * lum, 1.0);
+        medium *= cover / shownCover;
+    }
     medium += vec3(CROSS * max(dot(medium, LUMA) - 1.0, 0.0));
-    vec3 shown = shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * cover;
+    vec3 shown = shoulder(vec3(pallDisplay(medium.r), pallDisplay(medium.g), pallDisplay(medium.b))) * shownCover;
     // негодный итог (NaN, бесконечность — из глубины, матриц или поля) — пропускание −1: накопление возьмёт прошлое
     // этого места, а без него пиксель — без пелены (fx_pall_resolve)
     // сумма долей в float32 бывает на ulp больше 1 — pallValid счёл бы пиксель негодным

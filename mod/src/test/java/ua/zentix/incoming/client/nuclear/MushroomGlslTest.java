@@ -107,7 +107,7 @@ class MushroomGlslTest {
         assertEquals(MushroomField.LOBES_COLUMN, c.get("MUSH_COLUMN_LOBES"), 0);
         assertEquals(MushroomField.EDGE_COLUMN, c.get("MUSH_COLUMN_EDGE"), 0);
         assertEquals(MushroomField.BLEND, c.get("MUSH_BLEND"), 0);
-        assertEquals(MushroomModel.EDGE_HEAT, c.get("MUSH_EDGE_HEAT"), 0);
+        assertEquals(MushroomModel.SKIN, c.get("MUSH_SKIN"), 1e-12);
         assertEquals(MushroomField.REACH_CAP, c.get("MUSH_CAP_REACH"), 1e-12);
         assertEquals(MushroomField.REACH_STEM, c.get("MUSH_STEM_REACH"), 1e-12);
         assertEquals(MushroomField.REACH_SKIRT, c.get("MUSH_SKIRT_REACH"), 1e-12);

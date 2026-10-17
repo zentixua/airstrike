@@ -216,6 +216,21 @@ public final class FarSprites {
         glare(dx, dy, dz, radius, out, seen, r, g, b, glare, shown);
     }
 
+    /**
+     * Блик и вуаль яркого тела ({@link #light}) без самого тела: тело рисует объём (огненный шар ядерного удара —
+     * в проходе пелены, {@code fx_pall}), свет в глазу — здесь, с пробой видимости тела ({@link SourceProbes}: мир,
+     * пелена и стена пыли, грибы перед ним).
+     *
+     * @param seen  яркость тела против белого экрана (с привыканием глаза и воздухом)
+     * @param shown тело на экране (доля белого): блик и вуаль не ярче
+     * @param out   числа {@link Sight#light} (5)
+     */
+    public void eyeLight(double dx, double dy, double dz, double radius, double seen, double pixel, float r, float g, float b, double shown,
+                         double[] out) {
+        Sight.light(radius, seen, Math.sqrt(dx * dx + dy * dy + dz * dz), pixel, out);
+        glare(dx, dy, dz, radius, out, seen, r, g, b, 1, shown);
+    }
+
     /** Ядро {@link #light} кругом: свой свет поверх того, что за ним; пересвет — к белому, тусклее белого — тает. */
     private void core(double dx, double dy, double dz, double[] o, double t, float r, float g, float b, double w) {
         double s = o[2], k = Math.min(1, s) * w, white = s > 1 ? Math.min(1, Math.log(s) / Math.log(Sight.WHITE)) : 0;

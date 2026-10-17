@@ -30,7 +30,11 @@ import java.util.Arrays;
  * экране и по верхней половине круга вокруг неё (как лучи по блокам в прорисовке, {@code FarBlasts#clear}: нижнюю
  * часть диска у земли закрывает земля под самим источником) и сравнивает с расстоянием до его передней половины, с той
  * же мягкостью, что у тела в слое. Квадрат блика берёт свою пробу в вершинном шейдере слоя ({@code fx.vsh}) по номеру
- * ({@link FxQuads#seenBy}). Источник вне кадра пробе не виден — там видимость решают лучи вызывающего.
+ * ({@link FxQuads#seenBy}). Источник вне кадра пробе не виден — там видимость решают лучи вызывающего. Объёма пелены
+ * ядерного удара, стены пыли и грибов глубина мира не видит (огненный шар за пылью, за чужой шапкой или ножкой) — проба
+ * берёт и их пропускание (пелену — до передней границы источника, {@code pall_front.glsl}, тем же кодом и числами, что
+ * квадратам слоя; грибы — до его середины), в кадре и вне его; своя шапка источник не закрывает. Блику и вуали слой пелену и грибы больше не режет: свет
+ * в глазу идёт от источника, а не от углов квадрата.
  */
 public final class SourceProbes {
     /** Проб в строке текстуры. */
@@ -73,11 +77,12 @@ public final class SourceProbes {
     }
 
     /**
-     * Посчитать пробы кадра по текстуре расстояний до мира {@code scene} ({@link SceneDepth#update}): вид от глаза,
-     * проекция кадра, угол пикселя, рад. Текстура видимости (доля, по номеру пробы − 1: x — остаток от {@link #WIDTH},
-     * y — частное); −1 — проб нет или не вышло.
+     * Посчитать пробы кадра по текстуре расстояний до мира {@code scene} ({@link SceneDepth#update}) и пелене кадра
+     * {@code pall} с её грибами ({@link PallPass#bindFront}; {@code pallDrawn} — нарисована): вид от глаза, проекция
+     * кадра, угол пикселя, рад. Текстура видимости (доля, по номеру пробы − 1: x — остаток от {@link #WIDTH}, y — частное);
+     * −1 — проб нет или не вышло.
      */
-    int update(int scene, Matrix4f view, Matrix4f projection, double pixel) {
+    int update(int scene, PallPass.Frame pall, boolean pallDrawn, Matrix4f view, Matrix4f projection, double pixel) {
         ShaderInstance s = shader;
         if (n == 0 || s == null || scene < 0 || !ensure((n + WIDTH - 1) / WIDTH)) return -1;
         int previous = GlStateManager._getInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
@@ -89,6 +94,7 @@ public final class SourceProbes {
         RenderSystem.disableBlend();
         RenderSystem.setShader(() -> s);
         RenderSystem.setShaderTexture(0, scene);
+        PallPass.bindFront(s, pall, pallDrawn, scene);
         s.safeGetUniform("SourceView").set(view);
         s.safeGetUniform("SourceProj").set(projection);
         s.safeGetUniform("ProbeSize").set((float) WIDTH, (float) rows);

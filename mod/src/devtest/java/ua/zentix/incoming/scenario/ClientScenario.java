@@ -135,6 +135,8 @@ public final class ClientScenario {
     private boolean replay;
     /** Зритель висит в воздухе (far-models): после телепорта сервер присылает способности, и полёт сбрасывается. */
     private boolean hover;
+    /** Сценарий {@code mushroom}: куда от зрителя эпицентр (поворот, как у игрока), — туда, где суша. */
+    private int mushroomYaw = 180;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
     /** Ядерный подрыв у воды ({@code nuke-water}, {@code nuke-lake}): кадры от подрыва ({@link #waterEvents}). */
@@ -590,24 +592,55 @@ public final class ClientScenario {
     }
 
     /**
-     * Гриб объёмом ({@code MushroomField}): наземные 15 кт в 10 км к северу, зритель в воздухе в 200 блоках над землёй
-     * смотрит на эпицентр чуть вверх; кадры {@code pall_mushroom_<секунды>s} от 2 с до 4 минут — шар сворачивается
-     * в кольцо, шапка поднимается и растекается, ножка, юбка; на 22-й и 72-й секунде — ещё раз, через 2 с после 20-й и
-     * 70-й: как за это время сдвинулись и сменились клубы шапки. Ночью ({@code INCOMING_MUSHROOM=night}) — свечение по
+     * Гриб объёмом ({@code MushroomField}): наземные 15 кт в 10 км (к северу или в первую сторону по часовой, где там
+     * суша), зритель в воздухе в 200 блоках над землёй смотрит на эпицентр чуть вверх; кадры {@code pall_mushroom_<секунды>s}
+     * от 2 с до 4 минут — шар сворачивается в кольцо, шапка поднимается и растекается, ножка, юбка; на 22-й и 72-й секунде —
+     * ещё раз, через 2 с после 20-й и 70-й: как за это время сдвинулись и сменились клубы шапки. Ночью
+     * ({@code INCOMING_MUSHROOM=night}) — свечение по
      * температуре; по умолчанию — утро, солнце сбоку. Качество — {@code INCOMING_PALL} (по умолчанию MEDIUM).
      */
     private void planMushroom() {
         mushroom = true;
         boolean night = "night".equals(System.getenv("INCOMING_MUSHROOM"));
+        at(20, () -> {
+            // эпицентр в 10 км — на суше по генератору (у зерна сценария к северу море: подрыв там водяной, и столб воды
+            // закрывал бы шар): первое направление, где суша под эпицентром и в 600 блоках вокруг (юбка, пелена), а нет
+            // такого — где больше суши, но под эпицентром суша прежде всего. Сразу, до телепорта: шум генератора читают
+            // и потоки генерации мира одновременно
+            var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+            var gen = level.getChunkSource().getGenerator();
+            var random = level.getChunkSource().randomState();
+            int bestYaw = 180, best = -1;
+            for (int k = 0; k < 36 && best < 18; k++) {
+                int yaw = 180 + 10 * k;
+                double sx = -Math.sin(Math.toRadians(yaw)), sz = Math.cos(Math.toRadians(yaw));
+                int land = 0;
+                for (int i = 0; i < 9; i++) {
+                    double r = i == 0 ? 0 : 600, a = Math.PI / 4 * i;
+                    int x = (int) Math.round(10000 * sx + r * Math.cos(a)), z = (int) Math.round(10000 * sz + r * Math.sin(a));
+                    if (gen.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, level, random) >= 64) land += i == 0 ? 10 : 1;
+                }
+                if (land > best) {
+                    best = land;
+                    bestYaw = yaw;
+                }
+            }
+            mushroomYaw = bestYaw;
+            Incoming.LOG.info("SCENARIO mushroom burst to yaw {} (epicentre on land {}, {} of 8 points around)", bestYaw, best >= 10,
+                    best % 10);
+        });
         at(40, () -> {
             String q = System.getenv().getOrDefault("INCOMING_PALL", "MEDIUM");
             ua.zentix.incoming.IncomingConfig.CLIENT.nukeDustQuality.set(ua.zentix.incoming.IncomingConfig.Client.DustQuality.valueOf(q));
             cmd(night ? "time set 18000" : "time set 1500");
             cmd("weather clear");
-            cmd("tp @s 0.5 270 0.5 180 -14");
+            cmd("tp @s 0.5 270 0.5 " + mushroomYaw + " -14");
             hover = true;
         });
-        at(400, () -> cmd("incoming nuke now at 0.5 320 -10000.5 15 ground"));
+        at(400, () -> {
+            double x = 0.5 - 10000 * Math.sin(Math.toRadians(mushroomYaw)), z = 0.5 + 10000 * Math.cos(Math.toRadians(mushroomYaw));
+            cmd(String.format(java.util.Locale.ROOT, "incoming nuke now at %.1f 320 %.1f 15 ground", x, z));
+        });
     }
 
     /** Сценарий {@code mushroom}: кадры — от прихода подрыва к клиенту. */

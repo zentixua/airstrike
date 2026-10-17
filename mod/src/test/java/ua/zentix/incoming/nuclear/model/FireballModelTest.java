@@ -21,6 +21,32 @@ class FireballModelTest {
         assertEquals(0.0097, FireballModel.firstMinimumSeconds(15), 0.0005);
     }
 
+    /**
+     * Видимая температура: во втором максимуме — T₂, после — остывает к воздуху по хронике (15 кт — около 4 000 K через
+     * секунду, около 1 950 K через девять); до него — Стефан–Больцман по яркости и радиусу: первый импульс горячее T₂,
+     * в минимуме холоднее первого импульса, ко второму максимуму — без скачка.
+     */
+    @Test
+    void temperatureFollowsTheFlashAndTheFootage() {
+        double y = 15, tMin = FireballModel.firstMinimumSeconds(y), tMax = FireballModel.secondMaximumSeconds(y);
+        assertEquals(FireballModel.PEAK_K, FireballModel.temperature(tMax, y), 1e-9);
+        assertEquals(FireballModel.temperature(tMax * (1 - 1e-9), y), FireballModel.temperature(tMax * (1 + 1e-9), y), 0.01);
+        double t1 = FireballModel.temperature(1, y), t9 = FireballModel.temperature(9, y);
+        assertTrue(t1 > 3_600 && t1 < 4_400, "1 с: " + t1);
+        assertTrue(t9 > 1_750 && t9 < 2_150, "9 с: " + t9);
+        double first = 0;
+        for (double t = 1e-6; t < tMin / 3; t *= 1.1) first = Math.max(first, FireballModel.temperature(t, y));
+        assertTrue(first > FireballModel.PEAK_K, "первый импульс " + first);
+        assertTrue(FireballModel.temperature(tMin, y) < first, "минимум " + FireballModel.temperature(tMin, y));
+        assertEquals(FireballModel.AMBIENT_K, FireballModel.temperature(0, y), 0);
+        double last = Double.MAX_VALUE;
+        for (double t = tMax; t < 1e4; t *= 1.05) {
+            double k = FireballModel.temperature(t, y);
+            assertTrue(k < last && k > FireballModel.AMBIENT_K, t + " с: " + k);
+            last = k;
+        }
+    }
+
     @Test
     void doubleFlashShape() {
         double y = 15;

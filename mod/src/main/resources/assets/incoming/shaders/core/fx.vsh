@@ -2,6 +2,7 @@
 
 #moj_import <incoming:pall.glsl>
 #moj_import <incoming:mushroom.glsl>
+#moj_import <incoming:pall_front.glsl>
 
 // Слой эффектов (client/fx/layer): дым, пламя, искры, вспышки и всё дальнее одним проходом после мира.
 in vec3 Position;
@@ -29,32 +30,12 @@ uniform mat4 ProjMat;
 // против света вокруг глаза, с цветом, и его огонь на экране (w)
 uniform mat4 FxBalls;
 uniform mat4 FxBallLight;
-// пелена ядерного удара (pall.glsl, PallPass): таблица поля, слоты подрывов, рамка, её средний свет (w — 1, если есть)
-uniform sampler2D Sampler5;
-uniform mat4 PallSlot0;
-uniform mat4 PallSlot1;
-uniform vec3 PallMin;
-uniform vec3 PallMax;
-uniform vec4 PallAmbient;
-// огненный шторм: карты огня слотов и слоты огня (pall.glsl) — свет пожаров снизу на дыме и пыли слоя
+// пелена, стена пыли и грибы кадра — pall_front.glsl; огненный шторм: карты огня слотов и слоты огня (pall.glsl) — свет
+// пожаров снизу на дыме и пыли слоя
 uniform sampler2D Sampler7;
 uniform sampler2D Sampler8;
 uniform mat4 PallFire0;
 uniform mat4 PallFire1;
-// рельеф и вода под пеленой слотов, их числа и вода слотов (pall.glsl): из чего пелена перед квадратом
-uniform sampler2D Sampler9;
-uniform sampler2D Sampler10;
-uniform vec4 PallGround0;
-uniform vec4 PallGround1;
-uniform vec4 PallWater0;
-uniform vec4 PallWater1;
-// стена пыли слотов (pall.glsl, client/nuclear/BlastWall): голова-вал и облако Вильсона
-uniform mat4 PallWall0;
-uniform mat4 PallWall1;
-uniform vec4 PallWilson0;
-uniform vec4 PallWilson1;
-// грибы кадра (mushroom.glsl): что гриб закрывает перед квадратом
-uniform sampler2D Sampler11;
 
 out vec2 texCoord0;
 out vec4 vertexColor;
@@ -95,59 +76,14 @@ vec3 firelight(sampler2D map, mat4 S, mat4 F, vec3 p) {
     return F[3].rgb * (0.5 * F[1].w * flame * exp(-max(h, 0.0) / F[0].z));
 }
 
-// Голова стены слота перед квадратом на [t0, t1]: доля, которую она пропускает, — по каждому её отрезку на луче
-// (pallWallSpans), в дымке воздуха у его середины
-float pallWallThrough(sampler2D ground, mat4 S, mat4 V, vec4 G, vec4 W, vec3 dir, float t0, float t1, float air) {
-    vec4 spans = pallWallSpans(S, V, G, dir, t0, t1);
-    float through = 1.0;
-    for (int k = 0; k < 2; k++) {
-        vec2 sp = k == 0 ? spans.xy : spans.zw;
-        if (sp.y <= sp.x) continue;
-        float tau = pallWallTau(ground, S, V, G, W, dir, sp.x, sp.y, 4);
-        through *= 1.0 - exp(-air * 0.5 * (sp.x + sp.y)) * (1.0 - exp(-tau));
-    }
-    return through;
-}
-
-// Облако Вильсона слота перед квадратом (до end): доля, которую пропускают оба прохода луча, каждый в дымке у своего места
-float pallWilsonThrough(mat4 S, vec4 L, vec3 dir, float end, float air) {
-    vec4 w = pallWilson(S, L, dir, end);
-    return (1.0 - exp(-air * w.x) * (1.0 - exp(-w.y))) * (1.0 - exp(-air * w.z) * (1.0 - exp(-w.w)));
-}
-
-// Пелена перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем; квадрат
-// ближе мира должен быть за той её частью, что между ним и глазом. Шесть шагов по полю без шума (среднее по шуму — оно);
-// грибы — так же, по своему полю без шума. Пелена вдали тает в дымке воздуха, как гриб (mushAir; слот: [3].w): та доля
-// её непрозрачности, что съела дымка, квадрат не закрывает — как в проходе пелены (fx_pall: passMatter).
+// Пелена и грибы перед точкой p (настоящей, от глаза): объём пелены уже на кадре (PallPass) — до мира за пикселем;
+// квадрат ближе мира должен быть за той их частью, что между ним и глазом (pallThrough; грибы — так же, по своему полю
+// без шума)
 float pall(vec3 p) {
     float len = length(p);
     if (PallAmbient.w < 0.5 || len < 1e-3) return 1.0;
     vec3 dir = p / len;
-    float mush = mushTransmit(Sampler11, dir, len, 6);
-    vec2 span = pallBox(dir, PallMin, PallMax);
-    float t0 = span.x, t1 = min(span.y, len);
-    if (t1 <= t0) return mush;
-    float air = PallSlot0[1].w > 0.5 ? PallSlot0[3].w : PallSlot1[3].w;
-    float through = 1.0, ds = (t1 - t0) / 6.0;
-    for (int i = 0; i < 6; i++) {
-        float t = t0 + (float(i) + 0.5) * ds, tau = 0.0;
-        vec3 q = dir * t;
-        // по полной толще всего вещества — как луч объёма (водяная пыль тоже гасит то, что за ней)
-        if (PallSlot0[1].w > 0.5) {
-            PallAt f = pallField(Sampler5, Sampler9, PallSlot0, PallGround0, PallWater0, q, 0.0);
-            tau += (f.sigma.x + f.sigma.y + f.sigma.z) * ds;
-        }
-        if (PallSlot1[1].w > 0.5) {
-            PallAt f = pallField(Sampler5, Sampler10, PallSlot1, PallGround1, PallWater1, q, 0.0);
-            tau += (f.sigma.x + f.sigma.y + f.sigma.z) * ds;
-        }
-        through *= 1.0 - exp(-air * t) * (1.0 - exp(-tau));
-    }
-    // голова стены пыли (средняя, по своим отрезкам луча) и облако Вильсона перед квадратом
-    through *= pallWallThrough(Sampler9, PallSlot0, PallWall0, PallGround0, PallWater0, dir, t0, t1, air)
-            * pallWallThrough(Sampler10, PallSlot1, PallWall1, PallGround1, PallWater1, dir, t0, t1, air)
-            * pallWilsonThrough(PallSlot0, PallWilson0, dir, t1, air) * pallWilsonThrough(PallSlot1, PallWilson1, dir, t1, air);
-    return through * mush;
+    return pallThrough(dir, len) * mushTransmit(Sampler11, dir, len, 6);
 }
 
 void main() {
@@ -176,5 +112,8 @@ void main() {
     fog = Normal.x;
     nearest = Normal.y;
     opacity = Normal.z;
-    pallFront = pall(Position / unfold);
+    // блик и вуаль с пробой: пелена и грибы перед источником — уже в ней (fx_probe, до самого источника); по углам
+    // квадрата у глаза их не считать — свет в глазу идёт от источника, а угол блика в своей же шапке гасил бы его над ней
+    pallFront = 1.0;
+    if (UV1.x >= 0 || FxProbes < 0.5) pallFront = pall(Position / unfold);
 }

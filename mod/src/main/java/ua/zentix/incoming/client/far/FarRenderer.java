@@ -8,6 +8,7 @@ import ua.zentix.incoming.client.fx.layer.FxLayer;
 import ua.zentix.incoming.client.fx.layer.FxLights;
 import ua.zentix.incoming.client.fx.layer.FxQuads;
 import ua.zentix.incoming.client.fx.layer.SourceProbes;
+import ua.zentix.incoming.client.nuclear.NukeRenderer;
 import ua.zentix.incoming.client.render.FarDraw;
 
 import java.util.Arrays;
@@ -41,6 +42,7 @@ public final class FarRenderer {
             FarBlasts.collect(view, SPRITES, lights);
             FarFlightView.collect(view, SPRITES);
         }
+        NukeRenderer.fireballs(view, SPRITES, lights);
         SPRITES.counts(LAST_FRAME);
     }
 

@@ -6,11 +6,14 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ViewportEvent;
+import ua.zentix.incoming.client.far.FarView;
+import ua.zentix.incoming.client.far.Sight;
 import ua.zentix.incoming.nuclear.Detonation;
+import ua.zentix.incoming.nuclear.model.MushroomModel;
 
 /**
- * Небо и туман: в миг вспышки — белые, потом янтарные, пока светятся шар и гриб (десятки секунд; небо красит
- * {@link NukeRenderer}), у эпицентра оранжево-бурые от пыли и дыма, в чёрном дожде — серо-бурые и близкие.
+ * Небо и туман: в миг вспышки — белые, потом янтарные, пока шар ярче неба ({@link #amber}: днём — секунды, ночью —
+ * около 10 с; небо красит {@link NukeRenderer}), у эпицентра оранжево-бурые от пыли и дыма, в чёрном дожде — серо-бурые и близкие.
  * Ванильная погода не трогается: чёрный дождь местный.
  */
 public final class NukeSky {
@@ -48,17 +51,26 @@ public final class NukeSky {
         rainTarget = false;
     }
 
+    /** Середина шапки подрыва в мире ({@link MushroomField#centre}). */
+    private static final double[] CENTRE = new double[3];
+
     /**
-     * Янтарное небо от подрыва у камеры 0..1: проступает к концу светового импульса, держится, пока светятся шар
-     * и гриб, гаснет на 8–60 с у 15 кт (у 1 кт — вдвое быстрее, {@link CloudPuffs#glowScale}); засвеченное небо видно, как и вспышку, за десятки километров.
+     * Янтарное небо от подрыва у камеры 0..1 — свет шара и шапки у глаза ({@link MushroomModel#light}: чёрное тело их
+     * видимой температуры, как (R/d)²) против света неба, к которому привык глаз ({@link Sight#adapted}), сквозь дымку:
+     * днём — секунды, пока шар ярче неба, ночью — дольше, пока светится шапка; засвеченное небо видно, как и вспышку,
+     * за десятки километров.
      */
     static float amber(ClientNuclear.Active a, Vec3 cam, float partial) {
+        MushroomModel.Shape s = MushroomField.shape(a, partial);
+        if (s == null) return 0;
         Detonation d = a.d;
-        double t = a.seconds(partial);
-        double pulse = NukeFlash.pulseSeconds(d.yieldKt()), k = CloudPuffs.glowScale(d.yieldKt());
-        double env = CloudPuffs.smooth(0.5 * pulse, 2 * pulse, t) * (1 - CloudPuffs.smooth(8 * k, 60 * k, t));
-        if (env <= 0) return 0;
-        return (float) (env * Math.exp(-d.metres(cam.distanceTo(d.burst())) / d.visibility()));
+        MushroomField.centre(a, s, CENTRE);
+        double dist = d.metres(Math.sqrt(Mth.square(CENTRE[0] - cam.x) + Mth.square(CENTRE[1] - cam.y) + Mth.square(CENTRE[2] - cam.z)));
+        ClientLevel level = Minecraft.getInstance().level;
+        float ambient = level == null ? 1 : FarView.ambient(level, partial);
+        // свет шара у глаза против света неба, к которому привык глаз, сквозь дымку: наравне с небом — небо наполовину янтарное
+        double lit = Sight.adapted(MushroomModel.light(s, d.yieldKt(), d.surface(), dist), ambient) * Math.exp(-dist / d.visibility());
+        return (float) (lit / (1 + lit));
     }
 
     public static void fogColor(ViewportEvent.ComputeFogColor e) {

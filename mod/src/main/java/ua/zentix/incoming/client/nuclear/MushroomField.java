@@ -26,7 +26,7 @@ public final class MushroomField {
     /** Грибов в кадре, не больше. */
     public static final int MUSHROOMS = 4;
     /** Текселей RGBA на гриб ({@code mushroom.glsl}: таблица грибов). */
-    public static final int TEXELS = 16;
+    public static final int TEXELS = 17;
     /** Узлов света чёрного тела (строка {@link #BB_ROW}): температуры от {@link #BB_FROM} до {@link #BB_TO} K по логарифму. */
     public static final int BB_NODES = 256;
     static final double BB_FROM = 500, BB_TO = 30_000;
@@ -181,6 +181,20 @@ public final class MushroomField {
         return MushroomModel.shape(t, d.yieldKt(), hob, d.surface(), Math.sqrt(Math.max(0, front * front - hob * hob)));
     }
 
+    /**
+     * Середина шапки (у шара — его середина) в мире, блоки: x, y, z — в {@code out}; ось гриба на её высоте снесена
+     * ветром на свою долю ({@code mushLocal}). Источник света шара ({@link MushroomModel#light}).
+     */
+    static void centre(ClientNuclear.Active a, MushroomModel.Shape s, double[] out) {
+        Detonation d = a.d;
+        double[] w = DRIFT;
+        drift(d, s.t(), w);
+        double share = MushroomModel.driftShare(d.blocks(s.capY()), Math.max(d.blocks(s.endTop()), 1));
+        out[0] = d.burst().x + w[0] * share;
+        out[1] = d.groundY() + d.blocks(s.capY());
+        out[2] = d.burst().z + w[1] * share;
+    }
+
     /** Снос ветром на всю долю, блоки: x, z — в {@code out}. */
     private static void drift(Detonation d, double t, double[] out) {
         double w = d.blocks(d.windSpeed() * t);
@@ -319,6 +333,8 @@ public final class MushroomField {
             matter(into, o, 14, CloudPuffs.SPRAY, G_WATER);
             put(into, o, 15, d.blocks(c.crownR()), d.blocks(c.crownH()), d.blocks(c.top()), d.blocks(COLUMN_TILE * WaterModel.columnRadius(y)));
         }
+        // шар и шапка снаружи: доля перепада ядра у края (у шара — вся) и размах клубов края (у шара — гладкая сфера)
+        put(into, o, 16, MushroomModel.edgeShare(t, y, d.surface()), MushroomModel.billows(t, y, d.surface()), 0, 0);
     }
 
     /** Часы кипения шапки подрыва ({@link MushroomModel#churn}): таблица — одна на подрыв, пока он жив. */
