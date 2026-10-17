@@ -12,11 +12,23 @@
 // Вода слота W — vec4: (радиус базисной волны, её верх — блоки; её ослабление в самой густой части, 1/блок, 0 — волны нет;
 // 1 — под пеленой есть вода и её карта — канал g карты рельефа слота, PallGround; 0 — всюду суша).
 
-// Водяная пыль (брызги, базисная волна) — капли в десятки микрон: почти не поглощают и рассеивают вперёд (g ≈ 0,85).
-// Свет, что идёт к точке сквозь неё (солнце, небо, отсвет шара; тень на мире), почти весь проходит вперёд: по
-// дельта-Эддингтону толща для света — (1 − g²) от полной, а остаток рассеяния (g ≈ 0,46) — как у пыли (её фаза). Луч
-// зрения — по полной толще: туман размывает и гасит то, что за ним.
-const float PALL_MIST_TRANSPORT = 0.28;
+// Вещество пелены (client/nuclear/PallLight; PallGlslTest сверяет): альбедо однократного рассеяния ω' по каналам и
+// асимметрия g' после дельта-Эддингтона (пик вперёд f = g² — в непрорассеянный свет, остаток g' = g / (1 + g)). Ослабление
+// таблицы (по видимости, которую видит глаз) — уже σ' дельта-Эддингтона: по нему идут и луч зрения, и свет к точке.
+// ω' — из цвета толстого слоя (fx_pall: DUST, SMOKE, HAZE, MIST; сажа шторма — SOOT; в линейном — pallLinear) обращением
+// отражения двух потоков: толстая пелена — того же цвета, что стена пыли и брызг. Пыль, дым и мгла — g = 0,6, капли
+// водяной пыли — 0,85, сажа — 0,5.
+const vec3 PALL_DUST_W = vec3(0.8687934, 0.8099112, 0.7286264);
+const vec3 PALL_SMOKE_W = vec3(0.5520492, 0.5170717, 0.4837395);
+const vec3 PALL_HAZE_W = vec3(0.7175592, 0.6833941, 0.6480812);
+const vec3 PALL_MIST_W = vec3(0.9948032, 0.9964194, 0.9973450);
+const vec3 PALL_SOOT_W = vec3(0.4368484, 0.4180439, 0.4008365);
+const float PALL_DUST_G = 0.375;
+const float PALL_MIST_G = 0.4594595;
+const float PALL_SOOT_G = 0.3333333;
+// альбедо земли под пеленой: суша и вода (PallLight.LAND, SEA)
+const float PALL_LAND = 0.2;
+const float PALL_SEA = 0.06;
 
 // Пелена слота в точке (pallField)
 struct PallAt {
@@ -24,6 +36,8 @@ struct PallAt {
     vec3 sigma;
     // столбы над точкой (ослабление × блоки): то же
     vec3 column;
+    // столбы всей пелены над полом слоя (pallField: floorUp; точка ниже него — над точкой): толща слоя, в котором точка
+    vec3 slab;
     // доля дыма в пыли; свет пожаров снизу
     float smoke;
     float fire;
@@ -72,11 +86,12 @@ float pallWater(sampler2D ground, vec4 G, vec2 rel) {
 }
 
 // Поле слота S в точке p (от глаза), без шума (среднее по шуму — оно); ground, G — карта рельефа и воды слота, W — вода
-// слота. Вещество — по воде там, откуда его подняло (PallField: пыль, снесённая на воду, остаётся пылью): пыль и брызги —
+// слота; floorUp — пол слоя под точкой (верх рельефа, блоки над землёй под эпицентром; 0 — земля под эпицентром): от него
+// считается slab. Вещество — по воде там, откуда его подняло (PallField: пыль, снесённая на воду, остаётся пылью): пыль и брызги —
 // у точки за вычетом сноса, где читается и таблица; мгла — у её источника на оси шлейфа (над водой пожаров нет), только
 // если она здесь есть; базисная волна — вода, поднятая у эпицентра, над чем бы ни катилась (W.z = 0 — её нет). Без воды
 // под пеленой (W.w = 0) карта не читается.
-PallAt pallField(sampler2D table, sampler2D ground, mat4 S, vec4 G, vec4 W, vec3 p) {
+PallAt pallField(sampler2D table, sampler2D ground, mat4 S, vec4 G, vec4 W, vec3 p, float floorUp) {
     vec2 q = p.xz - S[0].xy, lift = q - S[1].xy;
     float above = p.y - S[0].z, reach = S[0].w, r = length(lift);
     float ud = r / reach;
@@ -110,6 +125,9 @@ PallAt pallField(sampler2D table, sampler2D ground, mat4 S, vec4 G, vec4 W, vec3
     a.sigma = vec3(sd * pallProfile(a.height.x), sh * pallProfile(a.height.y), ss * pallProfile(a.height.x) + sg * pallProfile(hg));
     a.column = vec3(sd * topD * pallColumn(a.height.x), sh * topH * pallColumn(a.height.y),
             ss * topD * pallColumn(a.height.x) + sg * topG * pallColumn(hg));
+    float floorD = pallColumn(min(a.height.x, floorUp / topD));
+    a.slab = vec3(sd * topD * floorD, sh * topH * pallColumn(min(a.height.y, floorUp / topH)),
+            ss * topD * floorD + sg * topG * pallColumn(min(hg, floorUp / topG)));
     a.smoke = dust.b;
     a.fire = fire * exp(-3.0 * max(a.height.y, 0.0));
     a.dense = (sd + ss + sg) / max(S[3].x, 1e-6);
@@ -121,6 +139,13 @@ PallAt pallField(sampler2D table, sampler2D ground, mat4 S, vec4 G, vec4 W, vec3
 // среднее по плитке — 1, густота — плавно от просветов до вдвое (у края — втрое) гуще средней.
 float pallShape(vec2 n, float fill) {
     return smoothstep(0.4 - 0.45 * fill, 0.7, n.x - 0.3 * (1.0 - n.y)) / (0.3 + 0.225 * fill);
+}
+
+// Мелкие клубы (VolumeNoise.detail): r — канал клубов плитки вчетверо мельче; множитель густоты 0,3..1,7, в среднем по
+// плитке — 1 (канал равномерен), поэтому средняя густота поля остаётся его густотой. Пелена — каскад: крупные клубы,
+// внутри них мелкие; мельче того, что луч различает (пиксель, шаг), мелкие — их среднее, 1 (fx_pall: noiseAt).
+float pallDetail(float r) {
+    return 0.3 + 1.4 * smoothstep(0.2, 0.8, r);
 }
 
 // Отрезок луча (из глаза, dir — единичный) в рамке [lo, hi]: (вход, выход); вход > выхода — мимо.
@@ -201,6 +226,76 @@ float pallLit(float r, float up, float overhead, float lightR) {
 float pallBurn(float r, float up, float glow, float fireR) {
     float e = max(fireR, 1e-3);
     return (1.0 - smoothstep(0.92 * e, 1.04 * e, r)) * (0.95 - 0.45 * up) * glow;
+}
+
+// ---------------------------------------------------------------- свет в пелене (client/nuclear/PallLight)
+// Два потока Эддингтона в плоском слое после дельта-Эддингтона: излучение I(τ, μ) = I0 + μ·I1, μ — косинус к вертикали
+// (вверх — плюс), τ — толща от верха слоя вниз. Законы и вывод — PallLight (PallGlslTest сверяет числа).
+
+// Свет пелены считается в линейных долях (перенос линеен по излучению), кадр Minecraft — значения экрана (sRGB без
+// перевода): v экрана — v^2,2 линейного (PallLight.GAMMA). Чистая степень: перевод произведения — произведение переводов
+float pallLinear(float v) {
+    return pow(max(v, 0.0), 2.2);
+}
+
+float pallDisplay(float v) {
+    return pow(max(v, 0.0), 0.4545455);
+}
+
+// Свет, что на экране прибавляет x к белой стене поверх света неба base (тоже на экране: отсвет стены пыли, зарево
+// пожаров — CloudPuffs складывает их на экране), в линейном: (base + x)^γ − base^γ (PallLight.lift)
+float pallLift(float base, float x) {
+    return pow(max(base + x, 0.0), 2.2) - pow(max(base, 0.0), 2.2);
+}
+
+vec3 pallLift3(float base, vec3 x) {
+    return vec3(pallLift(base, x.r), pallLift(base, x.g), pallLift(base, x.b));
+}
+
+// Свет огня (пожары, шторм, смерч), что на экране прибавляет x к белой стене поверх света неба base, в линейном — не
+// ярче самого пламени: его цвет на экране flame, излучение — pallLinear(flame). Рассеивающее вещество не ярче своего
+// источника (по каждому каналу): белая стена, вся в огне, — цвета огня, а не ярче. Отсвет, что на экране уже доходит до
+// цвета пламени (стена пыли над пожарами ночью — CloudPuffs: на экране и есть цвет огня), обращением через цвет пыли
+// (/ DUST, pallLift) давал свет в разы ярче пламени (PallLight.flame)
+vec3 pallFlame(float base, vec3 x, vec3 flame) {
+    return min(pallLift3(base, x), vec3(pallLinear(flame.r), pallLinear(flame.g), pallLinear(flame.b)));
+}
+
+// Затухание рассеянного света с толщей: k² = 3(1 − ω)(1 − ωg) (в густой пыли — e^(−kτ), а не e^(−τ))
+float pallK(float w, float g) {
+    return sqrt(max(3.0 * (1.0 - w) * (1.0 - w * g), 1e-6));
+}
+
+// Рассеянный свет на глубине tau слоя толщи tc (альбедо w, асимметрия g, земля под ним — альбедо ground): I0 + c·I1.
+// c = g·μ глаза — то, что точка рассеивает к глазу (без ω); c = ±2/3 — поток вверх или вниз, делённый на π. Источники:
+// два пучка сверху (косинус к вертикали mu, сила f — что отражает белая стена к пучку), небо сверху top и свет снизу
+// bottom (излучение вверх, сверх отражённого землёй). Решение — в затухающих экспонентах: e^(−kτ) от верха и e^(−k(tc − τ))
+// от низа — без переполнения в толстом слое; k ≥ 10⁻³ — и у непоглощающего тумана (k = 0) матрица не вырождена.
+// Знаменатель частного решения k²μ² − 1 — не ближе 0,05 к нулю, со своим знаком (у тёмного дыма k > 1): пучок, что гаснет
+// так же, как рассеянный свет (kμ = 1), не делит на 0.
+float pallDiffuse(float w, float g, float tau, float tc, float ground, float mu1, float f1, float mu2, float f2, float top, float bottom, float c) {
+    float q = 1.0 - w * g;
+    float k = sqrt(max(3.0 * (1.0 - w) * q, 1e-6));
+    float p = 0.6666667 * k / q;
+    float e = exp(-k * tc);
+    float d1 = k * k * mu1 * mu1 - 1.0, d2 = k * k * mu2 * mu2 - 1.0;
+    float s1 = max(abs(d1), 0.05) * sign(d1 + 0.000001), s2 = max(abs(d2), 0.05) * sign(d2 + 0.000001);
+    float a1 = 0.75 * w * mu1 * mu1 * f1 * (1.0 + g * (1.0 - w)) / s1;
+    float b1 = 0.75 * w * mu1 * f1 - 3.0 * mu1 * (1.0 - w) * a1;
+    float a2 = 0.75 * w * mu2 * mu2 * f2 * (1.0 + g * (1.0 - w)) / s2;
+    float b2 = 0.75 * w * mu2 * f2 - 3.0 * mu2 * (1.0 - w) * a2;
+    float e1 = exp(-tc / mu1), e2 = exp(-tc / mu2);
+    float r1 = top - a1 - a2 + 0.6666667 * (b1 + b2);
+    float r2 = bottom + ground * (mu1 * f1 * e1 + mu2 * f2 * e2) - ((1.0 - ground) * a1 + 0.6666667 * (1.0 + ground) * b1) * e1
+            - ((1.0 - ground) * a2 + 0.6666667 * (1.0 + ground) * b2) * e2;
+    float m11 = 1.0 + p, m12 = e * (1.0 - p), m21 = e * (1.0 - ground - (1.0 + ground) * p), m22 = 1.0 - ground + (1.0 + ground) * p;
+    float det = m11 * m22 - m12 * m21;
+    float c1 = (r1 * m22 - m12 * r2) / det, c2 = (m11 * r2 - m21 * r1) / det;
+    float x = exp(-k * tau), y = exp(-k * (tc - tau));
+    float t1 = exp(-tau / mu1), t2 = exp(-tau / mu2);
+    float i0 = c1 * x + c2 * y + a1 * t1 + a2 * t2;
+    float i1 = k / q * (c2 * y - c1 * x) + b1 * t1 + b2 * t2;
+    return i0 + c * i1;
 }
 
 // ---------------------------------------------------------------- огненный шторм (client/nuclear/FireStorm)

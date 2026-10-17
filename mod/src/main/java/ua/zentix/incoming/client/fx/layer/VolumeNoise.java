@@ -88,6 +88,15 @@ public final class VolumeNoise {
         return smoothstep(0.4 - 0.45 * fill, 0.7, r - 0.3 * (1 - g)) / (0.3 + 0.225 * fill);
     }
 
+    /**
+     * Мелкие клубы — множитель густоты внутри крупных ({@code pallDetail} в {@code pall.glsl} — то же): {@code r} — канал
+     * клубов плитки, взятой вчетверо мельче. От 0,3 до 1,7, в среднем по равномерному каналу — ровно 1 (сглаженный порог
+     * в середине 0..1): каскад «крупные × мелкие» не меняет средней густоты поля, а значит и видимости в пелене.
+     */
+    public static double detail(double r) {
+        return 0.3 + 1.4 * smoothstep(0.2, 0.8, r);
+    }
+
     /** Градиентный шум Перлина с периодом {@code period} ячеек, −1..1. */
     static double perlin(double x, double y, double z, int period, int[] perm) {
         int xi = (int) Math.floor(x), yi = (int) Math.floor(y), zi = (int) Math.floor(z);

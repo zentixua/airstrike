@@ -34,7 +34,8 @@ public final class NukePall {
     private static final double[] DRIFT = new double[2], SURGE = new double[3];
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f(), CULL = new Vector3f();
     private static final float[] GLOW = new float[8];
-    private static final Vector3f SKY = new Vector3f();
+    /** Цвет толстой пыли ({@code DUST} в {@code fx_pall.fsh}, цвет стены пыли). */
+    static final double[] DUST = {0.60, 0.53, 0.45};
     /** Подрывы слотов кадра — для огненного шторма после света кадра. */
     private static final ClientNuclear.Active[] SLOTTED = new ClientNuclear.Active[2];
     /**
@@ -237,34 +238,64 @@ public final class NukePall {
         return true;
     }
 
-    /** Солнце, небо и пожары кадра — в долях экрана, как мир вокруг. */
+    /**
+     * Солнце, небо и пожары кадра. Свет солнца и неба — линейный ({@link PallLight}), белая горизонтальная стена под
+     * полуденным солнцем и небом — 1, как верх белого блока днём. Небо — каким его рисует Minecraft, в линейном
+     * ({@link PallLight#SKY}: в полдень — около пятой части дневного света), солнце — остальное до белого: синее неба взято
+     * из его пучка, вместе они — белый дневной свет. Свет солнца — что от него на белой стене к солнцу, неба — на белой
+     * стене под всем небом.
+     */
     private static void light(ClientLevel level, Vec3 eye, float partial, PallPass.Frame f) {
         float angle = level.getTimeOfDay(partial) * Mth.TWO_PI;
         float sx = -Mth.sin(angle), sy = Mth.cos(angle);
         boolean sky = level.dimensionType().hasSkyLight() && !level.dimensionType().hasCeiling();
         float day = sky ? smooth(-0.06f, 0.18f, sy) * (1 - 0.55f * level.getRainLevel(partial)) * (1 - 0.35f * level.getThunderLevel(partial)) : 0;
         f.sun.set(sx, sy, 0, day);
-        // низкое солнце — краснее: длинный путь через воздух
-        float low = Mth.clamp(sy / 0.35f, 0, 1);
-        f.sunLight.set(1.05f * day, (0.62f + 0.36f * low) * day, (0.38f + 0.52f * low) * day);
         Vec3 skyColor = level.getSkyColor(eye, partial);
         float night = 1 - day;
-        f.skyLight.set((float) skyColor.x * 0.7f + 0.03f * night, (float) skyColor.y * 0.7f + 0.035f * night, (float) skyColor.z * 0.7f + 0.05f * night);
-        // ночью — не темнее света неба на клубах стены пыли и гриба (FarView.ambient, 0,17): цвет неба ночью почти чёрный,
-        // и пелена за фронтом была бы чёрным занавесом над городом, где стена пыли и мир ещё видны
+        // ночью — не темнее света неба на клубах стены пыли и гриба (FarView.ambient, 0,17 на экране): цвет неба ночью почти
+        // чёрный, и пелена за фронтом была бы чёрным занавесом над городом, где стена пыли и мир ещё видны
         float ambient = FarView.ambient(level, partial);
-        f.skyLight.max(SKY.set(nightSky(ambient, night)));
+        float floor = (float) PallLight.linear(nightSky(ambient, night));
+        f.skyLight.set(skyLight(skyColor.x, floor), skyLight(skyColor.y, floor), skyLight(skyColor.z, floor));
+        // низкое солнце — краснее (длинный путь через воздух): на экране 1, 0,63, 0,42 к полуденному
+        float low = Mth.clamp(sy / 0.35f, 0, 1);
+        f.sunLight.set(sunLight(1, f.skyLight.x, day), sunLight((0.62 + 0.36 * low) / 0.98, f.skyLight.y, day),
+                sunLight((0.38 + 0.52 * low) / 0.9, f.skyLight.z, day));
+        // отсвет стены и зарево пожаров (на экране) прибавляются к свету неба на экране — к этому
+        f.base = ambient;
         f.glowOnSmoke = (float) CloudPuffs.glowOnSmoke(ambient);
-        // зарево пожаров снизу на белой пелене (пыль и мгла берут его по своей белизне, fx_pall): днём его почти не видно,
+        // зарево пожаров снизу на белой пелене, на экране поверх света неба (fx_pall берёт его разностью, pallLift; пыль
+        // и мгла — по своему альбедо): днём его почти не видно,
         // ночью ярче ночного неба в десяток раз, но не как огонь (ярче — и вся мгла над горящим городом выходила
         // ровно-оранжевой)
         float fire = 0.6f * (1 - 0.75f * day);
         f.fireLight.set(fire, fire * 0.45f, fire * 0.16f);
-        f.ambient.set(0.60f * (0.45f * f.sunLight.x + 0.8f * f.skyLight.x), 0.53f * (0.45f * f.sunLight.y + 0.8f * f.skyLight.y),
-                0.45f * (0.45f * f.sunLight.z + 0.8f * f.skyLight.z), 1);
+        // цвет тонкой пыли на экране (PallLight.thin) — квадратам слоя, перед которыми пелены почти нет
+        float mu = Math.max(sy, 0.12f);
+        f.ambient.set(thinDust(0, mu, f), thinDust(1, mu, f), thinDust(2, mu, f), 1);
     }
 
-    /** Свет неба на пелене ночью — не меньше этого ({@code night} — доля ночи 0..1): как свет неба на клубах стены. */
+    /**
+     * Цвет тонкой пыли кадра на экране в канале c: рассеянный ею свет ({@link PallLight#thin}, альбедо — по линейному
+     * цвету пыли {@code fx_pall}) на единицу ослабления — её функция источника, в значение экрана.
+     */
+    private static float thinDust(int c, float mu, PallPass.Frame f) {
+        double w = PallLight.albedo(PallLight.linear(DUST[c]), PallLight.truncated(PallLight.DUST_G));
+        return (float) PallLight.display(PallLight.thin(w, f.sunLight.get(c), f.skyLight.get(c), mu, PallLight.LAND));
+    }
+
+    /** Свет неба канала: цвет неба Minecraft на экране — в линейный, его доля {@link PallLight#SKY}, не меньше floor. */
+    private static float skyLight(double display, float floor) {
+        return Math.max((float) (PallLight.SKY * PallLight.linear(display)), floor);
+    }
+
+    /** Свет солнца канала: остальное до белого после неба sky, покраснение red (на экране), сила дня day. */
+    private static float sunLight(double red, float sky, float day) {
+        return day * (float) (PallLight.linear(red) * Math.max(1 - sky, 0));
+    }
+
+    /** Свет неба на пелене ночью на экране — не меньше этого ({@code night} — доля ночи 0..1): как свет неба на клубах стены. */
     static float nightSky(float ambient, float night) {
         return ambient * night;
     }

@@ -285,8 +285,13 @@ public final class PallPass {
         public final Vector3f min = new Vector3f(), max = new Vector3f();
         /** Направление на солнце и его сила днём 0..1. */
         public final Vector4f sun = new Vector4f();
-        /** Свет солнца, неба и пожаров на экране. */
+        /**
+         * Свет солнца и неба — линейный (белая стена в полдень — 1, {@code client/nuclear/PallLight}); зарево пожаров под
+         * мглой — на белой стене на экране, поверх {@link #base}.
+         */
         public final Vector3f sunLight = new Vector3f(), skyLight = new Vector3f(), fireLight = new Vector3f();
+        /** Свет неба кадра на экране — белая стена: днём 1, ночью — как у клубов стены пыли ({@code FarView.ambient}). */
+        public float base = 1;
         /**
          * Свет стены пыли на пелене слотов ({@code client/nuclear/CloudPuffs#pallLight}): glow — свет шара и шапки сверху,
          * накал гриба, шесть радиусов шара и край зоны пожаров (блоки); hot — цвет накала (rgb) и высота шара или шапки
@@ -295,7 +300,7 @@ public final class PallPass {
         public final Vector4f glow0 = new Vector4f(), glow1 = new Vector4f(), hot0 = new Vector4f(), hot1 = new Vector4f();
         /** Сила отсвета стены на пыли при свете неба кадра ({@code CloudPuffs#glowOnSmoke}). */
         public float glowOnSmoke;
-        /** Средний свет пелены (rgb) — для квадратов слоя перед частицами; w — 1, если пелена есть. */
+        /** Цвет тонкой пелены на экране (rgb) — для квадратов слоя перед частицами; w — 1, если пелена есть. */
         public final Vector4f ambient = new Vector4f();
         /** Дальше стольких блоков луч не идёт (в густой пыли у глаза — что за ней, всё равно не видно). */
         public float clip;
@@ -498,6 +503,7 @@ public final class PallPass {
         m.safeGetUniform("PallSunLight").set(f.sunLight.x, f.sunLight.y, f.sunLight.z);
         m.safeGetUniform("PallSkyLight").set(f.skyLight.x, f.skyLight.y, f.skyLight.z);
         m.safeGetUniform("PallFireLight").set(f.fireLight.x, f.fireLight.y, f.fireLight.z);
+        m.safeGetUniform("PallBase").set(f.base);
         m.safeGetUniform("PallGlow0").set(f.glow0.x, f.glow0.y, f.glow0.z, f.glow0.w);
         m.safeGetUniform("PallGlow1").set(f.glow1.x, f.glow1.y, f.glow1.z, f.glow1.w);
         m.safeGetUniform("PallHot0").set(f.hot0.x, f.hot0.y, f.hot0.z, f.hot0.w);
@@ -550,6 +556,8 @@ public final class PallPass {
         c.safeGetUniform("PallSlot0").set(f.slot0);
         c.safeGetUniform("PallSlot1").set(f.slot1);
         c.safeGetUniform("PallSun").set(f.sun.x, f.sun.y, f.sun.z, f.sun.w);
+        c.safeGetUniform("PallSunLight").set(f.sunLight.x, f.sunLight.y, f.sunLight.z);
+        c.safeGetUniform("PallSkyLight").set(f.skyLight.x, f.skyLight.y, f.skyLight.z);
         c.safeGetUniform("PallFrame").set(0f, 0f, factor, 0f);
         c.safeGetUniform("PallFire0").set(fireSlot0);
         c.safeGetUniform("PallFire1").set(fireSlot1);
