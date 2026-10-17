@@ -201,11 +201,8 @@
    "act": "end",
    "card": "INCOMING",
    "style": "title",
-   "dur": 1.92
-  },
-  {
-   "card": "Free and open source\nMinecraft 1.21.1 · NeoForge\nModrinth · CurseForge",
-   "dur": 2.88
+   "dur": 4.8,
+   "note": "в конце только название, без логотипа и титров (решение Артёма 15.10)"
   }
  ]
 }
