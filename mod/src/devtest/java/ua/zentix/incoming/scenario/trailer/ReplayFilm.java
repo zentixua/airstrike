@@ -103,6 +103,11 @@ public final class ReplayFilm {
     private final @Nullable String snap;
     /** Угол кадра живого снимка (ComputeFov), NaN — угол из настроек. */
     private double snapFov = Double.NaN;
+    /**
+     * Вывод только части окна плана ({@code INCOMING_FILM_TICKS=<от>..<до>}, тики повтора): короткий вывод вокруг нужного
+     * момента (17.10: сверка пелены n36 — темнеет ли кадр с начала вывода или копится по истории кадров). null — всё окно.
+     */
+    private final int @Nullable [] onlyTicks;
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
     /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
@@ -210,6 +215,13 @@ public final class ReplayFilm {
         beforeQueue = System.getenv("INCOMING_FILM_SHOWN") != null;
         String sn = System.getenv("INCOMING_FILM_SNAP");
         snap = sn == null || sn.isBlank() ? null : sn.trim();
+        String ot = System.getenv("INCOMING_FILM_TICKS");
+        if (ot == null || ot.isBlank()) {
+            onlyTicks = null;
+        } else {
+            String[] r = ot.trim().split("\\.\\.");
+            onlyTicks = new int[]{Integer.parseInt(r[0]), Integer.parseInt(r[1])};
+        }
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
@@ -553,6 +565,10 @@ public final class ReplayFilm {
         }
         a = Math.max(a, 1);
         b = Math.min(b, Math.min(total, data.ticks) - 2);
+        if (onlyTicks != null) {
+            a = Math.max(a, onlyTicks[0]);
+            b = Math.min(b, onlyTicks[1]);
+        }
         Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film shot %s: %s, ticks %d..%d (plan %d..%d, event %d at %s), replay %d ticks", spec.shot(),
                 subject.what, a, b, sa, sb, subject.key, subject.keyPos, total));
         FlashbackApi.seek(subject.key >= 0 ? Math.max(a, subject.key - 5) : a);
