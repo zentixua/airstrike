@@ -183,9 +183,13 @@ public final class NukePall {
         // свет кадра — до грибов: днём в кадр идёт и гриб, чья тень в нём (MushroomField.frame)
         light(level, eye, partial, f);
         f.mushroomCount = MushroomField.frame(all, eye, partial, frustum, air, f.sun, level.getMinBuildHeight(), level.getMaxBuildHeight(), f.mushrooms);
+        // свет шаров на мире — от всех подрывов: шар за спиной освещает землю перед глазом
+        openSky(f.openSky);
+        double open = 0.2126 * PallLight.linear(f.openSky.x) + 0.7152 * PallLight.linear(f.openSky.y) + 0.0722 * PallLight.linear(f.openSky.z);
+        f.ballsLit = MushroomField.balls(all, eye, partial, air, f.exposure, open, f.balls, f.ballLight);
         List<ClientNuclear.Active> visible = new ArrayList<>();
         if (q != PallPass.Quality.OFF) for (ClientNuclear.Active a : all) if (visible(a, partial)) visible.add(a);
-        if (visible.isEmpty() && f.mushroomCount == 0) return null;
+        if (visible.isEmpty() && f.mushroomCount == 0 && !f.ballsLit) return null;
         visible.sort(Comparator.comparingDouble(a -> outside(a, eye, partial)));
         f.quality = q == PallPass.Quality.OFF ? PallPass.Quality.LOW : q;
         f.slot0.zero();
@@ -209,7 +213,7 @@ public final class NukePall {
         int k = 0;
         float bottom = (float) (level.getMinBuildHeight() - eye.y);
         for (int i = 0; i < visible.size() && k < 2; i++) if (slot(visible.get(i), k, eye, partial, frustum, bottom, air, f)) SLOTTED[k++] = visible.get(i);
-        if (k == 0 && f.mushroomCount == 0) return null;
+        if (k == 0 && f.mushroomCount == 0 && !f.ballsLit) return null;
         // без пелены — рамка нулевая: луч в неё не входит (перевёрнутая рамка вышла бы всем лучом)
         if (k == 0) {
             f.min.zero();
@@ -222,6 +226,16 @@ public final class NukePall {
         float s = q == PallPass.Quality.OFF ? 0 : sigma;
         f.clip = s > 1e-4f ? 12 / s : 1e6f;
         return f;
+    }
+
+    /**
+     * Свет открытого неба на белом блоке, как его рисует Minecraft, на экране — в {@code out}: карта освещения кадра
+     * (небо 15, свет блоков 0; время суток, яркость в настройках, зелья, измерение). По нему вывод на кадр узнаёт цвет
+     * мира под светом шара: пиксель, делённый на него, — цвет самого блока.
+     */
+    private static void openSky(Vector3f out) {
+        int c = Minecraft.getInstance().gameRenderer.lightTexture().lightPixels.getPixelRGBA(0, 15);
+        out.set((c & 0xFF) / 255f, (c >> 8 & 0xFF) / 255f, (c >> 16 & 0xFF) / 255f);
     }
 
     /** Есть ли что рисовать у подрыва: пелена, голова стены пыли или облако Вильсона. */

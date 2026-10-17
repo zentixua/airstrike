@@ -3,6 +3,7 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.FrustumIntersection;
+import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 import ua.zentix.incoming.client.fx.layer.PallPass;
@@ -88,7 +89,17 @@ public final class MushroomField {
     /** Сдвиг места в очереди кадра у гриба, от которого в кадре только тень: больше любого углового размера. */
     private static final double SHADOW_ONLY = 1e6;
 
+    /** Шаров — источников света на мире ({@link #balls}), не больше. */
+    public static final int BALLS = 4;
+    /**
+     * Шар светит на мир, пока его свет на земле под ним — не меньше этой доли света открытого неба кадра: меньше на
+     * экране не различить (у 15 кт ночью — ~12 с, днём — ~9 с).
+     */
+    static final double BALL_SEEN = 0.005;
+
     private static final float[] BB = blackBody();
+    private static final double[] BALL = new double[4], CENTRE = new double[3], BALL_WEIGHT = new double[BALLS];
+    private static final Vector4f COLUMN = new Vector4f();
     private static final double[] RGB = new double[3], DRIFT = new double[2], RAYS = new double[3], AXIS_A = new double[3],
             AXIS_B = new double[3], RECT = new double[4];
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f();
@@ -193,6 +204,56 @@ public final class MushroomField {
             put(f.mushrooms, o, 12, storm * FireStorms.FIRE_R + table * f.fireLight.x, storm * FireStorms.FIRE_G + table * f.fireLight.y,
                     storm * FireStorms.FIRE_B + table * f.fireLight.z, churn);
         }
+    }
+
+    /**
+     * Огненные шары и шапки как источники света на мире ({@code fx_pall_composite}: {@code PallBalls}, {@code PallBallLight}):
+     * до {@link #BALLS} самых сильных у глаза, из всех подрывов — свет ложится на землю в кадре и тогда, когда шар за спиной.
+     * Столбец i {@code balls} — середина шапки от глаза (xyz) и её радиус (w), блоки; {@code light} — свет чёрного тела её
+     * видимой температуры на белой стене у её поверхности с привыканием глаза ({@code exposure}, rgb, как пучок в
+     * {@code fx_pall}) и ослабление воздуха, 1/блок (w). Пустой столбец — нули. Возвращает, светит ли хоть один шар на
+     * землю под собой (ближе всего к нему) не меньше {@link #BALL_SEEN} света открытого неба кадра {@code open}
+     * (яркость, линейная), — иначе проход вывода его не считает.
+     */
+    static boolean balls(List<ClientNuclear.Active> all, Vec3 eye, float partial, double airSigma, double exposure, double open,
+                         Matrix4f balls, Matrix4f light) {
+        balls.zero();
+        light.zero();
+        java.util.Arrays.fill(BALL_WEIGHT, 0);
+        boolean seen = false;
+        for (ClientNuclear.Active a : all) {
+            MushroomModel.Shape s = shape(a, partial);
+            if (s == null) continue;
+            Detonation d = a.d;
+            BlackBody.light(MushroomModel.edgeTemperature(s.t(), d.yieldKt(), d.surface()), BALL);
+            double r = d.blocks(s.capR()), h = Math.max(d.blocks(s.capY()), r), surface = BALL[3] * exposure;
+            // земля под шаром — ближе всего к нему
+            boolean lit = surface * r * r / (h * h) >= BALL_SEEN * open;
+            if (!lit) continue;
+            centre(a, s, CENTRE);
+            double dx = CENTRE[0] - eye.x, dy = CENTRE[1] - eye.y, dz = CENTRE[2] - eye.z;
+            double w = surface * r * r / Math.max(dx * dx + dy * dy + dz * dz, r * r);
+            int slot = 0;
+            for (int i = 1; i < BALLS; i++) if (BALL_WEIGHT[i] < BALL_WEIGHT[slot]) slot = i;
+            if (w <= BALL_WEIGHT[slot]) continue;
+            BALL_WEIGHT[slot] = w;
+            seen = true;
+            balls.setColumn(slot, COLUMN.set((float) dx, (float) dy, (float) dz, (float) r));
+            light.setColumn(slot, COLUMN.set((float) (BALL[0] * exposure), (float) (BALL[1] * exposure), (float) (BALL[2] * exposure),
+                    (float) (airSigma / d.scale())));
+        }
+        return seen;
+    }
+
+    /**
+     * Один канал пикселя мира под светом шаров ({@code relit} в {@code fx_pall_composite}), линейный: мир на экране
+     * {@code world}, доля его прежнего света на экране {@code kept} (тень), свет открытого неба на белом блоке на экране
+     * {@code open} (карта освещения Minecraft), свет шаров на белой стене {@code added} (линейный). Цвет блока — пиксель,
+     * делённый на свет открытого неба, не белее белого.
+     */
+    static double relit(double world, double kept, double open, double added) {
+        double lin = PallLight.linear(world);
+        return lin * PallLight.linear(kept) + Math.min(lin / Math.max(PallLight.linear(open), 1e-4), 1) * added;
     }
 
     /** Гриб подрыва в момент кадра; null — его ещё нет или он рассеялся. */

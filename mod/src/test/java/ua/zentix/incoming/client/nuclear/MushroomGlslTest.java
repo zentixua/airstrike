@@ -177,6 +177,45 @@ class MushroomGlslTest {
         }
     }
 
+    /**
+     * Свет шара на мире ({@code fx_pall_composite}): спад от середины — как у {@link MushroomModel#light}; пиксель мира под
+     * ним — как {@link MushroomField#relit}. Без света шара пиксель тот же (тень — та же доля на экране); свет ложится по
+     * цвету блока: тёмный блок светлеет меньше, а пиксель темнее открытого неба (пещера, дом) — во столько же раз меньше;
+     * цвет блока не белее белого.
+     */
+    @Test
+    void ballLightMatchesJava() {
+        GlslFunction falloff = GlslFunction.parse(GLSL, "mushBallFalloff");
+        MushroomModel.Shape s = MushroomModel.shape(3, 15, 0, true, 1e9);
+        double lum = ua.zentix.incoming.nuclear.model.BlackBody.luminance(MushroomModel.edgeTemperature(3, 15, true));
+        for (double d : new double[]{0, 100, s.capR(), 500, 2000, 9000}) {
+            double r = s.capR();
+            assertEquals(MushroomModel.light(s, 15, true, d) / lum, falloff.call(Map.of("d2", d * d, "r2", r * r)), 1e-9, "d = " + d);
+        }
+        GlslFunction relit = GlslFunction.parse(read("include/pall.glsl") + read("core/fx_pall_composite.fsh"), "relit");
+        for (double world : new double[]{0, 0.05, 0.3, 0.8, 1}) {
+            for (double kept : new double[]{0.4, 1}) {
+                for (double open : new double[]{0.3, 1}) {
+                    for (double added : new double[]{0, 0.01, 2, 300}) {
+                        Map<String, Double> args = Map.of("world", world, "kept", kept, "open", open, "added", added);
+                        assertEquals(MushroomField.relit(world, kept, open, added), relit.call(args), 1e-9, args.toString());
+                    }
+                }
+            }
+        }
+        // без света шара — тот же пиксель с той же тенью
+        assertEquals(0.3 * 0.7, PallLight.display(MushroomField.relit(0.3, 0.7, 0.31, 0)), 1e-9);
+        // свет — по цвету блока: тёмный светлеет меньше светлого, пиксель в доме вдвое темнее неба — вдвое меньше
+        double open = 0.31, light = 0.5;
+        double bright = MushroomField.relit(0.3, 1, open, light) - PallLight.linear(0.3);
+        double dark = MushroomField.relit(0.1, 1, open, light) - PallLight.linear(0.1);
+        assertTrue(dark < bright, dark + " ≥ " + bright);
+        double inside = MushroomField.relit(PallLight.display(PallLight.linear(0.3) / 2), 1, open, light) - PallLight.linear(0.3) / 2;
+        assertEquals(bright / 2, inside, 1e-9);
+        // у факела пиксель ярче открытого неба — цвет блока не белее белого
+        assertEquals(PallLight.linear(0.9) + light, MushroomField.relit(0.9, 1, open, light), 1e-9);
+    }
+
     /** Таблица грибов: шейдер читает тексели 0..TEXELS−1 строки гриба (номером или константой). */
     @Test
     void tableLayoutMatchesJava() {

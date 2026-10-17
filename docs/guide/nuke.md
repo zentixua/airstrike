@@ -40,14 +40,16 @@ The fireball shines white with brighter and darker patches boiling over it, and 
 rises and rolls into a ring of hot gas: the cap of the mushroom cloud, the same body from the first moment. As it rolls
 up, its outside mixes with cold air, turns dark red and then into brown smoke. Dust in front of the fireball hides it,
 and its light falls on the dust and smoke around it. By day it outshines the sky only for its first few seconds; at
-night its red glow lasts a few seconds longer. The cap is a dense cloud of round billows, reddish brown at first from
-the nitrogen oxides in it, then grey-white within about a minute as water condenses in it. While the cloud climbs, the
-cap keeps rolling: gas goes up through its middle, out over the top and down the outside, and billows swell out of it
-and sink back. The faster the cloud climbs, the faster it rolls; when the cloud stops rising, the cap stops too. The sun
-lights one side of it, and the folds between the billows stay darker. By day the cloud casts its shadow on the land:
-under the thick cap only the sky lights the ground. A column of dust rises from the ground into the cap, and a skirt of
-dust spreads around its foot. A burning town lights the foot of the column orange from below, and the cap high above
-only faintly. Far away, and more so in rain, the cloud fades into the haze.
+night its red glow lasts a few seconds longer. At night it also lights the land for kilometres around: white at first,
+then yellow and orange, dark again within about ten seconds at 15 kt; slopes facing it are bright, slopes turned away
+stay dark. The cap is a dense cloud of round billows, reddish brown at first from the nitrogen oxides in it, then
+grey-white within about a minute as water condenses in it. While the cloud climbs, the cap keeps rolling: gas goes up
+through its middle, out over the top and down the outside, and billows swell out of it and sink back. The faster the
+cloud climbs, the faster it rolls; when the cloud stops rising, the cap stops too. The sun lights one side of it, and
+the folds between the billows stay darker. By day the cloud casts its shadow on the land: under the thick cap only the
+sky lights the ground. A column of dust rises from the ground into the cap, and a skirt of dust spreads around its foot.
+A burning town lights the foot of the column orange from below, and the cap high above only faintly. Far away, and more
+so in rain, the cloud fades into the haze.
 
 Behind the wave a pall of dust climbs over the town for a minute or two, up to about 200 m high at 15 kt and lower
 toward the edge. From a rooftop near the blast you first see the wave cross the town, then the dust swallows you. At

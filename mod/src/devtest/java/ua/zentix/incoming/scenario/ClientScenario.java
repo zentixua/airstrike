@@ -139,6 +139,8 @@ public final class ClientScenario {
     private int mushroomYaw = 180;
     /** Сценарий {@code mushroom}: тень гриба на земле ({@code INCOMING_MUSHROOM=shadow}). */
     private boolean shadowView;
+    /** Сценарий {@code mushroom}: свет шара на земле ночью ({@code INCOMING_MUSHROOM=glow}). */
+    private boolean glowView;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
     /** Ядерный подрыв у воды ({@code nuke-water}, {@code nuke-lake}): кадры от подрыва ({@link #waterEvents}). */
@@ -606,6 +608,10 @@ public final class ClientScenario {
      * {@code pall_shadow_<время>} при солнце с востока на разной высоте (тень гриба вытянута к западу на высоту шапки,
      * делённую на тангенс высоты солнца: с 1875 до 3125 она на зрителе, край проходит по нему до и после) и при солнце
      * с запада (8000: тени нет, пелена та же).
+     * <p>
+     * Свет шара на земле ночью ({@code INCOMING_MUSHROOM=glow}): подрыв в 3 км к востоку, зритель в 200 блоках над землёй
+     * смотрит на восток и вниз — на земле перед ним свет шара, сам шар у верха кадра; кадры {@code pall_glow_<секунды>s}
+     * от 1 до 14 с: белый, жёлтый, оранжевый свет и темнота, когда шапка свернулась.
      */
     private void planMushroom() {
         mushroom = true;
@@ -620,6 +626,18 @@ public final class ClientScenario {
                 hover = true;
             });
             at(400, () -> cmd("incoming nuke now at 5000.5 320 0.5 15 ground"));
+            return;
+        }
+        if ("glow".equals(System.getenv("INCOMING_MUSHROOM"))) {
+            glowView = true;
+            at(40, () -> {
+                cmd("time set 18000");
+                cmd("weather clear");
+                cmd("gamerule doDaylightCycle false");
+                cmd("tp @s 0.5 200 0.5 -90 20");
+                hover = true;
+            });
+            at(400, () -> cmd("incoming nuke now at 3000.5 320 0.5 15 ground"));
             return;
         }
         at(20, () -> {
@@ -677,6 +695,14 @@ public final class ClientScenario {
                 t += 80;
             }
             at(t + 20, () -> {
+                Incoming.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+            return;
+        }
+        if (glowView) {
+            for (int s : new int[]{1, 2, 3, 5, 7, 9, 11, 14}) pallShot(tick + 20 * s, "glow_" + s + "s");
+            at(tick + 20 * 14 + 20, () -> {
                 Incoming.LOG.info("SCENARIO done");
                 Minecraft.getInstance().stop();
             });

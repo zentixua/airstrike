@@ -354,6 +354,14 @@ public final class PallPass {
         public int mushroomCount;
         /** Во сколько раз ярче кажется свет при свете неба кадра ({@code Sight.adapted}): свечение грибов. */
         public float exposure = 1;
+        /**
+         * Огненные шары, что светят на мир кадра ({@code MushroomField.balls}): середины и радиусы, свет и ослабление
+         * воздуха по столбцам; светит ли хоть один (иначе вывод на кадр их не считает и кадр не копирует).
+         */
+        public final Matrix4f balls = new Matrix4f().zero(), ballLight = new Matrix4f().zero();
+        public boolean ballsLit;
+        /** Свет открытого неба на белом блоке, как его рисует Minecraft (карта освещения: небо 15, блоки 0), на экране. */
+        public final Vector3f openSky = new Vector3f(1);
     }
 
     @Nullable
@@ -370,6 +378,8 @@ public final class PallPass {
     private static int table = -1, noise = -1, blue = -1, mushrooms = -1;
     /** Карта тени грибов от солнца (плитка {@link MushroomField#SHADOW}² на гриб) и её кадр; −1 — не вышла, тени нет. */
     private static int shadowMap = -1, shadowFbo = -1;
+    /** Копия кадра для света шаров на мире ({@link #copyFrame}) и её размер; −1 — ещё не нужна была. */
+    private static int frameCopy = -1, copyW, copyH;
     /** Карты огня слотов (текстура, её сторона, чья и какое заполнение) и карты этого кадра (−1 — нет). */
     private static final int[] FIRE = {-1, -1}, FIRE_SIDE = new int[2], FIRE_VERSION = new int[2], FIRE_NOW = {-1, -1};
     private static final Object[] FIRE_SOURCE = new Object[2];
@@ -636,6 +646,8 @@ public final class PallPass {
         // 3. на кадр
         GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, previous);
         RenderSystem.viewport(VIEWPORT[0], VIEWPORT[1], VIEWPORT[2], VIEWPORT[3]);
+        // свет огненных шаров делает мир ярче, а смешивание только ослабляет: копия кадра, вывод пишет пиксель мира целиком
+        boolean balls = f.ballsLit && copyFrame();
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.SRC_ALPHA,
                 GlStateManager.SourceFactor.ZERO, GlStateManager.DestFactor.ONE);
@@ -648,6 +660,7 @@ public final class PallPass {
         RenderSystem.setShaderTexture(6, ground1);
         RenderSystem.setShaderTexture(7, mushrooms);
         RenderSystem.setShaderTexture(8, shade ? shadowMap : table);
+        RenderSystem.setShaderTexture(9, balls ? frameCopy : table);
         c.safeGetUniform("InvViewProj").set(INVERSE);
         c.safeGetUniform("PallForward").set(FORWARD.x, FORWARD.y, FORWARD.z);
         c.safeGetUniform("PallSlot0").set(f.slot0);
@@ -664,6 +677,9 @@ public final class PallPass {
         c.safeGetUniform("PallWater1").set(f.water1.x, f.water1.y, f.water1.z, f.water1.w);
         c.safeGetUniform("PallFloorFrom").set(f.floorFrom);
         c.safeGetUniform("Haze").set(haze.x, haze.y, haze.z, haze.w);
+        c.safeGetUniform("PallBalls").set(balls ? f.balls : NO_FIRE);
+        c.safeGetUniform("PallBallLight").set(f.ballLight);
+        c.safeGetUniform("PallOpenSky").set(f.openSky.x, f.openSky.y, f.openSky.z);
         // пламя на поверхностях мерцает по трёхмерному шуму
         quad(c, true);
         RenderSystem.enableDepthTest();
@@ -890,6 +906,31 @@ public final class PallPass {
             GlStateManager._deleteTexture(shadowMap);
             shadowMap = shadowFbo = -1;
         }
+    }
+
+    /**
+     * Копия кадра, в который рисует вывод (привязанного сейчас), — до вывода, своей текстурой во весь кадр от его угла
+     * (место под размер кадра — заново при смене): свет шаров на мире ({@code fx_pall_composite}). false — копии нет.
+     */
+    private static boolean copyFrame() {
+        int w = VIEWPORT[0] + VIEWPORT[2], h = VIEWPORT[1] + VIEWPORT[3];
+        if (w <= 0 || h <= 0) return false;
+        if (frameCopy < 0) {
+            frameCopy = GlStateManager._genTexture();
+            GlStateManager._bindTexture(frameCopy);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MIN_FILTER, GlConst.GL_NEAREST);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_MAG_FILTER, GlConst.GL_NEAREST);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_S, GlConst.GL_CLAMP_TO_EDGE);
+            GlStateManager._texParameter(GlConst.GL_TEXTURE_2D, GlConst.GL_TEXTURE_WRAP_T, GlConst.GL_CLAMP_TO_EDGE);
+        }
+        GlStateManager._bindTexture(frameCopy);
+        if (w != copyW || h != copyH) {
+            GlStateManager._texImage2D(GlConst.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, w, h, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, null);
+            copyW = w;
+            copyH = h;
+        }
+        GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+        return true;
     }
 
     /** Кадры пониженного разрешения под размер кадра игры и качество (заново при смене). */
