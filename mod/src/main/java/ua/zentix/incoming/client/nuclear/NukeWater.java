@@ -113,7 +113,8 @@ public final class NukeWater {
     }
 
     /**
-     * Тик подрыва: вода под эпицентром (пока не известна наверняка и подрыв молод — заново), вода под пылью у земли
+     * Тик подрыва: вода под эпицентром (пока не известна наверняка и подрыв молод — заново; её берут и пелена — базисная
+     * волна и вода там, где карта под пеленой ничего не знает, {@link PallField#water}), вода под пылью у земли
      * ({@link CloudPuffs#water}), брызги у камеры.
      */
     static void tick(ClientNuclear.Active a, ClientLevel level, Vec3 eye) {
@@ -122,6 +123,7 @@ public final class NukeWater {
             Under u = under(level, a.d);
             w.wet(u.water() * WaterModel.wetBurst(a.d.hobMetres(), a.d.yieldKt()));
             a.puffs.burst(u.water(), w.wet());
+            a.pall.water(u.water(), w.wet());
             if (settles(u, a.age(), a.live)) w.settle(u.source());
         }
         if (!level.dimensionType().hasCeiling()) a.puffs.water(a.seconds(1), FarTerrain.water(level));

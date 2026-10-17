@@ -30,26 +30,28 @@ uniform sampler2D Sampler4;
 uniform mat4 PallFire0;
 uniform mat4 PallFire1;
 uniform sampler3D PallNoise;
-// рельеф под пеленой слотов (pall.glsl: pallFloor), как в fx_pall
+// рельеф и вода под пеленой слотов (pall.glsl: pallFloor, pallWater), вода слотов — как в fx_pall
 uniform sampler2D Sampler5;
 uniform sampler2D Sampler6;
 uniform vec4 PallGround0;
 uniform vec4 PallGround1;
 uniform float PallFloorFrom;
+uniform vec4 PallWater0;
+uniform vec4 PallWater1;
 
 out vec4 fragColor;
 
-// тень пелены на освещённом солнцем мире в точке p (от глаза): столбы пыли и мглы над ней к солнцу
+// тень пелены на освещённом солнцем мире в точке p (от глаза): столбы пыли, мглы и водяной пыли над ней к солнцу
+// (водяная пыль пропускает свет вперёд — её толща переносная, pall.glsl)
 float shade(vec3 p) {
-    float tau = 0.0, dense;
-    vec2 column, height;
+    float tau = 0.0;
     if (PallSlot0[1].w > 0.5) {
-        pallField(Sampler2, PallSlot0, p, column, height, dense);
-        tau += column.x + column.y;
+        PallAt f = pallField(Sampler2, Sampler5, PallSlot0, PallGround0, PallWater0, p);
+        tau += f.column.x + f.column.y + PALL_MIST_TRANSPORT * f.column.z;
     }
     if (PallSlot1[1].w > 0.5) {
-        pallField(Sampler2, PallSlot1, p, column, height, dense);
-        tau += column.x + column.y;
+        PallAt f = pallField(Sampler2, Sampler6, PallSlot1, PallGround1, PallWater1, p);
+        tau += f.column.x + f.column.y + PALL_MIST_TRANSPORT * f.column.z;
     }
     return mix(1.0, 0.4 + 0.6 * exp(-tau / max(PallSun.y, 0.12)), PallSun.w);
 }

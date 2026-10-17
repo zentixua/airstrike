@@ -7,8 +7,33 @@
 //   [1] = (снос пыли ветром x, z, блоки; длина шлейфа мглы, блоки; 1 — слот есть)
 //   [2] = (ветер x, z — единичный; v строки пыли в таблице; v строки мглы)
 //   [3] = (ослабление самой густой пыли, 1/блок; плитка шума, блоки; секунды после подрыва; 0)
-// Таблица: по ширине — радиус 0..reach, строки — пыль (ослабление у земли, высота, доля дыма) и мгла (ослабление,
-// высота, свет пожаров снизу).
+// Таблица: по ширине — радиус 0..reach, строки — пыль (ослабление у земли, высота, доля дыма, ослабление брызг над
+// водой — в том же слое) и мгла (ослабление, высота, свет пожаров снизу).
+// Вода слота W — vec4: (радиус базисной волны, её верх — блоки; её ослабление в самой густой части, 1/блок, 0 — волны нет;
+// 1 — под пеленой есть вода и её карта — канал g карты рельефа слота, PallGround; 0 — всюду суша).
+
+// Водяная пыль (брызги, базисная волна) — капли в десятки микрон: почти не поглощают и рассеивают вперёд (g ≈ 0,85).
+// Свет, что идёт к точке сквозь неё (солнце, небо, отсвет шара; тень на мире), почти весь проходит вперёд: по
+// дельта-Эддингтону толща для света — (1 − g²) от полной, а остаток рассеяния (g ≈ 0,46) — как у пыли (её фаза). Луч
+// зрения — по полной толще: туман размывает и гасит то, что за ним.
+const float PALL_MIST_TRANSPORT = 0.28;
+
+// Пелена слота в точке (pallField)
+struct PallAt {
+    // ослабление без шума (1/блок): пыль, мгла, водяная пыль (брызги и базисная волна)
+    vec3 sigma;
+    // столбы над точкой (ослабление × блоки): то же
+    vec3 column;
+    // доля дыма в пыли; свет пожаров снизу
+    float smoke;
+    float fire;
+    // высота точки в долях пелены: пыль с брызгами, мгла
+    vec2 height;
+    // доля самой густой пыли (с водяной пылью — по всему поднятому)
+    float dense;
+    // доля воды там, откуда подняло пыль и брызги (в первые секунды, пока снос мал, — под точкой)
+    float wet;
+};
 
 // доля густоты у земли на высоте x пелены (PallField.profile)
 float pallProfile(float x) {
@@ -30,23 +55,66 @@ float pallEdge(float u) {
     return 1.0 - smoothstep(0.96, 1.0, u);
 }
 
-// Поле слота S в точке p (от глаза), без шума (среднее по шуму — оно): x — ослабление пыли, y — мглы (1/блок),
-// z — доля дыма в пыли, w — свет пожаров снизу; column — столбы над точкой (пыль, мгла; ослабление × блоки),
-// height — высота точки в долях пелены (пыль, мгла), dense — доля самой густой пыли.
-vec4 pallField(sampler2D table, mat4 S, vec3 p, out vec2 column, out vec2 height, out float dense) {
-    vec2 q = p.xz - S[0].xy;
-    float above = p.y - S[0].z, reach = S[0].w;
-    float ud = length(q - S[1].xy) / reach;
+// базисная волна по радиусу (PallField.surgeProfile): u — доля её радиуса; у края катится вал — гуще
+float pallSurge(float u) {
+    return (0.35 + 0.65 * smoothstep(0.2, 0.85, u)) * (1.0 - smoothstep(0.9, 1.05, u));
+}
+
+// верх базисной волны по радиусу, доля её высоты (PallField.surgeTop): вал у края выше
+float pallSurgeTop(float u) {
+    return 0.55 + 0.45 * smoothstep(0.3, 0.95, u);
+}
+
+// доля воды под точкой rel (от эпицентра по земле) по карте слота (PallGround.water); карты нет (G.x = 0) — суша
+float pallWater(sampler2D ground, vec4 G, vec2 rel) {
+    if (G.x <= 0.0) return 0.0;
+    return clamp(textureLod(ground, rel / (2.0 * G.x) + 0.5, 0.0).g, 0.0, 1.0);
+}
+
+// Поле слота S в точке p (от глаза), без шума (среднее по шуму — оно); ground, G — карта рельефа и воды слота, W — вода
+// слота. Вещество — по воде там, откуда его подняло (PallField: пыль, снесённая на воду, остаётся пылью): пыль и брызги —
+// у точки за вычетом сноса, где читается и таблица; мгла — у её источника на оси шлейфа (над водой пожаров нет), только
+// если она здесь есть; базисная волна — вода, поднятая у эпицентра, над чем бы ни катилась (W.z = 0 — её нет). Без воды
+// под пеленой (W.w = 0) карта не читается.
+PallAt pallField(sampler2D table, sampler2D ground, mat4 S, vec4 G, vec4 W, vec3 p) {
+    vec2 q = p.xz - S[0].xy, lift = q - S[1].xy;
+    float above = p.y - S[0].z, reach = S[0].w, r = length(lift);
+    float ud = r / reach;
     vec4 dust = texture(table, vec2(min(ud, 1.0), S[2].z));
-    float topD = max(dust.g, 1.0), sd = dust.r * pallEdge(ud);
+    float topD = max(dust.g, 1.0), edge = pallEdge(ud);
+    float sd = dust.r * edge, ss = dust.a * edge;
     float len = S[1].z, along = clamp(dot(q, S[2].xy), 0.0, len);
-    float uh = length(q - S[2].xy * along) / reach;
+    vec2 source = q - S[2].xy * along;
+    float uh = length(source) / reach;
     vec4 haze = texture(table, vec2(min(uh, 1.0), S[2].w));
-    float topH = max(haze.g, 1.0), sh = haze.r * (1.0 - 0.5 * along / max(len, 1.0)) * pallEdge(uh);
-    height = vec2(above / topD, above / topH);
-    column = vec2(sd * topD * pallColumn(height.x), sh * topH * pallColumn(height.y));
-    dense = sd / max(S[3].x, 1e-6);
-    return vec4(sd * pallProfile(height.x), sh * pallProfile(height.y), dust.b, haze.b * exp(-3.0 * max(height.y, 0.0)));
+    float topH = max(haze.g, 1.0), sh = haze.r * (1.0 - 0.5 * along / max(len, 1.0)) * pallEdge(uh), fire = haze.b;
+    float wet = 0.0, sg = 0.0, topG = 1.0;
+    if (W.w > 0.5) {
+        if (sd + ss > 0.0) wet = pallWater(ground, G, lift);
+        sd *= 1.0 - wet;
+        ss *= wet;
+        if (sh + fire > 0.0) {
+            float dry = 1.0 - pallWater(ground, G, source);
+            sh *= dry;
+            fire *= dry;
+        }
+    }
+    if (W.z > 0.0) {
+        float ug = r / max(W.x, 1.0);
+        sg = W.z * pallSurge(ug);
+        topG = max(W.y * pallSurgeTop(ug), 1.0);
+    }
+    PallAt a;
+    a.height = vec2(above / topD, above / topH);
+    float hg = above / topG;
+    a.sigma = vec3(sd * pallProfile(a.height.x), sh * pallProfile(a.height.y), ss * pallProfile(a.height.x) + sg * pallProfile(hg));
+    a.column = vec3(sd * topD * pallColumn(a.height.x), sh * topH * pallColumn(a.height.y),
+            ss * topD * pallColumn(a.height.x) + sg * topG * pallColumn(hg));
+    a.smoke = dust.b;
+    a.fire = fire * exp(-3.0 * max(a.height.y, 0.0));
+    a.dense = (sd + ss + sg) / max(S[3].x, 1e-6);
+    a.wet = wet;
+    return a;
 }
 
 // Форма клубов по шуму (VolumeNoise.shape): n — каналы плитки (клубы, мелкие края), fill — насколько пелена сплошная;
@@ -64,8 +132,8 @@ vec2 pallBox(vec3 dir, vec3 lo, vec3 hi) {
 }
 
 // ---------------------------------------------------------------- рельеф под пеленой (client/nuclear/PallGround)
-// Карта слота: высоты верха рельефа над землёй под эпицентром, середина карты — эпицентр, края — как у края;
-// G = (полсторона карты; низ и верх карты; клетка — блоки), G.x = 0 — карты нет.
+// Карта слота: r — высоты верха рельефа над землёй под эпицентром, g — доля воды (pallWater); середина карты — эпицентр,
+// края — как у края; G = (полсторона карты; низ и верх карты; клетка — блоки), G.x = 0 — карты нет.
 
 // верх рельефа под точкой xz (от глаза) — от глаза по y (PallGround.at)
 float pallGroundAt(sampler2D ground, mat4 S, vec4 G, vec2 xz) {

@@ -31,7 +31,7 @@ public final class NukePall {
 
     private static final PallPass.Frame FRAME = new PallPass.Frame();
     private static final float[] ROW = new float[2 * PallPass.WIDTH * 4];
-    private static final double[] DRIFT = new double[2];
+    private static final double[] DRIFT = new double[2], SURGE = new double[3];
     private static final Vector3f LO = new Vector3f(), HI = new Vector3f(), CULL = new Vector3f();
     private static final float[] GLOW = new float[8];
     private static final Vector3f SKY = new Vector3f();
@@ -43,8 +43,8 @@ public final class NukePall {
      */
     private static final int SIDES_AND_NEAR = FrustumIntersection.PLANE_MASK_NX | FrustumIntersection.PLANE_MASK_PX
             | FrustumIntersection.PLANE_MASK_NY | FrustumIntersection.PLANE_MASK_PY | FrustumIntersection.PLANE_MASK_NZ;
-    /** Ослабление у камеры (1/блок) и глухость 0..1 — для звукового потока. */
-    private static volatile float sigma, muffle;
+    /** Ослабление у камеры (1/блок), из него — водяной пыли, и глухость 0..1 — для звукового потока. */
+    private static volatile float sigma, mist, muffle;
     private static volatile double earX, earY, earZ;
 
     private NukePall() {}
@@ -72,27 +72,31 @@ public final class NukePall {
         List<ClientNuclear.Active> all = ClientNuclear.detonations();
         FireStorms.tick(all);
         if (all.isEmpty()) {
-            sigma = muffle = 0;
+            sigma = mist = muffle = 0;
             NukeAsh.tick(level, cam, 0, 0, null);
             return;
         }
         if (quality() != PallPass.Quality.OFF) PallPass.prepare();
-        double s = 0, densest = 0, dust = 0;
+        double s = 0, wet = 0, densest = 0, dust = 0;
         // пепел и ветер — от подрыва, чья пелена у камеры гуще всех
         ClientNuclear.Active nearest = null;
         for (ClientNuclear.Active a : all) {
             double ticks = a.ticks(0);
             if (!a.pall.visible(ticks)) continue;
             Detonation d = a.d;
-            double here = a.pall.sigma(cam.x - d.burst().x, cam.z - d.burst().z, cam.y - d.groundY(), ticks);
+            PallField.Water water = water(a);
+            double dx = cam.x - d.burst().x, dz = cam.z - d.burst().z;
+            double here = a.pall.sigma(dx, dz, cam.y - d.groundY(), ticks, water);
             if (here > densest) {
                 densest = here;
                 nearest = a;
             }
             s += here;
-            dust = Math.max(dust, a.pall.ashRate(cam.x - d.burst().x, cam.z - d.burst().z, ticks));
+            wet += a.pall.mist(dx, dz, cam.y - d.groundY(), ticks, water);
+            dust = Math.max(dust, a.pall.ashRate(dx, dz, ticks, water));
         }
         sigma = (float) s;
+        mist = (float) wet;
         if (muffles()) {
             // глухость меняется плавно: пелена накрывает за секунды
             float target = (float) (1 - Math.exp(-MUFFLE_PER_SIGMA * s));
@@ -106,8 +110,14 @@ public final class NukePall {
         NukeAsh.tick(level, cam, dust, s, nearest);
     }
 
+    /** Доля воды под пеленой подрыва (dx, dz — от эпицентра) — по его карте {@link PallGround}. */
+    static PallField.Water water(ClientNuclear.Active a) {
+        double x0 = a.d.burst().x, z0 = a.d.burst().z;
+        return (dx, dz) -> a.ground.water(x0 + dx, z0 + dz);
+    }
+
     static void reset() {
-        sigma = muffle = 0;
+        sigma = mist = muffle = 0;
         PallPass.reset();
         NukeAsh.reset();
     }
@@ -149,6 +159,8 @@ public final class NukePall {
         f.hot1.zero();
         f.ground0.clear();
         f.ground1.clear();
+        f.water0.zero();
+        f.water1.zero();
         // мир кадра — чанки в дальности прорисовки (с запасом на край по чанкам): луч в пустоту прошёл их, ничего не задев
         f.floorFrom = Math.max(16, Minecraft.getInstance().options.getEffectiveRenderDistance() * 16 - 24);
         f.min.set(Float.MAX_VALUE);
@@ -172,21 +184,28 @@ public final class NukePall {
     }
 
     /**
-     * Слот k ({@code pall.glsl}): поле подрыва, его строки таблицы и рамка; false — слот не нужен (в таблице пусто
-     * или рамка вне кадра), он остаётся свободным для следующего подрыва. {@code bottom} — низ мира от глаза: в кадре
-     * подрыв и тогда, когда видна только земля под пеленой, — днём на ней тень пелены ({@code fx_pall_composite}),
-     * а долина или карьер под эпицентром бывают глубже низа пелены.
+     * Слот k ({@code pall.glsl}): поле подрыва, его строки таблицы, базисная волна и рамка; false — слот не нужен (в таблице
+     * пусто и волны нет, или рамка вне кадра), он остаётся свободным для следующего подрыва. Чего под пеленой нет — суши
+     * или воды ({@link PallGround}), — того нет и в таблице: подрыв посреди моря, когда брызги выпали, а волна растаяла,
+     * слота не занимает. {@code bottom} — низ мира от глаза: в кадре подрыв и тогда, когда видна только земля под пеленой,
+     * — днём на ней тень пелены ({@code fx_pall_composite}), а долина или карьер под эпицентром бывают глубже низа пелены.
      */
     private static boolean slot(ClientNuclear.Active a, int k, Vec3 eye, float partial, FrustumIntersection frustum, float bottom, PallPass.Frame f) {
         Detonation d = a.d;
         PallField p = a.pall;
         double ticks = a.ticks(partial);
-        p.row(ticks, ROW);
+        boolean water = a.ground.hasWater();
+        p.row(ticks, a.ground.hasLand(), water, ROW);
         double top = 1;
         boolean any = false;
         for (int i = 0; i < 2 * PallPass.WIDTH; i++) {
-            any |= ROW[4 * i] > 0;
+            // пыль или мгла; брызги (у узлов мглы — нули)
+            any |= ROW[4 * i] > 0 || ROW[4 * i + 3] > 0;
             top = Math.max(top, ROW[4 * i + 1]);
+        }
+        if (p.surge(ticks, SURGE)) {
+            any = true;
+            top = Math.max(top, SURGE[1]);
         }
         if (!any) return false;
         p.drift(ticks, DRIFT);
@@ -205,6 +224,8 @@ public final class NukePall {
         m.m10((float) DRIFT[0]).m11((float) DRIFT[1]).m12((float) plume).m13(1);
         m.m20((float) Math.cos(d.windDir())).m21((float) Math.sin(d.windDir())).m22((2 * k + 0.5f) / PallPass.ROWS).m23((2 * k + 1.5f) / PallPass.ROWS);
         m.m30((float) (PallField.SIGMA_DENSE / d.scale())).m31((float) Math.max(48, d.blocks(TILE_M * ys))).m32((float) (ticks / 20.0)).m33(0);
+        // вода слота: базисная волна и есть ли под пеленой вода (иначе шейдер карту воды не читает)
+        (k == 0 ? f.water0 : f.water1).set((float) SURGE[0], (float) SURGE[1], (float) SURGE[2], water ? 1 : 0);
         // свет стены пыли: отсвет шара, шапки и пожаров — тот же, что у её клубов
         a.puffs.pallLight(a.seconds(partial), GLOW);
         (k == 0 ? f.glow0 : f.glow1).set(GLOW[0], GLOW[1], GLOW[2], GLOW[3]);
@@ -266,10 +287,23 @@ public final class NukePall {
     public static String describe() {
         Minecraft mc = Minecraft.getInstance();
         PallPass.Frame f = FRAME;
-        return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks), muffle %.2f, ash %d, quality %s, "
-                        + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), frames: %s; firestorm: %s",
-                sigma, sigma > 1e-5f ? 3.912 / sigma : Double.POSITIVE_INFINITY, muffle, NukeAsh.alive(), quality(),
-                f.skyLight.y, f.glowOnSmoke, f.glow0.x, f.glow0.y, f.hot0.x, f.hot0.y, f.hot0.z, mc.level == null ? "-" : PallPass.describe(),
-                FireStorms.describe());
+        List<ClientNuclear.Active> all = ClientNuclear.detonations();
+        String under = "-";
+        if (!all.isEmpty()) {
+            // вода там, откуда подняло пелену у камеры (точка минус снос), — из чего она у камеры
+            ClientNuclear.Active a = all.getLast();
+            Vec3 cam = mc.gameRenderer.getMainCamera().getPosition();
+            double[] w = new double[2];
+            a.pall.drift(a.ticks(0), w);
+            under = String.format(java.util.Locale.ROOT, "%.2f water (land %b, water %b), wind to %.0f° drift %.0f blocks, water where the pall at the camera rose %.2f",
+                    a.ground.waterShare(), a.ground.hasLand(), a.ground.hasWater(), Math.toDegrees(a.d.windDir()), Math.hypot(w[0], w[1]),
+                    a.ground.water(cam.x - w[0], cam.z - w[1]));
+        }
+        return String.format(java.util.Locale.ROOT, "sigma at camera %.4f /block (visibility %.0f blocks; mist %.4f), muffle %.2f, ash %d, quality %s, "
+                        + "light: sky %.3f, wall %.2f × (overhead %.2f, glow %.2f, hot %.2f %.2f %.2f), under the pall: %s, surge r %.0f top %.0f sigma %.4f, "
+                        + "frames: %s; firestorm: %s",
+                sigma, sigma > 1e-5f ? 3.912 / sigma : Double.POSITIVE_INFINITY, mist, muffle, NukeAsh.alive(), quality(),
+                f.skyLight.y, f.glowOnSmoke, f.glow0.x, f.glow0.y, f.hot0.x, f.hot0.y, f.hot0.z, under, f.water0.x, f.water0.y, f.water0.z,
+                mc.level == null ? "-" : PallPass.describe(), FireStorms.describe());
     }
 }

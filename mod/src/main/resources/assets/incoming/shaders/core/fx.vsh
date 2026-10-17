@@ -40,6 +40,13 @@ uniform sampler2D Sampler7;
 uniform sampler2D Sampler8;
 uniform mat4 PallFire0;
 uniform mat4 PallFire1;
+// рельеф и вода под пеленой слотов, их числа и вода слотов (pall.glsl): из чего пелена перед квадратом
+uniform sampler2D Sampler9;
+uniform sampler2D Sampler10;
+uniform vec4 PallGround0;
+uniform vec4 PallGround1;
+uniform vec4 PallWater0;
+uniform vec4 PallWater1;
 
 out vec2 texCoord0;
 out vec4 vertexColor;
@@ -89,17 +96,17 @@ float pall(vec3 p) {
     vec2 span = pallBox(dir, PallMin, PallMax);
     float t0 = span.x, t1 = min(span.y, len);
     if (t1 <= t0) return 1.0;
-    float tau = 0.0, ds = (t1 - t0) / 6.0, dense;
-    vec2 column, height;
+    float tau = 0.0, ds = (t1 - t0) / 6.0;
     for (int i = 0; i < 6; i++) {
         vec3 q = dir * (t0 + (float(i) + 0.5) * ds);
+        // по полной толще всего вещества — как луч объёма (водяная пыль тоже гасит то, что за ней)
         if (PallSlot0[1].w > 0.5) {
-            vec4 f = pallField(Sampler5, PallSlot0, q, column, height, dense);
-            tau += (f.x + f.y) * ds;
+            PallAt f = pallField(Sampler5, Sampler9, PallSlot0, PallGround0, PallWater0, q);
+            tau += (f.sigma.x + f.sigma.y + f.sigma.z) * ds;
         }
         if (PallSlot1[1].w > 0.5) {
-            vec4 f = pallField(Sampler5, PallSlot1, q, column, height, dense);
-            tau += (f.x + f.y) * ds;
+            PallAt f = pallField(Sampler5, Sampler10, PallSlot1, PallGround1, PallWater1, q);
+            tau += (f.sigma.x + f.sigma.y + f.sigma.z) * ds;
         }
     }
     return exp(-tau);

@@ -283,14 +283,17 @@ public final class ClientNuclear {
         CLOCK.tick(now);
         Vec3 eye = mc.gameRenderer.getMainCamera().getPosition();
         Sightline.Heights heights = ground(level);
+        // вода сверху колонок — для карты под пеленой (из чего пелена); под потолком (Незер) её нет, как и рельефа
+        FarTerrain.Water water = heights == null ? null : FarTerrain.water(level);
         double near = mc.options.getEffectiveRenderDistance() * 16.0;
         for (Iterator<Active> it = DETONATIONS.values().iterator(); it.hasNext(); ) {
             Active a = it.next();
             a.age++;
             a.sounds.tick();
             a.pall.daylight(a.ticks(0), level.getGameTime(), level.getDayTime());
-            // рельеф под пеленой — для её луча, за которым нет мира (в измерении с потолком — земля под эпицентром)
-            if (a.pall.visible(a.ticks(0))) a.ground.survey(a.ticks(0), heights);
+            // рельеф и вода под пеленой — для её луча, за которым нет мира, и вещества (в измерении с потолком — земля под
+            // эпицентром)
+            if (a.pall.visible(a.ticks(0))) a.ground.survey(a.ticks(0), heights, water);
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
             if (heights != null) {
                 a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);

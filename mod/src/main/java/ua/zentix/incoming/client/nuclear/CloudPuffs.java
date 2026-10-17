@@ -65,8 +65,10 @@ public final class CloudPuffs {
      */
     private static final int CAP_BASE = 0x8C5A46, CAP_LATE = 0xC9C4BE, STEM = 0x8E7F70, DUST_LOW = 0x6B5A4A, DUST = 0x9C8A74,
             DUST_BURNT = 0x5E4E40, WILSON = 0xF4F4F6;
-    /** Над водой: брызги и водяная пыль у земли, пар в ножке и шапке подрыва на воде. */
-    private static final int SPRAY = 0xE6EAED, STEAM = 0xD9D9D6;
+    /** Над водой: брызги и водяная пыль у земли (её цвет продолжает пелена над водой — {@code MIST} в {@code fx_pall}). */
+    static final int SPRAY = 0xE6EAED;
+    /** Пар в ножке и шапке подрыва на воде. */
+    private static final int STEAM = 0xD9D9D6;
     /**
      * Цвет накала изнутри по времени (с при 15 кт, у 1 кт короче — {@link #glowScale}): бело-жёлтый у шара,
      * жёлто-оранжевый, оранжевый, к минуте — тёплый буро-оранжевый, потом — дым, освещённый снизу пожарами и небом.

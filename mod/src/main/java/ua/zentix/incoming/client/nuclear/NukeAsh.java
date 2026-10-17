@@ -35,7 +35,7 @@ public final class NukeAsh {
         if (rate <= 0.01 || a == null || level.dimensionType().hasCeiling()) return;
         Detonation d = a.d;
         double ticks = a.ticks(0);
-        double paper = a.pall.paperRate(cam.x - d.burst().x, cam.z - d.burst().z, ticks);
+        double paper = a.pall.paperRate(cam.x - d.burst().x, cam.z - d.burst().z, ticks, NukePall.water(a));
         int n = Math.round((float) (rate * MAX_PER_TICK * Fx.density(cam)));
         // снос — ветром подрыва, у земли слабее (как у пыли)
         double wind = d.blocks(d.windSpeed()) / 20.0 * PallField.DRIFT;

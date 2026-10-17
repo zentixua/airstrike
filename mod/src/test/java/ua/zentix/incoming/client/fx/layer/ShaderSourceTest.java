@@ -1,5 +1,8 @@
 package ua.zentix.incoming.client.fx.layer;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -7,6 +10,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -55,6 +59,49 @@ class ShaderSourceTest {
                     n += 1; // n++; в комментарии
                 }
                 """));
+    }
+
+    /**
+     * Каждая переменная {@code uniform} программы {@code core} (её вершинный и пиксельный шейдер) объявлена в её JSON:
+     * сэмплер — в {@code samplers}, остальное — в {@code uniforms}, и в JSON нет лишнего. Необъявленную ваниль не задаёт
+     * и не привязывает: сэмплер читал бы чужую текстуру из своего блока, число — ноль (новая карта или число слоя,
+     * добавленные в один проход и забытые в другом). Кроме {@code sampler3D}: их ваниль не привязывает, слой ставит их сам
+     * ({@code PallPass}).
+     */
+    @Test
+    void everyUniformIsBoundInItsProgram() throws IOException, URISyntaxException {
+        Path core = Path.of(ShaderSourceTest.class.getResource("/assets/incoming/shaders/core").toURI());
+        Pattern uniform = Pattern.compile("(?m)^\\s*uniform\\s+(\\w+)\\s+(\\w+)\\s*;");
+        List<String> bad = new ArrayList<>();
+        int programs = 0;
+        try (Stream<Path> list = Files.list(core)) {
+            for (Path json : list.filter(f -> f.toString().endsWith(".json")).sorted().toList()) {
+                programs++;
+                JsonObject program = JsonParser.parseString(Files.readString(json)).getAsJsonObject();
+                Set<String> samplers = names(program, "samplers"), numbers = names(program, "uniforms"), used = new HashSet<>();
+                String name = json.getFileName().toString();
+                for (String[] stage : new String[][]{{"vertex", ".vsh"}, {"fragment", ".fsh"}}) {
+                    String file = program.get(stage[0]).getAsString().replaceFirst("^incoming:", "") + stage[1];
+                    Matcher m = uniform.matcher(blankComments(Files.readString(core.resolve(file))));
+                    while (m.find()) {
+                        String type = m.group(1), u = m.group(2);
+                        used.add(u);
+                        if (type.equals("sampler3D")) continue;
+                        if (!(type.startsWith("sampler") ? samplers : numbers).contains(u)) bad.add(name + ": " + file + " " + type + " " + u);
+                    }
+                }
+                for (String u : samplers) if (!used.contains(u)) bad.add(name + ": лишний сэмплер " + u);
+                for (String u : numbers) if (!used.contains(u)) bad.add(name + ": лишнее число " + u);
+            }
+        }
+        assertTrue(programs > 5, "программ " + programs);
+        assertTrue(bad.isEmpty(), "uniform без JSON или JSON без uniform: " + bad);
+    }
+
+    private static Set<String> names(JsonObject program, String list) {
+        Set<String> out = new HashSet<>();
+        if (program.has(list)) for (JsonElement e : program.getAsJsonArray(list)) out.add(e.getAsJsonObject().get("name").getAsString());
+        return out;
     }
 
     /** Строки всех шейдеров мода, которые нашла проверка, — «файл:строка». */

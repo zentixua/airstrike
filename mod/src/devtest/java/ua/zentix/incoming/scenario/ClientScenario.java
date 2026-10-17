@@ -514,6 +514,8 @@ public final class ClientScenario {
     /** Подрыв у воды: кадры по времени от подрыва, строка воды в лог; конец — после последнего кадра. */
     private void waterEvents() {
         if (tick % 10 == 0) Incoming.LOG.info("SCENARIO water {}", ua.zentix.incoming.client.nuclear.NukeWater.describe());
+        // пелена у воды: из чего она у камеры (брызги, базисная волна, пыль), что под ней, снос
+        if (tick % 100 == 0 && detTick >= 0) Incoming.LOG.info("SCENARIO water pall {}", ua.zentix.incoming.client.nuclear.NukePall.describe());
         if (detTick >= 0 || ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
         detTick = tick;
         steps.removeIf(s -> s.at >= 5999);
