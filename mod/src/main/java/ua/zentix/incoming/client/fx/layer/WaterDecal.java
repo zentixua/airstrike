@@ -15,14 +15,19 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.world.level.material.FogType;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
+import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.far.Sight;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.nio.ByteBuffer;
 import java.util.Locale;
 
@@ -30,12 +35,13 @@ import java.util.Locale;
  * Наклейка на воду в слое эффектов: тёмное кольцо фронта ядерной волны — рябь под ветром за фронтом, у эпицентра с пеной
  * (профиль по модели — {@code client/nuclear/NukeWater}). Один проход во весь кадр перед квадратами слоя: место за
  * пикселем — по расстоянию до мира ({@link SceneDepth}: глубина Minecraft и Distant Horizons) и матрицам кадра,
- * вода ли там — гладь (поверхность за пикселем горизонтальна по соседним пикселям: стены, стволы, трава и мобы на той
- * же высоте в блоке — не вода) на высоте верха стоячей воды — 8/9 блока (в прорисовке; вода пишет глубину и в ванили,
- * и под Iris; допуск растёт с ошибкой глубины вдали), дальше прорисовки (LOD DH) — гладь моря или место ниже его, тогда
- * — пересечение луча с его гладью (LOD без глубины воды показывает дно). Шум ряби и пены — от центра кольца. Воду
- * рисует сам Minecraft или шейдерпак, наклейка только темнит её и белит пеной поверх, с той же дымкой воздуха и туманом
- * Minecraft, что у частиц.
+ * вода ли там — гладь (поверхность за пикселем горизонтальна, и соседние пиксели на той же высоте: стены, стволы,
+ * трава, мобы и края предметов перед небом на той же высоте в блоке — не вода) на высоте верха стоячей воды — 8/9 блока
+ * (в прорисовке; вода пишет глубину и в ванили, и под Iris; допуск растёт с ошибкой глубины вдали, под шейдерпаком —
+ * ещё на его волны и дрожание кадра, {@link #PACK_DROP}, {@link #PACK_STEP}, {@link #PACK_JITTER}), дальше прорисовки (LOD DH) — гладь моря
+ * или место ниже его, тогда — пересечение луча с его гладью (LOD без глубины воды показывает дно). Шум ряби и пены —
+ * у каждого кольца свой, от его центра. Воду рисует сам Minecraft или шейдерпак, наклейка только темнит её и белит
+ * пеной поверх, с той же дымкой воздуха и туманом Minecraft, что у частиц.
  * <p>
  * Профиль кольца — строка текстуры {@link #SAMPLES}×{@link #RINGS}: темнота и пена за фронтом на {@link #sampleAt}
  * блоков (выборки гуще у фронта: там кольцо резкое).
@@ -50,6 +56,19 @@ public final class WaterDecal {
      * море обычного мира (вода до 62, первый воздух над ней — 63).
      */
     public static final int SEA_LEVEL = 63;
+    /**
+     * Под шейдерпаком гладь ниже 8/9 на его волны, блоков: Complementary Reimagined (у хоста) по умолчанию опускает
+     * верх воды вершинами ({@code WAVING_WATER_VERTEX}: −0,05 ± 0,025 под открытым небом, −0,05 под крышей), с запасом.
+     */
+    static final float PACK_DROP = 0.08f;
+    /** Под шейдерпаком гладь не плоская: перепад от вершины к соседней, блоков (у Complementary — до 0,05). */
+    static final float PACK_STEP = 0.05f;
+    /**
+     * Под шейдерпаком кадр дрожит для TAA, пикселей: глубина записана лучом, сдвинутым на долю пикселя, а наклейка читает
+     * её лучом через середину пикселя — высота места ошибается на сдвиг × расстояние. У Complementary по умолчанию
+     * ({@code TAA_JITTER} 1) — до 0,055 пикселя.
+     */
+    static final float PACK_JITTER = 0.06f;
     @Nullable
     static ShaderInstance shader;
     private static final double[][] RING = new double[RINGS][4];
@@ -57,7 +76,10 @@ public final class WaterDecal {
     private static final ByteBuffer PIXELS = BufferUtils.createByteBuffer(SAMPLES * RINGS * 4);
     private static final Matrix4f INV_PROJ = new Matrix4f(), INV_VIEW = new Matrix4f();
     private static int count, texture = -1, lastCount;
-    private static boolean wanted;
+    private static boolean wanted, packChecked;
+    /** {@code IrisApi.isShaderPackInUse} (по рефлексии: мод от Iris не зависит); null — Iris нет. */
+    @Nullable
+    private static MethodHandle packInUse;
 
     private WaterDecal() {}
 
@@ -127,6 +149,8 @@ public final class WaterDecal {
         s.safeGetUniform("Haze").set((float) (Sight.KOSCHMIEDER / view.range()), fog.end > fog.start ? fog.start : 1e9f,
                 fog.end > fog.start ? fog.end : 2e9f, fog.shape == FogShape.CYLINDER ? 1f : 0f);
         s.safeGetUniform("Pixel").set((float) view.pixel());
+        boolean pack = shaderPack();
+        s.safeGetUniform("Pack").set(pack ? PACK_DROP : 0f, pack ? PACK_STEP : 0f, pack ? PACK_JITTER : 0f);
         for (int i = 0; i < RINGS; i++) {
             double[] r = RING[i];
             s.safeGetUniform(RING_UNIFORMS[i]).set((float) (r[0] - cam.x), (float) (r[1] - cam.z), (float) r[2], (float) r[3]);
@@ -144,6 +168,35 @@ public final class WaterDecal {
         MeshData mesh = b.build();
         if (mesh != null) BufferUploader.drawWithShader(mesh);
         RenderSystem.enableDepthTest();
+    }
+
+    /** Мир сейчас рисует шейдерпак Iris. */
+    private static boolean shaderPack() {
+        if (!packChecked) {
+            packChecked = true;
+            packInUse = irisPackInUse();
+        }
+        if (packInUse == null) return false;
+        try {
+            return (boolean) packInUse.invokeExact();
+        } catch (Throwable t) {
+            packInUse = null;
+            Incoming.LOG.warn("Iris: shader pack check failed, the water decal assumes no shader pack", t);
+            return false;
+        }
+    }
+
+    @Nullable
+    private static MethodHandle irisPackInUse() {
+        if (!ModList.get().isLoaded("iris")) return null;
+        try {
+            Class<?> api = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
+            Object iris = api.getMethod("getInstance").invoke(null);
+            return MethodHandles.publicLookup().findVirtual(api, "isShaderPackInUse", MethodType.methodType(boolean.class)).bindTo(iris);
+        } catch (ReflectiveOperationException | LinkageError e) {
+            Incoming.LOG.warn("Iris: no shader pack API, the water decal assumes no shader pack", e);
+            return null;
+        }
     }
 
     /** Профили кадра — в текстуру (своя, 64×4, RGBA8: темнота, пена; место — один раз, дальше — только пиксели). */
