@@ -112,6 +112,16 @@ public class BunkerBusterEntity extends StrikeProjectile {
         advance(level, aim, airframe().reachPad());
     }
 
+    /**
+     * В грунте путь бомбы кончился: район цели остаётся там, где он был при входе (у цели или у места, где путь вне мира
+     * встретил поверхность), — за целью, которая движется, или назад к цели после попадания на поверхности вне мира он не
+     * идёт: бомба там уже не появится. Свой чанк бомба держит сама ({@link #moveAlong}).
+     */
+    @Override
+    protected void holdTargetArea(ServerLevel level) {
+        if (flightPhase() != FlightPhase.DRILL) super.holdTargetArea(level);
+    }
+
     // ---------------------------------------------------------------- вход в грунт
 
     @Override
@@ -123,7 +133,6 @@ public class BunkerBusterEntity extends StrikeProjectile {
             NuclearWarhead.detonate(level, point, nuclear.yieldKt(), false, ownerId());
             return;
         }
-        setPos(point.x, point.y, point.z);
         setPhase(FlightPhase.DRILL);
         energy = IncomingConfig.SERVER.bunkerEnergy.get();
         traveled = 0;
@@ -137,8 +146,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
         } else {
             flight.set(flight.yaw(), Math.max(70, flight.pitch()));
         }
-        setYRot(flight.yaw());
-        setXRot(flight.pitch());
+        moveAlong(level, point, flight.forward());
         Warheads.bunkerEntry(level, point, this, ownerId());
     }
 
@@ -154,6 +162,12 @@ public class BunkerBusterEntity extends StrikeProjectile {
         for (int i = 0; i < steps && fuse < 0; i++) step(level);
     }
 
+    /**
+     * Блок пути в грунте. Бомба идёт через {@link #moveAlong}, как в полёте: тикеты её чанков ({@code ChunkHold}) идут
+     * за ней. Иначе, уйдя в соседний чанк (наклонный путь сквозь пустоту под тонким перекрытием — десятки блоков по
+     * курсу), она стояла бы там без тика: без подрыва и с тикетами, которые держат и её, и район цели до остановки
+     * сервера.
+     */
     private void step(ServerLevel level) {
         Vec3 dir = flight.forward();
         Vec3 next = position().add(dir);
@@ -164,12 +178,12 @@ public class BunkerBusterEntity extends StrikeProjectile {
         if (cls == RockClass.PASSABLE) {
             if (traveled >= 4) {
                 // датчик пустот: вошла в полость после ≥4 блоков породы — подрыв внутри неё
-                stepTo(next);
+                moveAlong(level, next, dir);
                 Vec3 further = next.add(dir);
-                if (RockClass.of(level.getBlockState(BlockPos.containing(further))) == RockClass.PASSABLE) stepTo(further);
+                if (RockClass.of(level.getBlockState(BlockPos.containing(further))) == RockClass.PASSABLE) moveAlong(level, further, dir);
                 fuse = 3;
             } else {
-                stepTo(next);
+                moveAlong(level, next, dir);
             }
             return;
         }
@@ -180,16 +194,10 @@ public class BunkerBusterEntity extends StrikeProjectile {
         energy -= cls.cost;
         traveled++;
         carve(level, pos);
-        stepTo(next);
+        moveAlong(level, next, dir);
         if (goal != null) home();
         wobble(level.random);
         if (energy <= 0 || traveled >= 70) fuse = 8;
-    }
-
-    private void stepTo(Vec3 p) {
-        setPos(p.x, p.y, p.z);
-        setYRot(flight.yaw());
-        setXRot(flight.pitch());
     }
 
     /** Довод на цель под землёй: 30% поправки за блок. */
