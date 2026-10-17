@@ -113,7 +113,7 @@ float fireBend(float h, float hb) {
 
 // полуширина столба на высоте h, блоки (FireStorm.width): у земли уже клетки, выше растёт
 float fireWidth(float h, float cell) {
-    return 0.22 * cell + 0.18 * max(h, 0.0);
+    return 0.3 * cell + 0.22 * max(h, 0.0);
 }
 
 // уровень карты огня, где клетка — ширина w (FireStorm.lod)

@@ -67,6 +67,8 @@ const vec3 FIRE = vec3(1.0, 0.541, 0.180);
 const vec3 SOOT = vec3(0.21, 0.19, 0.17);
 // пламя смерча — горячее пламени города: желтее
 const vec3 WHIRL_FIRE = vec3(1.0, 0.58, 0.2);
+// доля зарева округи (fireAround): остальное — зарево под точкой, у земли в зоне оно и так покрывает половину неба
+const float AROUND = 0.6;
 // скорость ветра у ядра смерча, блоков/с (у настоящих — 10–50 м/с; быстрее — на кадре одно размытое вращение)
 const float WHIRL_SPEED = 15.0;
 
@@ -100,6 +102,8 @@ struct Sample {
     float glow;
     vec3 wall;
     float tau;
+    // клубы пелены здесь (pallShape, среднее 1): ими же клубится и широкий дым шторма — та же масса воздуха
+    float clumps;
 };
 
 // Пропускание к источнику света через τ — как у рассеянного света солнца: прямой луч и многократно рассеянный (два
@@ -121,6 +125,7 @@ void slot(mat4 S, vec4 G, vec4 H, vec3 p, vec3 sunDir, inout Sample s) {
     float fill = clamp(dense * 3.0, 0.0, 1.0) * (1.0 - smoothstep(0.4, 1.0, height.x));
     vec3 warp = warpAt(S, p);
     float shape = pallShape(noiseAt(S, p, warp), fill);
+    s.clumps = shape;
     float d = f.x * shape, h = f.y * mix(1.0, shape, 0.5);
     // свет стены пыли (CloudPuffs.wallColor): шар и шапка сверху, пожары под пылью — как у её клубов на том же месте
     float r = length(p.xz - S[0].xy), up = clamp(height.x, 0.0, 1.0);
@@ -166,14 +171,16 @@ vec2 fireSpot(ivec2 c) {
 }
 
 // Огненный шторм слота в точке p (от глаза): x — ослабление дыма столбов (1/блок), y — зарево пожаров снизу (свет на
-// единицу белизны). Зарево — пламя со всей площади шириной ~2h под точкой (копия карты, где клетка — эта ширина), с
-// мерцанием; столб — подача дыма под точкой, снесённой ветром по высоте (fireBend). Пока столб уже клетки
-// (fireWidth), у каждой из четырёх ближних клеток — свой столб на её месте: густота — подача клетки × площадь клетки
-// / площадь столба (дыма столько же), между столбами чисто; шире — с копии карты, где клетка — ширина столба: дым
-// растекается вширь, и густота падает как площадь. cone — ширина пикселя здесь, блоки: мельче её карта не читается
-// (вдали столбы не рябят).
-vec2 storm(sampler2D map, mat4 S, mat4 F, vec3 p, float cone) {
-    if (F[0].x <= 0.0) return vec2(0.0);
+// единицу белизны), z — x × оптическая толща дыма столбов от точки к солнцу (тень столба на самом себе). Зарево — пламя
+// со всей площади шириной ~2h под точкой (копия карты, где клетка — эта ширина), с мерцанием; столб — подача дыма под
+// точкой, снесённой ветром по высоте (fireBend). Пока столб уже клетки (fireWidth), у каждой из четырёх ближних клеток
+// — свой столб на её месте: густота — подача клетки × площадь клетки / площадь столба (дыма столько же), между
+// столбами чисто; шире — с копии карты, где клетка — ширина столба: дым растекается вширь, и густота падает как
+// площадь. cone — меньшее, что луч здесь различает, блоки (ширина пикселя, треть шага): мельче карта не читается —
+// вдали столбы не рябят, а столб уже шага не выходит редкой полупрозрачной полосой («дождём»), он там широкий и мягкий.
+// clumps — клубы пелены в точке (Sample.clumps): широкий дым клубится ими (столбы — своим шумом мельче).
+vec3 storm(sampler2D map, mat4 S, mat4 F, vec3 p, float cone, float clumps) {
+    if (F[0].x <= 0.0) return vec3(0.0);
     float h = p.y - S[0].z, cell = F[0].y, top = F[0].z, t = F[2].z;
     vec2 rel = p.xz - S[0].xy;
     float flame = textureLod(map, fireUv(S, F, p.xz), max(fireGlowLod(h, cell), fireLod(cone, cell))).r;
@@ -185,43 +192,81 @@ vec2 storm(sampler2D map, mat4 S, mat4 F, vec3 p, float cone) {
         float up = max(h, 0.0);
         glow = F[1].w * flame * flicker * (0.75 * exp(-up / (0.2 * top)) + 0.25 * exp(-up / top));
     }
-    float smoke = 0.0;
     float col = fireColumn(h, top);
-    if (col > 0.0) {
-        vec2 shift = F[1].xy * fireBend(h, F[0].w);
-        vec2 uv = fireUv(S, F, p.xz - shift);
-        float w = fireWidth(h, cell), wide = max(w, cone);
-        // столб встаёт за подъём дыма: у земли — вся подача (G), выше — доля подъёма (B)
-        float rise = smoothstep(0.0, 0.3 * top, h);
-        float spread = smoothstep(0.35, 0.6, wide / cell);
-        float feed = 0.0;
-        if (spread > 0.0) {
-            vec3 m = textureLod(map, uv, fireLod(wide, cell)).rgb;
-            feed = spread * mix(m.g, m.b, rise);
-        }
-        if (spread < 1.0) {
-            ivec2 size = textureSize(map, 0);
-            vec2 g = uv * vec2(size);
-            ivec2 base = ivec2(floor(g - 0.5));
-            float area = cell * cell / (3.14159 * w * w), pillars = 0.0;
-            for (int j = 0; j <= 1; j++) {
-                for (int i = 0; i <= 1; i++) {
-                    ivec2 c = base + ivec2(i, j);
-                    if (any(lessThan(c, ivec2(0))) || any(greaterThanEqual(c, size))) continue;
-                    vec3 m = texelFetch(map, c, 0).rgb;
-                    vec2 d = (g - vec2(c) - 0.5 - fireSpot(c)) * cell;
-                    pillars += mix(m.g, m.b, rise) * area * exp(-dot(d, d) / (w * w));
-                }
+    if (col <= 0.0) return vec3(0.0, glow, 0.0);
+    vec2 shift = F[1].xy * fireBend(h, F[0].w);
+    vec2 uv = fireUv(S, F, p.xz - shift);
+    float w = fireWidth(h, cell), wide = max(w, cone);
+    // широкий столб и «рядом не горит» — одной выборкой: копия карты с клеткой не мельче 64 блоков накрывает и четыре
+    // ближние клетки столбов (среднее из неотрицательных: ноль — нет дыма ни в одной). Над несгоревшим — без выборок
+    // столбов и шума
+    vec3 m = textureLod(map, uv, max(fireLod(wide, cell), 1.0)).rgb;
+    if (m.g + m.b <= 1e-6) return vec3(0.0, glow, 0.0);
+    // столб встаёт за подъём дыма: у земли — вся подача (G), выше — доля подъёма (B)
+    float rise = smoothstep(0.0, 0.3 * top, h);
+    float spread = smoothstep(0.4, 0.75, wide / cell);
+    // клубы поднимаются со скоростью дыма и сносятся вместе со столбом; тот же шум гнёт место, где читается столб, —
+    // край столба клубится, а не идёт ровной полосой
+    vec2 n = texture(PallNoise, vec3(rel.x - shift.x, h - 0.5 * F[1].z * min(t, 3000.0), rel.y - shift.y) / (2.0 * cell)).rg;
+    // к солнцу: путь в столбе по горизонтали длиннее в 1/cos высоты солнца (высокое — не дальше, чем вчетверо), и не
+    // выше верха столба
+    vec3 sun = PallSun.xyz;
+    float across = length(sun.xz), slant = 1.0 / max(across, 0.25);
+    vec2 toSun = sun.xz / max(across, 1e-4);
+    float feed = spread * mix(m.g, m.b, rise);
+    // широкий: дым до края столба или до его верха — на половине пути в среднем
+    float tau = feed * 0.5 * min(wide * slant, max(top - h, 0.0) / max(sun.y, 0.1));
+    float core = 0.6 * spread;
+    if (spread < 1.0) {
+        ivec2 size = textureSize(map, 0);
+        vec2 g = fireUv(S, F, p.xz - shift + (n - 0.5) * (1.2 * w)) * vec2(size);
+        ivec2 base = ivec2(floor(g - 0.5));
+        float area = cell * cell / (3.14159 * w * w), pillars = 0.0, shade = 0.0, peak = 0.0;
+        for (int j = 0; j <= 1; j++) {
+            for (int i = 0; i <= 1; i++) {
+                ivec2 c = base + ivec2(i, j);
+                if (any(lessThan(c, ivec2(0))) || any(greaterThanEqual(c, size))) continue;
+                vec3 mc = texelFetch(map, c, 0).rgb;
+                vec2 d = (g - vec2(c) - 0.5 - fireSpot(c)) * cell / w;
+                float axis = mix(mc.g, mc.b, rise) * area, r2 = dot(d, d), e = exp(-r2);
+                pillars += axis * e;
+                // толща гауссова столба от точки к солнцу: поперёк луча — гаусс, по ходу — остаток erfc (через tanh),
+                // со стороны солнца столб светлый, с другой — в своей тени
+                float ahead = dot(d, toSun);
+                shade += axis * exp(-max(r2 - ahead * ahead, 0.0)) * (1.0 - tanh(1.2 * ahead)) * 0.886 * w * slant;
+                peak = max(peak, e);
             }
-            feed += (1.0 - spread) * pillars;
         }
-        if (feed > 1e-4) {
-            // клубы поднимаются со скоростью дыма и сносятся вместе со столбом
-            vec3 q = vec3(rel.x - shift.x, h - 0.5 * F[1].z * min(t, 3000.0), rel.y - shift.y) / (2.0 * cell);
-            smoke = F[2].y * feed * col * pallShape(texture(PallNoise, q).rg, 0.6);
-        }
+        feed += (1.0 - spread) * pillars;
+        tau += (1.0 - spread) * shade;
+        core += (1.0 - spread) * peak;
     }
-    return vec2(smoke, glow);
+    if (feed <= 1e-4) return vec3(0.0, glow, 0.0);
+    // сердцевина столба сплошная, края рвутся на клубы; широкий дым — клубами пелены
+    float k = F[2].y * col * mix(pallShape(n, 0.2 + 0.7 * core), clumps, spread);
+    return vec3(k * feed, glow, k * feed * k * tau);
+}
+
+// Зарево всей округи (свет горящего города, рассеянный пылью и дымом вокруг, и там, где под точкой не горит): весь огонь
+// карты — как один источник объёмом с город (средний огонь карты × её площадь — копия карты 1×1), спадает как 1/r² от
+// середины (мягко — внутри зоны пожаров), гаснет дымом над огнём (как зарево под точкой) и пеленой по пути — от края
+// зоны, а внутри неё не ближе, чем за ширину зарева под точкой (ближнее — уже в нём): с переносной толщей, вдвое меньше
+// полной (пыль рассеивает вперёд, g ≈ 0,5) — в густой пыли первых минут дальний огонь до точки почти не доходит; с фазой
+// рассеяния пыли — к глазу, что смотрит на город, ярче. sigma — ослабление пелены в точке (1/блок), view — луч из
+// глаза. На единицу белизны, как y у storm.
+float fireAround(sampler2D map, mat4 S, mat4 F, vec3 p, vec3 view, float sigma) {
+    if (F[0].x <= 0.0) return 0.0;
+    float mean = textureLod(map, vec2(0.5), 16.0).r;
+    if (mean <= 1e-5) return 0.0;
+    float side = F[0].x, top = F[0].z, zone = 0.6 * side;
+    vec3 from = vec3(S[0].x, S[0].z, S[0].y), to = p - from;
+    float h = max(to.y, 0.0), r2 = dot(to, to), rg = length(to.xz);
+    float power = mean * 4.0 * side * side / 3.14159;
+    float c = dot(to / max(sqrt(r2), 1.0), -view);
+    float phase = mix(0.75 * hg(0.5, c) + 0.25 * hg(-0.2, c), 1.0, zone * zone / (zone * zone + r2));
+    float smoke = 0.75 * exp(-h / (0.2 * top)) + 0.25 * exp(-h / top);
+    float path = max(rg - zone, 2.0 * h + 2.0 * F[0].y);
+    return AROUND * F[1].w * power / (zone * zone + r2) * min(phase, 3.0) * smoke * exp(-0.5 * sigma * path);
 }
 
 // Огненный смерч i (столбец матриц смерчей): вход и выход луча dir в цилиндр вокруг него (с запасом на расширение
@@ -355,12 +400,12 @@ void main() {
         if (sp.y <= sp.x) continue;
         // свет там: небо и солнце сквозь пелену над серединой, зарево пожаров снизу
         vec3 mid = dir * (0.5 * (sp.x + sp.y));
-        Sample m = Sample(0.0, 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0);
+        Sample m = Sample(0.0, 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, 1.0);
         slot(PallSlot0, PallGlow0, PallHot0, mid, sunDir, m);
         slot(PallSlot1, PallGlow1, PallHot1, mid, sunDir, m);
         float tm = max(m.tau, 0.0);
         vec3 lit = PallSunLight * (0.25 * phase * exp(-tm / sunY) + 0.75 / (1.0 + 0.25 * tm / sunY)) + PallSkyLight * (0.3 + 0.7 / (1.0 + 0.5 * tm));
-        vec3 glow = storm(Sampler3, PallSlot0, PallFire0, mid, 0.0).y * PallFire0[3].rgb + storm(Sampler4, PallSlot1, PallFire1, mid, 0.0).y * PallFire1[3].rgb;
+        vec3 glow = storm(Sampler3, PallSlot0, PallFire0, mid, 0.0, 1.0).y * PallFire0[3].rgb + storm(Sampler4, PallSlot1, PallFire1, mid, 0.0, 1.0).y * PallFire1[3].rgb;
         whirlLight[i] = whirl(i, dir, sp.x, sp.y, jitter, lit, glow);
         whirlIn[i] = sp.x;
     }
@@ -390,13 +435,16 @@ void main() {
                 }
             }
             vec3 p = dir * ta;
-            Sample s = Sample(0.0, 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0);
+            Sample s = Sample(0.0, 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, 1.0);
             slot(PallSlot0, PallGlow0, PallHot0, p, sunDir, s);
             slot(PallSlot1, PallGlow1, PallHot1, p, sunDir, s);
-            vec2 f0 = vec2(0.0), f1 = vec2(0.0);
+            vec3 f0 = vec3(0.0), f1 = vec3(0.0);
             if (all(greaterThanEqual(p, PallFireMin)) && all(lessThanEqual(p, PallFireMax))) {
-                f0 = storm(Sampler3, PallSlot0, PallFire0, p, ta * pixel);
-                f1 = storm(Sampler4, PallSlot1, PallFire1, p, ta * pixel);
+                float cone = max(ta * pixel, 0.35 * ds), sigma = s.dust + s.haze;
+                f0 = storm(Sampler3, PallSlot0, PallFire0, p, cone, s.clumps);
+                f1 = storm(Sampler4, PallSlot1, PallFire1, p, cone, s.clumps);
+                f0.y += fireAround(Sampler3, PallSlot0, PallFire0, p, dir, sigma);
+                f1.y += fireAround(Sampler4, PallSlot1, PallFire1, p, dir, sigma);
             }
             float smoke = f0.x + f1.x;
             float st = s.dust + s.haze + smoke;
@@ -409,9 +457,14 @@ void main() {
             vec3 lit = PallSunLight * (0.25 * phase * exp(-tauSun) + 0.75 / (1.0 + 0.25 * tauSun))
                     + PallSkyLight * (0.3 + 0.7 / (1.0 + 0.5 * tauUp));
             vec3 emit = s.scatter * lit + s.glow * PallFireLight + s.wall * PallGlowOnSmoke;
-            // огненный шторм: дым столбов в свете неба и солнца, а снизу на всём — зарево пожаров, каждому по его белизне
-            // (пыль светлее мглы, сажа темнее всех)
-            emit += smoke * SOOT * lit + (0.5 * s.dust + 0.4 * s.haze + 0.3 * smoke) * (f0.y * PallFire0[3].rgb + f1.y * PallFire1[3].rgb);
+            // огненный шторм: дым столбов в свете неба и солнца — и в своей тени: сажа рассеивает мало, свет в глубь
+            // столба почти не доходит (сторона к солнцу и верх клубов светлые, другая сторона и низ — тёмные: столб
+            // объёмный, а не плоская серая полоса); снизу на всём — зарево пожаров, каждому по его белизне (пыль светлее
+            // мглы, сажа темнее всех)
+            float self = (f0.z + f1.z) / max(smoke, 1e-6);
+            vec3 litSmoke = PallSunLight * (0.25 * phase * exp(-tauSun - self) + 0.75 / (1.0 + 0.25 * tauSun) / (1.0 + 0.6 * self))
+                    + PallSkyLight * (0.3 + 0.7 / (1.0 + 0.5 * tauUp)) / (1.0 + 0.3 * self);
+            emit += smoke * SOOT * litSmoke + (0.5 * s.dust + 0.4 * s.haze + 0.3 * smoke) * (f0.y * PallFire0[3].rgb + f1.y * PallFire1[3].rgb);
             float tr = exp(-st * ds);
             light += transmit * emit * (1.0 - tr) / st;
             transmit *= tr;

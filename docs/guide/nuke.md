@@ -37,7 +37,8 @@ night the fireball, the glowing cloud and the fires light it orange, as they lig
 you see only some 40 m and sounds are muffled. The dust settles over a few minutes and drifts downwind.
 Where the light of the fireball set the town on fire, a firestorm builds up over a few minutes. Columns of smoke rise
 over the burning blocks, lean downwind and merge higher up into a ceiling of smoke over the town. At night the fires
-light it orange-red from below, and the glow flickers. A few times in the first ten minutes a fire whirl rises over the
+light it orange-red from below, and the glow flickers; from a couple of kilometres away the town glows under its
+smoke, and the dust around it catches the glow. A few times in the first ten minutes a fire whirl rises over the
 hottest fires for a minute or so and wanders across them. From about the sixth minute the fires die down to
 smouldering, and by morning they are out, together with the smoke. Ash and scraps of burnt paper fall around you.
 

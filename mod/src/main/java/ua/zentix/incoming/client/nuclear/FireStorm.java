@@ -86,7 +86,7 @@ public final class FireStorm {
      * Полуширина столба у земли — такая доля клетки, дальше растёт на {@link #SPREAD} блока за блок подъёма (вовлечение
      * воздуха): у земли столбы клеток стоят порознь, выше сливаются в общую мглу.
      */
-    static final double PILLAR = 0.22, SPREAD = 0.18;
+    static final double PILLAR = 0.3, SPREAD = 0.22;
     /** Скорость подъёма дыма в столбе, м/с (в огненном шторме — десятки). */
     static final double UPDRAFT_MS = 25;
 
