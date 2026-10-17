@@ -53,7 +53,7 @@ public final class FlashAftermath {
     /** Голубовато-белый свет дуги и его синий край — как у подстанции ({@code GridEffects}). */
     private static final int ARC = 0xDCE8FF, ARC_EDGE = 0x5A7CFF;
     /** Звеньев ломаной разряда и точек на звено. */
-    private static final int BOLT_SEGMENTS = 5, BOLT_DOTS = 4;
+    private static final int BOLT_SEGMENTS = 5, BOLT_DOTS = 3;
     /** Докуда от камеры ищутся дымки, блоки, и проб за тик. */
     static final double SMOKE_RANGE = 128;
     static final int SMOKE_TRIES = 96;
@@ -184,14 +184,13 @@ public final class FlashAftermath {
             // свечение — гладко: ближайшим пикселем крупная вспышка распадается на квадраты пикселей картинки
             Fx.flash().smooth().color(ARC, ARC_EDGE).size(1.4f * strength, 2.6f * strength).life(2 + rnd.nextInt(2)).spawn(level, at);
             Fx.flash().smooth().color(0xFFFFFF, ARC).size(0.5f, 0.9f).life(2).spawn(level, at);
-            // сам разряд — ломаная из ярких точек вниз по столбу: светлое пятно на земле, которую вспышка и так залила
-            // светом, днём почти не видно, а ломаная видна
+            // сам разряд — ломаная из искр-звёздочек вниз по столбу: светлое пятно на земле, которую вспышка и так
+            // залила светом, днём почти не видно, мягкие точки — тоже, а звёздочки искр видны
             Vec3 p = at;
             for (int seg = 0; seg < BOLT_SEGMENTS; seg++) {
                 Vec3 q = p.add(rnd.nextGaussian() * 0.16, -0.18, rnd.nextGaussian() * 0.16);
                 for (int k = 0; k < BOLT_DOTS; k++) {
-                    Fx.flash().smooth().budget(FxBudget.SPARK).color(0xFFFFFF, ARC_EDGE).size(0.14f * strength, 0.08f).life(2)
-                            .spawn(level, p.lerp(q, (double) k / BOLT_DOTS));
+                    Fx.spark().color(0xFFFFFF, 0x9FB4FF).size(0.11f * strength, 0.07f).life(2).spawn(level, p.lerp(q, (double) k / BOLT_DOTS));
                 }
                 p = q;
             }
