@@ -32,6 +32,7 @@
         { "name": "Haze", "type": "float", "count": 4, "values": [0.0, 1e9, 2e9, 0.0] },
         { "name": "PallBalls", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
         { "name": "PallBallLight", "type": "matrix4x4", "count": 16, "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
-        { "name": "PallOpenSky", "type": "float", "count": 3, "values": [1.0, 1.0, 1.0] }
+        { "name": "PallOpenSky", "type": "float", "count": 3, "values": [1.0, 1.0, 1.0] },
+        { "name": "PallFaceShade", "type": "float", "count": 4, "values": [1.0, 0.5, 0.8, 0.6] }
     ]
 }

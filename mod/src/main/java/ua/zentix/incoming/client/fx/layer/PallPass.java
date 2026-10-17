@@ -362,6 +362,11 @@ public final class PallPass {
         public boolean ballsLit;
         /** Свет открытого неба на белом блоке, как его рисует Minecraft (карта освещения: небо 15, блоки 0), на экране. */
         public final Vector3f openSky = new Vector3f(1);
+        /**
+         * Затенение граней блоков Minecraft ({@code ClientLevel.getShade}): верх, низ, север и юг, запад и восток. Оно уже
+         * в пикселе мира, и вывод на кадр снимает его с цвета блока под светом шара.
+         */
+        public final Vector4f faceShade = new Vector4f(1, 0.5f, 0.8f, 0.6f);
     }
 
     @Nullable
@@ -680,6 +685,7 @@ public final class PallPass {
         c.safeGetUniform("PallBalls").set(balls ? f.balls : NO_FIRE);
         c.safeGetUniform("PallBallLight").set(f.ballLight);
         c.safeGetUniform("PallOpenSky").set(f.openSky.x, f.openSky.y, f.openSky.z);
+        c.safeGetUniform("PallFaceShade").set(f.faceShade.x, f.faceShade.y, f.faceShade.z, f.faceShade.w);
         // пламя на поверхностях мерцает по трёхмерному шуму
         quad(c, true);
         RenderSystem.enableDepthTest();

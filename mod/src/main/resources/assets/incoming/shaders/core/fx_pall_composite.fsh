@@ -50,11 +50,13 @@ uniform sampler2D Sampler8;
 uniform vec4 Haze;
 // огненные шары, что светят на мир (MushroomField.balls): столбец i — середина шапки от глаза и радиус (w; 0 — шара нет),
 // свет у её поверхности на белой стене с привыканием глаза (rgb, линейный) и ослабление воздуха, 1/блок (w); копия кадра
-// до этого прохода — пока хоть один светит; свет открытого неба на белом блоке, как его рисует Minecraft (на экране)
+// до этого прохода — пока хоть один светит; свет открытого неба на белом блоке, как его рисует Minecraft (на экране);
+// затенение граней блоков Minecraft (ClientLevel.getShade): верх, низ, север и юг, запад и восток
 uniform mat4 PallBalls;
 uniform mat4 PallBallLight;
 uniform sampler2D Sampler9;
 uniform vec3 PallOpenSky;
+uniform vec4 PallFaceShade;
 
 // как в fx_pall: яркость по каналам; ярче белого (по яркости) — эта доля превышения белым во все каналы
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -138,18 +140,31 @@ vec3 sceneAt(ivec2 at, ivec2 size) {
 }
 
 // Нормаль поверхности мира в p (пиксель at) по соседним пикселям, к глазу: на каждой оси экрана — сосед, что ближе по
-// месту (на краю предмета другой — фон за ним или другой предмет)
+// месту (на краю предмета другой — фон за ним или другой предмет); у края экрана — внутренний (внешнего нет: sceneAt
+// взял бы сам пиксель, разность 0 — и нормаль 0)
 vec3 sceneNormal(ivec2 at, ivec2 size, vec3 p) {
     vec3 r = sceneAt(at + ivec2(1, 0), size) - p, l = p - sceneAt(at - ivec2(1, 0), size);
     vec3 u = sceneAt(at + ivec2(0, 1), size) - p, d = p - sceneAt(at - ivec2(0, 1), size);
+    if (at.x + 1 >= size.x) r = l;
+    if (at.x <= 0) l = r;
+    if (at.y + 1 >= size.y) u = d;
+    if (at.y <= 0) d = u;
     vec3 n = cross(mix(r, l, step(dot(l, l), dot(r, r))), mix(u, d, step(dot(d, d), dot(u, u))));
     n *= inversesqrt(max(dot(n, n), 1e-20));
     return mix(n, -n, step(0.0, dot(n, p)));
 }
 
+// Затенение грани Minecraft по оси, ближайшей к нормали n (ClientLevel.getShade): оно уже в пикселе мира, а свет шара по
+// грани — по косинусу к ней; в цвете блока его быть не должно
+float faceShade(vec3 n) {
+    vec3 a = abs(n);
+    if (a.y >= a.x && a.y >= a.z) return n.y > 0.0 ? PallFaceShade.x : PallFaceShade.y;
+    return a.z >= a.x ? PallFaceShade.z : PallFaceShade.w;
+}
+
 // Один канал пикселя мира под светом шаров (MushroomField.relit): мир на экране world, доля его прежнего света на экране
-// kept (тень), свет открытого неба на белом блоке на экране open, свет шаров на белой стене added (линейный). Цвет блока —
-// пиксель, делённый на свет открытого неба (в пещере и доме свет Minecraft слабее — и свет шара на нём меньше: туда он и
+// kept (тень), свет открытого неба на белом блоке на экране open (с затенением грани), свет шаров на белой стене added
+// (линейный). Цвет блока — пиксель, делённый на свет открытого неба (в пещере и доме свет Minecraft слабее — и свет шара на нём меньше: туда он и
 // не доходит), не белее белого. Линейный итог
 float relit(float world, float kept, float open, float added) {
     float lin = pallLinear(world);
@@ -235,14 +250,17 @@ void main() {
         float seen = exp(-Haze.x * length(p)) * (1.0 - smoothstep(Haze.y, Haze.z, fd));
         vec4 over = pallOver(p);
         float kept = mix(1.0, pallDisplay(shade(p, over)), seen);
-        vec3 added = vec3(0.0);
-        if (balls) added = ballLight(p, sceneNormal(full, fullSize, p), over) * seen;
+        vec3 added = vec3(0.0), n = vec3(0.0, 1.0, 0.0);
+        if (balls) {
+            n = sceneNormal(full, fullSize, p);
+            added = ballLight(p, n, over) * seen;
+        }
         if (dot(added, LUMA) > 1e-6) {
             // мир ярче: пиксель целиком — пелена и мир за ней в свете шаров (альфа 0 — смешивание кадр не берёт); ярче
             // белого — к белому (CROSS, как свет вещества в fx_pall), не ярче 1 с тем же оттенком
-            vec3 world = texelFetch(Sampler9, full, 0).rgb;
-            vec3 lit = vec3(relit(world.r, kept, PallOpenSky.r, added.r), relit(world.g, kept, PallOpenSky.g, added.g),
-                    relit(world.b, kept, PallOpenSky.b, added.b));
+            vec3 world = texelFetch(Sampler9, full, 0).rgb, open = PallOpenSky * faceShade(n);
+            vec3 lit = vec3(relit(world.r, kept, open.r, added.r), relit(world.g, kept, open.g, added.g),
+                    relit(world.b, kept, open.b, added.b));
             lit += vec3(CROSS * max(dot(lit, LUMA) - 1.0, 0.0));
             vec3 shown = vec3(pallDisplay(lit.r), pallDisplay(lit.g), pallDisplay(lit.b));
             shown /= max(max(max(shown.r, shown.g), shown.b), 1.0);

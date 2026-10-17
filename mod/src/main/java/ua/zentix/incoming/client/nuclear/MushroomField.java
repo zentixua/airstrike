@@ -228,7 +228,7 @@ public final class MushroomField {
             BlackBody.light(MushroomModel.edgeTemperature(s.t(), d.yieldKt(), d.surface()), BALL);
             double r = d.blocks(s.capR()), h = Math.max(d.blocks(s.capY()), r), surface = BALL[3] * exposure;
             // земля под шаром — ближе всего к нему
-            boolean lit = surface * r * r / (h * h) >= BALL_SEEN * open;
+            boolean lit = surface * r * r / (h * h) >= BALL_SEEN * Math.max(open, 1e-4);
             if (!lit) continue;
             centre(a, s, CENTRE);
             double dx = CENTRE[0] - eye.x, dy = CENTRE[1] - eye.y, dz = CENTRE[2] - eye.z;

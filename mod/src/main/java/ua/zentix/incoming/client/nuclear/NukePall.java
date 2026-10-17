@@ -3,12 +3,14 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.core.Direction;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.FrustumIntersection;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.far.Sight;
@@ -169,8 +171,8 @@ public final class NukePall {
      * стены ({@link #outside}), из тех, у
      * кого в таблице хоть что-то есть (до фронта и после — пусто) и чья рамка в кадре ({@code frustum} — пирамида
      * видимости от глаза, без дальней плоскости); грибы — {@link MushroomField#frame}. Пелена выключена в настройке —
-     * только грибы, на ступени LOW (другого гриба нет). null — ни пелены, ни гриба в кадре: тогда слой не тратит на них ни
-     * одного прохода.
+     * только грибы, на ступени LOW (другого гриба нет). null — ни пелены, ни гриба в кадре, ни шара, что светит на мир
+     * ({@link MushroomField#balls}): тогда слой не тратит на них ни одного прохода.
      */
     @Nullable
     public static PallPass.Frame frame(ClientLevel level, Vec3 eye, float partial, FrustumIntersection frustum) {
@@ -184,7 +186,7 @@ public final class NukePall {
         light(level, eye, partial, f);
         f.mushroomCount = MushroomField.frame(all, eye, partial, frustum, air, f.sun, level.getMinBuildHeight(), level.getMaxBuildHeight(), f.mushrooms);
         // свет шаров на мире — от всех подрывов: шар за спиной освещает землю перед глазом
-        openSky(f.openSky);
+        openSky(level, f.openSky, f.faceShade);
         double open = 0.2126 * PallLight.linear(f.openSky.x) + 0.7152 * PallLight.linear(f.openSky.y) + 0.0722 * PallLight.linear(f.openSky.z);
         f.ballsLit = MushroomField.balls(all, eye, partial, air, f.exposure, open, f.balls, f.ballLight);
         List<ClientNuclear.Active> visible = new ArrayList<>();
@@ -230,12 +232,15 @@ public final class NukePall {
 
     /**
      * Свет открытого неба на белом блоке, как его рисует Minecraft, на экране — в {@code out}: карта освещения кадра
-     * (небо 15, свет блоков 0; время суток, яркость в настройках, зелья, измерение). По нему вывод на кадр узнаёт цвет
-     * мира под светом шара: пиксель, делённый на него, — цвет самого блока.
+     * (небо 15, свет блоков 0; время суток, яркость в настройках, зелья, измерение), и затенение граней блоков измерения
+     * в {@code shade} (верх, низ, север и юг, запад и восток). По ним вывод на кадр узнаёт цвет мира под светом шара:
+     * пиксель, делённый на свет неба и затенение своей грани, — цвет самого блока.
      */
-    private static void openSky(Vector3f out) {
+    private static void openSky(ClientLevel level, Vector3f out, Vector4f shade) {
         int c = Minecraft.getInstance().gameRenderer.lightTexture().lightPixels.getPixelRGBA(0, 15);
         out.set((c & 0xFF) / 255f, (c >> 8 & 0xFF) / 255f, (c >> 16 & 0xFF) / 255f);
+        shade.set(level.getShade(Direction.UP, true), level.getShade(Direction.DOWN, true), level.getShade(Direction.NORTH, true),
+                level.getShade(Direction.EAST, true));
     }
 
     /** Есть ли что рисовать у подрыва: пелена, голова стены пыли или облако Вильсона. */
